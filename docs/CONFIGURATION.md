@@ -54,7 +54,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 | Key | Type | Default | Set from | Read by | Description |
 |---|---|---|---|---|---|
 | `UPDATE_CHECK_ENABLED` | boolean | `true` | env, org | api | Check once a day whether a newer ASF release (a vX.Y.Z image tag) is published. Anonymous and read-only: it only lists the tags of UPDATE_IMAGE_REPO. Nothing is installed; see docs/UPGRADING.md. |
-| `UPDATE_IMAGE_REPO` | string | `ghcr.io/rag-against-the-machine/asf-api` | env | api | The image whose tags the update check reads (registry host / name). Point it at your own mirror if you publish ASF images elsewhere. |
+| `UPDATE_IMAGE_REPO` | string | `ghcr.io/bennybrau/asf-api` | env | api | The image whose tags the update check reads (registry host / name). Point it at your own mirror if you publish ASF images elsewhere. |
 
 ## Providers
 

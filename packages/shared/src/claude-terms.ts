@@ -11,7 +11,7 @@
  * key owner and are the recommended way to run a shared factory.
  */
 export const CLAUDE_TERMS_URL = 'https://code.claude.com/docs/en/legal-and-compliance';
-export const CLAUDE_USAGE_DOC_URL = 'https://github.com/RAG-Against-the-Machine/agentic-software-factory/blob/main/docs/CLAUDE_USAGE.md';
+export const CLAUDE_USAGE_DOC_URL = 'https://github.com/bennybrau/agentic-software-factory/blob/main/docs/CLAUDE_USAGE.md';
 
 /** The warning to show, or null when the combination is fine. */
 export function subscriptionSharingWarning(agentAuthMode: unknown, operatorAuthMode: unknown): string | null {

@@ -1,6 +1,6 @@
 # Install ASF
 
-[![install-e2e](https://github.com/RAG-Against-the-Machine/agentic-software-factory/actions/workflows/install-e2e.yml/badge.svg)](https://github.com/RAG-Against-the-Machine/agentic-software-factory/actions/workflows/install-e2e.yml)
+[![install-e2e](https://github.com/bennybrau/agentic-software-factory/actions/workflows/install-e2e.yml/badge.svg)](https://github.com/bennybrau/agentic-software-factory/actions/workflows/install-e2e.yml)
 
 The single "how do I run this" page. Clone, run one script, open a URL — the script
 generates `.env`, brings the stack up, and hands you off to an in-browser checklist
@@ -30,7 +30,7 @@ for the GCP runbook see [`HOSTING.md`](HOSTING.md).
 ## Install in 3 commands
 
 ```bash
-git clone https://github.com/RAG-Against-the-Machine/agentic-software-factory.git
+git clone https://github.com/bennybrau/agentic-software-factory.git
 cd agentic-software-factory
 ./scripts/setup.sh          # preflight → generate .env → build & start → print the URL
 ```
@@ -41,7 +41,7 @@ first-run checklist at **/setup**.
 Or, from nothing, in one line — clones into `~/asf` and runs `setup.sh`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/RAG-Against-the-Machine/agentic-software-factory/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bennybrau/agentic-software-factory/main/scripts/install.sh | bash
 ```
 
 `install.sh` only checks `git`, clones (or fast-forwards) the repo into

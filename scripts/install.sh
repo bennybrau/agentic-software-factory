@@ -2,7 +2,7 @@
 #
 # ASF one-liner installer: clone (or update) the repo, then hand off to setup.sh.
 #
-#   curl -fsSL https://raw.githubusercontent.com/RAG-Against-the-Machine/agentic-software-factory/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/bennybrau/agentic-software-factory/main/scripts/install.sh | bash
 #   curl -fsSL .../install.sh | bash -s -- --mode 2      # flags pass through to setup.sh
 #
 # Env:
@@ -13,7 +13,7 @@
 # partial script.
 set -euo pipefail
 
-REPO_URL="https://github.com/RAG-Against-the-Machine/agentic-software-factory.git"
+REPO_URL="https://github.com/bennybrau/agentic-software-factory.git"
 
 main() {
   local home="${ASF_HOME:-$HOME/asf}"

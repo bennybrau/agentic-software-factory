@@ -99,7 +99,7 @@ export const SETTINGS = {
     description: 'Where the api reaches the supervisor sidecar (only used when ASF_LOCAL_SUPERVISOR is on). Never published outside the compose network.' }),
   UPDATE_CHECK_ENABLED: S({ type: 'boolean', default: true, tiers: ['env', 'org'], group: 'Updates', readBy: ['api'],
     description: 'Check once a day whether a newer ASF release (a vX.Y.Z image tag) is published. Anonymous and read-only: it only lists the tags of UPDATE_IMAGE_REPO. Nothing is installed; see docs/UPGRADING.md.' }),
-  UPDATE_IMAGE_REPO: S({ type: 'string', default: 'ghcr.io/rag-against-the-machine/asf-api', tiers: ['env'], group: 'Updates', readBy: ['api'],
+  UPDATE_IMAGE_REPO: S({ type: 'string', default: 'ghcr.io/bennybrau/asf-api', tiers: ['env'], group: 'Updates', readBy: ['api'],
     description: 'The image whose tags the update check reads (registry host / name). Point it at your own mirror if you publish ASF images elsewhere.' }),
   TICKET_PROVIDER: S({ type: 'enum', values: ['mock', 'jira', 'github', 'gitlab', 'trello', 'monday', 'linear', 'todoist'], default: 'mock', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
     description: 'Which work tracker the backlog comes from. One implementation file per value under apps/api/src/providers/tickets/. Org-settable so the operator picks the tracker in Settings ("Where do your tickets live?") and it hot-swaps without a restart.' }),

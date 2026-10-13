@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/RAG-Against-the-Machine/agentic-software-factory/security/advisories/new
+    url: https://github.com/bennybrau/agentic-software-factory/security/advisories/new
     about: Report security issues privately, not as a public issue.
   - name: Questions & ideas
-    url: https://github.com/RAG-Against-the-Machine/agentic-software-factory/discussions
+    url: https://github.com/bennybrau/agentic-software-factory/discussions
     about: Ask how to set something up or float an idea before filing a feature request.

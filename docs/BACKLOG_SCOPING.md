@@ -7,10 +7,10 @@
 ## The problem
 
 The factory points at a work tracker and shows its backlog. On a small project
-that is the whole story. On a **large** one it isn't: our TAG Jira `DCP` project
-spans many teams and repos, so "show me DCP" means loading thousands of issues
+that is the whole story. On a **large** one it isn't: a company-wide Jira project (say `PROJ`)
+spans many teams and repos, so "show me PROJ" means loading thousands of issues
 the operator will never act on. Today the Jira provider runs
-`project in (DCP) ORDER BY updated DESC` against the platform search API, walks up
+`project in (PROJ) ORDER BY updated DESC` against the platform search API, walks up
 to ~1000 issues, and filters **client-side** by bucket and title
 (`apps/api/src/providers/tickets/jira/jira.ts`, `list()`). That is both slow and a
 poor UX: there is no way to say "just my team's current sprint."
@@ -31,7 +31,7 @@ model directly:
   load-bearing fact.
 - **"Team" is not a reliable field in Jira.** Depending on configuration it is an
   Advanced Roadmaps team custom field, a component, a label, or simply "what's on
-  our board." Filtering `DCP` by a Team field is brittle and varies per project.
+  our board." Filtering `PROJ` by a Team field is brittle and varies per project.
   Since **a team has one or more boards**, a team is naturally a *set of boards* —
   a configuration concept, not a JQL clause.
 - **Sprints only exist on Scrum boards and are queried per board**
@@ -61,7 +61,7 @@ paginated:
 - `GET /rest/agile/1.0/board/{id}/sprint/{sprintId}/issue` — one sprint, and
 - a pushed-down `jql=` parameter on those endpoints carries the **status** filter.
 
-Filtering happens **in Jira**, not in the browser. We stop pulling all of `DCP`.
+Filtering happens **in Jira**, not in the browser. We stop pulling all of `PROJ`.
 
 ## Two levers, kept separate
 
@@ -70,7 +70,7 @@ them.
 
 1. **Operator scope (config, coarse).** Which boards make up the ASF backlog at
    all. New `JIRA_BOARDS` setting, alongside the existing `JIRA_PROJECTS`. This
-   alone solves "don't load all of DCP." (Today the list route even hardcodes
+   alone solves "don't load all of PROJ." (Today the list route even hardcodes
    `scope: []`, so nothing is selectable — that goes away.)
 2. **User filters (UI, fine).** Within the configured scope, a person narrows by
    team → board → sprint → status without a redeploy. Selection persists so a
@@ -78,7 +78,7 @@ them.
 
 ## Mixed Scrum / Kanban
 
-`DCP` teams are mixed: some run Scrum boards (with sprints), some Kanban (without).
+`PROJ` teams are mixed: some run Scrum boards (with sprints), some Kanban (without).
 The provider reports each board's **type** on discovery, and the UI shows the
 sprint control **only** when the selected board is Scrum. Kanban boards ignore the
 sprint axis entirely and filter on board + status alone.
@@ -172,9 +172,9 @@ view; push status/sprint server-side; drop the client-side over-fetch.
 - **Board enumeration cost.** `listScopes()` over a large instance can return many
   boards. Do we cache the board list (and for how long), and/or restrict discovery
   to the configured `JIRA_BOARDS` plus their teams?
-- **Cross-project boards.** A board's filter may span projects beyond `DCP`.
+- **Cross-project boards.** A board's filter may span projects beyond `PROJ`.
   That is a feature (adopt the team's real scope) but worth confirming it doesn't
-  surprise operators who expect DCP-only issues.
+  surprise operators who expect PROJ-only issues.
 - **Other trackers.** GitHub has no boards (Projects v2 is a possible later map);
   Trello has boards but no sprints. Capabilities gate the UI so this degrades
   cleanly, but the Trello board mapping should be revisited when Phase 2 lands.

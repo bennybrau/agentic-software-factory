@@ -1,6 +1,6 @@
 # Agentic Software Factory — Architecture & Extraction Plan
 
-*Derived from an audit of `~/dev/tag-software-factory` (≈92k lines TS; board / BFF / registry / worker / desktop + Postgres) against the MVP vision on the parent page. Written 2026-09-13.*
+*Derived from an audit of an earlier in-house prototype (≈92k lines TS; board / BFF / registry / worker / desktop + Postgres) against the MVP vision on the parent page. Written 2026-09-13.*
 
 ## 1. Verdict in one paragraph
 
@@ -72,7 +72,7 @@ Same three processes as today (api, registry, worker) + Postgres; the change is 
 ```ts
 interface Ticket {
   id: string;            // provider-native id, opaque
-  key: string;           // human handle: "SWL-139", "#42", card short-link
+  key: string;           // human handle: "PROJ-139", "#42", card short-link
   url: string;           // provider's own web URL, copied never constructed
   title: string;
   body: string;          // Markdown. Providers convert (ADF/HTML → md) at the edge
@@ -261,7 +261,7 @@ Role prompts ship in the repo under `prompts/roles/*.md` with a small variable s
 - **Claude Code headless behaviour** is the load-bearing assumption of phase 2 (hooks JSON, `--output-format json`, `--settings`). Pin the CLI version; wrap all flag construction in `ClaudeCodeRuntime` only.
 - **Role hand-off fidelity**: agents lose context between segments; artifacts + ticket comments are the memory. Keep artifacts terse and structured (front-matter + sections) so the next role can parse them.
 - **Cost**: four roles ≈ 3–4× today's single-session cost per ticket. Enforce `maxCostUsd` at the run level and per task; tester/reviewer on cheaper models by default.
-- **Where do workers run?** Same open question as SWL-169 in the original. Design stays executor-agnostic (`local` now, `remote` = same worker in a container later).
+- **Where do workers run?** Same open question as in the prototype. Design stays executor-agnostic (`local` now, `remote` = same worker in a container later).
 - **Gate relaxation is a policy surface.** `before_merge: auto` is the only setting that lets an agent land code on `main` unattended; it is project-scoped, badge-visible, and logged on every run. Worth an explicit review before it is ever set.
 - **Auth**: single-operator MVP; keep `dispatched_by` / `authorized_by` columns so real auth can attach later.
 - **Missing originals**: `/work*` command prompts and `.env.example` are not in the copied repo. If recoverable from the original developer they are useful reference for the planner/implementer prompts; not blocking.

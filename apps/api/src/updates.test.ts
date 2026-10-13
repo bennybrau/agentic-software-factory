@@ -16,7 +16,7 @@ function stubRegistry(pages: Array<{ tags: string[]; link?: string }>, calls: st
   }) as unknown as typeof fetch;
 }
 const silent = { info: () => {}, error: () => {} };
-const REPO = 'ghcr.io/rag-against-the-machine/asf-api';
+const REPO = 'ghcr.io/bennybrau/asf-api';
 
 afterEach(() => {
   delete process.env.ASF_BUILD_VERSION;
@@ -43,13 +43,13 @@ test('compareSemver orders numerically, and a describe build equals its tag', ()
 test('latestRelease: only strict vX.Y.Z tags count, across Link pages', async () => {
   const calls: string[] = [];
   const f = stubRegistry([
-    { tags: ['latest', 'sha-abc', '0.1', '1.2', 'v1.2.3', 'v9.0.0-rc1'], link: '</v2/rag-against-the-machine/asf-api/tags/list?page=1>; rel="next"' },
+    { tags: ['latest', 'sha-abc', '0.1', '1.2', 'v1.2.3', 'v9.0.0-rc1'], link: '</v2/bennybrau/asf-api/tags/list?page=1>; rel="next"' },
     { tags: ['v1.10.0', 'v1.9.0', '2.0.0'] },
   ], calls);
   assert.equal(await latestRelease(REPO, f), 'v1.10.0');
-  assert.equal(calls[0], 'https://ghcr.io/token?scope=repository:rag-against-the-machine/asf-api:pull');
+  assert.equal(calls[0], 'https://ghcr.io/token?scope=repository:bennybrau/asf-api:pull');
   assert.equal(calls.length, 3);
-  assert.equal(calls[2], 'https://ghcr.io/v2/rag-against-the-machine/asf-api/tags/list?page=1');
+  assert.equal(calls[2], 'https://ghcr.io/v2/bennybrau/asf-api/tags/list?page=1');
 });
 
 test('latestRelease: no release tag at all is null', async () => {

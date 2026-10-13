@@ -42,7 +42,7 @@ A local build says `dev`, which never reports an update.
 
 The api checks once at boot and then once a day whether a newer release is published:
 it lists the tags of `UPDATE_IMAGE_REPO` (default
-`ghcr.io/rag-against-the-machine/asf-api`) anonymously and takes the highest strict
+`ghcr.io/bennybrau/asf-api`) anonymously and takes the highest strict
 `vX.Y.Z` tag. `latest`, `sha-…`, `0.1` and pre-releases like `v1.2.0-rc1` are ignored.
 The check only looks — nothing is pulled or installed until you apply the update
 (below) or run `scripts/asf update` yourself.

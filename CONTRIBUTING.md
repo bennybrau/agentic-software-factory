@@ -8,7 +8,7 @@ By contributing you agree that your contributions are licensed under the
 
 ## Ways to help
 
-- **Report a bug or ask for a feature** with the [issue templates](https://github.com/RAG-Against-the-Machine/agentic-software-factory/issues/new/choose).
+- **Report a bug or ask for a feature** with the [issue templates](https://github.com/bennybrau/agentic-software-factory/issues/new/choose).
 - **Report a security problem privately.** See [SECURITY.md](SECURITY.md). Don't open a public issue for it.
 - **Pick up an issue.** Issues labelled `good first issue` are small and self-contained.
   Comment on an issue before starting anything large, so two people don't build the same thing.

@@ -79,7 +79,7 @@ gcloud projects list         # the PROJECT_ID column is what ASF needs
 ## 3. Install ASF
 
 ```bash
-git clone https://github.com/RAG-Against-the-Machine/agentic-software-factory.git ~/asf
+git clone https://github.com/bennybrau/agentic-software-factory.git ~/asf
 cd ~/asf
 ./scripts/setup.sh           # press Enter for mode 1 (everything in Docker)
 ```

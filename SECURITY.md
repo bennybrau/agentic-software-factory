@@ -7,7 +7,7 @@ code. Security reports are taken seriously.
 
 **Please don't open a public issue.** Report it privately through GitHub:
 **Security → Report a vulnerability** on this repository
-([private vulnerability reporting](https://github.com/RAG-Against-the-Machine/agentic-software-factory/security/advisories/new)).
+([private vulnerability reporting](https://github.com/bennybrau/agentic-software-factory/security/advisories/new)).
 
 Include what you found, how to reproduce it, and the impact you expect. You should
 get an acknowledgement within a few days. Once a fix ships, the advisory is

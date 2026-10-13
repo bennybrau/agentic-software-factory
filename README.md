@@ -1,7 +1,7 @@
 # Agentic Software Factory
 
-[![ci](https://github.com/RAG-Against-the-Machine/agentic-software-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/RAG-Against-the-Machine/agentic-software-factory/actions/workflows/ci.yml)
-[![install-e2e](https://github.com/RAG-Against-the-Machine/agentic-software-factory/actions/workflows/install-e2e.yml/badge.svg)](https://github.com/RAG-Against-the-Machine/agentic-software-factory/actions/workflows/install-e2e.yml)
+[![ci](https://github.com/bennybrau/agentic-software-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/bennybrau/agentic-software-factory/actions/workflows/ci.yml)
+[![install-e2e](https://github.com/bennybrau/agentic-software-factory/actions/workflows/install-e2e.yml/badge.svg)](https://github.com/bennybrau/agentic-software-factory/actions/workflows/install-e2e.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Pick a ticket from your work tracker, spawn a small agent team (planner → implementer → tester → reviewer) under a deterministic orchestrator, and get a pull/merge request back — with a human at every gate you choose to keep.
@@ -21,7 +21,7 @@ Self-host it with Docker Compose (Postgres + registry + api + worker + web) — 
 run one script, open the URL:
 
 ```bash
-git clone https://github.com/RAG-Against-the-Machine/agentic-software-factory.git
+git clone https://github.com/bennybrau/agentic-software-factory.git
 cd agentic-software-factory
 ./scripts/setup.sh            # preflight → generate .env → build & start → print the URL
 # open http://localhost:8787  (ASF_PORT), then /setup finishes the rest in the browser
@@ -104,7 +104,7 @@ Regenerate `.env.example` and `docs/CONFIGURATION.md` after editing the settings
 
 ## Roadmap
 
-[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) records how it was built, milestone by milestone. Open work is tracked in [issues](https://github.com/RAG-Against-the-Machine/agentic-software-factory/issues) and [milestones](https://github.com/RAG-Against-the-Machine/agentic-software-factory/milestones).
+[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) records how it was built, milestone by milestone. Open work is tracked in [issues](https://github.com/bennybrau/agentic-software-factory/issues) and [milestones](https://github.com/bennybrau/agentic-software-factory/milestones).
 
 ## Contributing
 

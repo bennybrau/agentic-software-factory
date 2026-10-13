@@ -117,7 +117,7 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: |
           v="${VERSION#v}"
-          # Image names must be lowercase, and the org is RAG-Against-the-Machine. The build
+          # Image names must be lowercase, and an owner such as RAG-Against-the-Machine is mixed case. The build
           # job gets this for free from docker/metadata-action; plain docker does not.
           owner="${OWNER,,}"
           for svc in registry api worker; do

@@ -4,8 +4,8 @@ Status: PLANNED. Milestone https://github.com/RAG-Against-the-Machine/agentic-so
 
 ## The need
 
-At Aspen Dental, one Jira project (**DCP**) covers code in **many GitLab repositories**
-under a group tree several levels deep (`aspendental/uiplatform/web/...`). Each DCP ticket
+In a large organization, one Jira project (say **PROJ**) can cover code in **many GitLab repositories**
+under a group tree several levels deep (for example `acme/platform/web/...`). Each PROJ ticket
 must run in the right repo. Today ASF assumes a short hand-typed repo list, and for Jira it
 quietly preselects the **first** repo.
 
@@ -17,8 +17,8 @@ Decisions (Jon, 2026-10-12):
    split). There are no multi-repo runs.
 3. **One Jira project for now.** Several ticket sources at once (several trackers, or Jira
    plus GitLab issues) is a separate axis, out of scope.
-4. **Which repos:** every project under a GitLab group, including all subgroups (for DCP,
-   `aspendental/uiplatform/web`), minus an optional exclude list. Explicit `GITLAB_REPOS`
+4. **Which repos:** every project under a GitLab group, including all subgroups (for PROJ,
+   e.g. `acme/platform/web`), minus an optional exclude list. Explicit `GITLAB_REPOS`
    stay supported for single repos outside the group.
 
 ## What already works (no change needed)
@@ -33,7 +33,7 @@ Decisions (Jon, 2026-10-12):
 
 ## Coupling audit (what blocks the need)
 
-| Where | Today | Problem for DCP |
+| Where | Today | Problem for PROJ |
 |---|---|---|
 | `packages/shared/src/settings.ts:142`, `gitlab.ts:173-179` | `GITLAB_REPOS` explicit comma list; `searchRepos` filters it, then one GET per repo | No group discovery, no subgroups, no pagination; N+1 calls each time the dispatch page opens |
 | `gitlab.ts:156-169` | Preflight GETs every configured project | Scales with the number of repos; runs on every scheduler tick (`start-readiness.ts:25-37`) |
@@ -44,7 +44,7 @@ Decisions (Jon, 2026-10-12):
 | `packages/shared/src/scm.ts:4-11` | `Repo` has no description | Neither the person nor the AI can tell what a repo is for |
 | `prompts/roles/planner.md:12` | Planner may stop with NEEDS_HUMAN when the repo looks wrong | The only way out is cancel and start again |
 | `db/migrations/001_schema.sql:23-25`, `004_work_queue.sql:29-30` | One live run / queue entry per ticket | Can't start the same ticket in a second repo while the first runs |
-| `gitlab.ts:213` | MR lookup by ticket-key substring | `DCP-12` matches `DCP-123` |
+| `gitlab.ts:213` | MR lookup by ticket-key substring | `PROJ-12` matches `PROJ-123` |
 | `questions.tsx:223,251`, `CONFIGURATION.md` | Setup asks for `group/project` list only | No way to say "this group and everything under it" |
 
 ## Design
@@ -91,7 +91,7 @@ restarts from the planner. The choice is recorded as a correction.
 
 ### Rare two-repo tickets
 
-The live-run uniqueness becomes (ticket, repo). The same DCP ticket can be started once per
+The live-run uniqueness becomes (ticket, repo). The same PROJ ticket can be started once per
 repo, giving one MR each. The Jira ticket moves to Done only when **all** of its runs have
 merged. A real multi-repo run (N worktrees, linked MRs) is out of scope.
 
@@ -99,7 +99,7 @@ merged. A real multi-repo run (N worktrees, linked MRs) is out of scope.
 
 1. **WP1: GitLab group discovery.** `GITLAB_GROUPS`, `GITLAB_REPO_EXCLUDE`, paginated
    listing, Developer+ filter, cache, group-level preflight, description on `Repo`, nested
-   path tests, fix the `DCP-12` / `DCP-123` match. Behaviour is unchanged when only
+   path tests, fix the `PROJ-12` / `PROJ-123` match. Behaviour is unchanged when only
    `GITLAB_REPOS` is set.
 2. **WP2: Dispatch page for many repos.** Searchable picker grouped by subgroup, with
    descriptions; no silent first-repo default; queued tickets carry a repo or ask for one.
@@ -111,11 +111,11 @@ merged. A real multi-repo run (N worktrees, linked MRs) is out of scope.
    action.
 6. **WP6: Same ticket in a second repo.** (ticket, repo) uniqueness, Jira Done when every run
    has merged.
-7. **WP7: Setup, docs and live check on DCP.** Setup question "Which GitLab group?",
-   CONFIGURATION/INSTALL docs, and a recorded run in `docs/runs/` with 10 real DCP tickets,
+7. **WP7: Setup, docs and live check on a large project.** Setup question "Which GitLab group?",
+   CONFIGURATION/INSTALL docs, and a recorded run in `docs/runs/` with 10 real tickets,
    noting how often the top suggestion was right.
 
-WP1 and WP2 alone make DCP usable by hand. WP3 and WP4 add the suggestion. WP5 and WP6 are
+WP1 and WP2 alone make such a project usable by hand. WP3 and WP4 add the suggestion. WP5 and WP6 are
 independent and can come later.
 
 ## Out of scope

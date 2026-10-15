@@ -148,3 +148,17 @@ test('an allowlist that matches nothing refuses with a clear reason, not a TypeE
     if (before === undefined) delete process.env.MODEL_ALLOWLIST; else process.env.MODEL_ALLOWLIST = before;
   }
 });
+
+test('M11: a mixed team — an Ollama model for the implementer, Claude for the rest', () => {
+  const models = mergeCatalogue({ models: [
+    { id: 'ollama:qwen3-coder', tier: 'balanced', providerId: 'ollama', runtimes: ['claude-code', 'codex'], rate: { inputPerM: 0, outputPerM: 0 } },
+  ] }).models;
+  const team = resolveRoleModels(STANDARD_TEAM, {}, { implementer: 'ollama:qwen3-coder' }, {}, undefined, { models });
+  assert.equal(role(team, 'implementer').model, 'ollama:qwen3-coder');
+  assert.equal(role(team, 'implementer').runtime, 'claude-code');
+  assert.equal(role(team, 'planner').model, 'claude-opus-4-8');
+  assert.equal(role(team, 'tester').model, 'claude-sonnet-5');
+  const viaCodex = resolveRoleModels(STANDARD_TEAM, {}, { implementer: 'ollama:qwen3-coder' }, {}, undefined, { models, request: { implementer: 'codex' } });
+  assert.equal(role(viaCodex, 'implementer').runtime, 'codex');
+  assert.throws(() => resolveRoleModels(STANDARD_TEAM, {}, { implementer: 'ollama:qwen3-coder' }, {}, undefined, { models, request: { implementer: 'opencode' } }), BadModelError);
+});

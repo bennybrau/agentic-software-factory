@@ -10,7 +10,7 @@ import { computeRunAuth, computeRunAuths, describeAgentAuth, PROVIDER_AUTH } fro
 const KEYS = ['AGENT_AUTH_MODE', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'SECRETS_SOURCE',
   'AGENT_AUTH_OPENAI_MODE', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'AGENT_AUTH_OPENAI_COMPAT_MODE',
   'OPENAI_COMPAT_API_KEY', 'OPENAI_COMPAT_BASE_URL', 'AGENT_AUTH_GITHUB_MODE', 'GITHUB_COPILOT_TOKEN',
-  'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION', 'MODEL_ALLOWLIST'];
+  'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION', 'MODEL_ALLOWLIST', 'OLLAMA_BASE_URL', 'OLLAMA_API_KEY'];
 const realFetch = global.fetch;
 afterEach(() => {
   global.fetch = realFetch;
@@ -85,6 +85,17 @@ test('openai / openai-compatible / github: own mode key, own credential, baseUrl
   assert.deepEqual(await computeRunAuth('openai-compatible'), { providerKind: 'openai-compatible', mode: 'none', baseUrl: 'https://api.deepseek.com/v1' });
 });
 
+test('ollama (M11): keyless local server by default; api-key whenever a Cloud key is set', async () => {
+  env({ OLLAMA_BASE_URL: 'http://host.docker.internal:11434', ANTHROPIC_API_KEY: 'key-B' });
+  assert.deepEqual(await computeRunAuth('ollama'), { providerKind: 'ollama', mode: 'none', baseUrl: 'http://host.docker.internal:11434' });
+  assert.deepEqual((await describeAgentAuth()).providers.ollama, { mode: 'none', credentialPresent: true });
+  env({ OLLAMA_API_KEY: 'oll-F' });
+  assert.deepEqual(await computeRunAuth('ollama'), { providerKind: 'ollama', mode: 'api-key', credential: 'oll-F', baseUrl: 'http://host.docker.internal:11434' });
+  assert.deepEqual((await describeAgentAuth()).providers.ollama, { mode: 'api-key', credentialPresent: true });
+  delete process.env.OLLAMA_BASE_URL;
+  assert.deepEqual(await computeRunAuth('ollama'), { providerKind: 'ollama', mode: 'api-key', credential: 'oll-F' }, 'Cloud only: no local URL');
+});
+
 test('computeRunAuths: one entry per provider, and no provider carries another\'s credential', async () => {
   env({ AGENT_AUTH_MODE: 'api-key', ANTHROPIC_API_KEY: 'key-B', OPENAI_API_KEY: 'oai-C' });
   const all = await computeRunAuths();
@@ -93,6 +104,7 @@ test('computeRunAuths: one entry per provider, and no provider carries another\'
   assert.equal(all.openai?.credential, 'oai-C');
   assert.equal(all['openai-compatible']?.credential, undefined);
   assert.equal(all.github?.credential, undefined);
+  assert.equal(all.ollama?.credential, undefined);
 });
 
 test('describeAgentAuth: anthropic at the top level (pre-M8 shape) + a per-provider map, never a credential', async () => {
@@ -109,7 +121,8 @@ test('describeAgentAuth: anthropic at the top level (pre-M8 shape) + a per-provi
 test('the api\'s provider table matches the shared mode list and the settings catalogue', () => {
   for (const k of PROVIDER_KINDS) {
     const def = PROVIDER_AUTH[k];
-    assert.deepEqual([...(SETTINGS[def.modeKey].values ?? [])].sort(), [...AUTH_MODES[k]].sort(), `${def.modeKey} values == AUTH_MODES.${k}`);
+    if (def.modeKey) assert.deepEqual([...(SETTINGS[def.modeKey].values ?? [])].sort(), [...AUTH_MODES[k]].sort(), `${def.modeKey} values == AUTH_MODES.${k}`);
+    else assert.deepEqual([...AUTH_MODES[k]].sort(), ['api-key', 'none'], `${k}: a derived mode is none or api-key`);
     for (const key of Object.values(def.credentialKey)) assert.equal(SETTINGS[key!].secret, true, `${key} is write-only`);
   }
 });

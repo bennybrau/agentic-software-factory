@@ -1,15 +1,16 @@
-import { mergeCatalogue, type ProviderKind, type RunAuth, type RunContext } from '@asf/shared';
+import { mergeCatalogue, nativeModelId, providerOfModel, type ProviderKind, type RunAuth, type RunContext } from '@asf/shared';
 import type { AuthTranslator } from './types.js';
 import { anthropic } from './anthropic.js';
 import { openai, OPENAI_ALSO_SET, linkChatgptLogin } from './openai.js';
 import { openaiCompatible, codexCompatArgs, opencodeCompatProvider } from './openai-compatible.js';
 import { github } from './github.js';
+import { ollama, OLLAMA_ALSO_SET, ollamaTaskAuth, codexOllamaArgs } from './ollama.js';
 
 export type { AuthTranslator } from './types.js';
 
 /** The per-provider auth translators (M8 WP C). hermes.ts joins in WP F. */
 export const TRANSLATORS: Record<ProviderKind, AuthTranslator> = {
-  anthropic, openai, 'openai-compatible': openaiCompatible, github,
+  anthropic, openai, 'openai-compatible': openaiCompatible, github, ollama,
 };
 
 /** Which provider a runtime talks to by default. A runtime that can use several
@@ -24,7 +25,7 @@ export function providerFor(runtime: string): ProviderKind {
   return RUNTIME_PROVIDER[runtime] ?? 'anthropic';
 }
 
-const ALSO_SET: Record<string, string[]> = { ...OPENAI_ALSO_SET };
+const ALSO_SET: Record<string, string[]> = { ...OPENAI_ALSO_SET, ...OLLAMA_ALSO_SET };
 
 /**
  * Build the full environment for a spawned agent from a base env and the run's
@@ -60,7 +61,10 @@ export function authForRuntime(ctx: Pick<RunContext, 'auth' | 'auths'>, runtime:
 
 /** Runtimes that can talk to more than one provider, chosen per task by the model (M8 WP E). */
 const RUNTIME_PROVIDERS: Record<string, ProviderKind[]> = {
-  codex: ['openai', 'openai-compatible'],
+  // M11 spike (docs/OLLAMA_SPIKE.md): claude-code is the default for Ollama models
+  // (its hooks keep scope/cancel/telemetry); codex is the opt-in alternative.
+  'claude-code': ['ollama'],
+  codex: ['openai', 'openai-compatible', 'ollama'],
   opencode: ['anthropic', 'openai', 'openai-compatible'],
 };
 
@@ -72,15 +76,29 @@ const RUNTIME_PROVIDERS: Record<string, ProviderKind[]> = {
  */
 export function authForTask(ctx: Pick<RunContext, 'auth' | 'auths' | 'workerSettings'>, runtime: string, model: string | null | undefined): RunAuth {
   const cat = mergeCatalogue(ctx.workerSettings?.modelCatalogExtra);
-  const info = model ? cat.models.find((m) => m.id === model) : undefined;
-  const provider = info ? cat.providers.find((p) => p.id === info.providerId) : undefined;
+  const provider = providerOfModel(cat, model);
   if (!provider || !RUNTIME_PROVIDERS[runtime]?.includes(provider.kind)) return authForRuntime(ctx, runtime);
+  if (provider.kind === 'ollama') return ollamaTaskAuth(ctx.auths?.ollama, provider.baseUrl, nativeModelId(model!, provider));
   const auth = ctx.auths?.[provider.kind] ?? ({ providerKind: provider.kind, mode: 'unset' } as RunAuth);
   return provider.baseUrl ? { ...auth, baseUrl: provider.baseUrl } : auth;
 }
 
+/**
+ * How a task's catalogue model is passed to its runtime (M11): the provider-native
+ * id for --model (`ollama:gpt-oss:20b` -> `gpt-oss:20b`), and whether it is served
+ * by Ollama — then the task sends no effort flag (a vendor feature) and is priced
+ * from the catalogue rate (0), never from the runtime's own cost figure (Claude Code
+ * prices every model as Claude).
+ */
+export function taskModel(ctx: Pick<RunContext, 'workerSettings'>, model: string | null | undefined): { cliModel: string | undefined; ollama: boolean } {
+  if (!model) return { cliModel: undefined, ollama: false };
+  const provider = providerOfModel(mergeCatalogue(ctx.workerSettings?.modelCatalogExtra), model);
+  return { cliModel: nativeModelId(model, provider), ollama: provider?.kind === 'ollama' };
+}
+
 /** Codex's per-provider CLI args (the credential itself travels in the env via applyAuth). */
 export function codexAuthArgs(auth: RunAuth): string[] {
+  if (auth.providerKind === 'ollama') return codexOllamaArgs(auth);
   return auth.providerKind === 'openai-compatible' ? codexCompatArgs(auth) : [];
 }
 

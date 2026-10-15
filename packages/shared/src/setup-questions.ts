@@ -45,6 +45,8 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   AGENT_AUTH_OPENAI_COMPAT_MODE: 'operator: set in .env',
   OPENAI_COMPAT_API_KEY: 'operator: set in .env',
   OPENAI_COMPAT_BASE_URL: 'operator: set in .env',
+  OLLAMA_BASE_URL: 'operator: set in .env (the Ollama question is M11 WP5)',
+  OLLAMA_API_KEY: 'operator: set in .env (the Ollama question is M11 WP5)',
   AGENT_AUTH_GITHUB_MODE: 'operator: set in .env',
   GITHUB_COPILOT_TOKEN: 'operator: set in .env',
   // Model catalogue as data (M8 WP D). The AI question sets the per-role runtime as a whole team (#162); a per-role picker is #69.

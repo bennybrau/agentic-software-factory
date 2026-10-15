@@ -198,6 +198,12 @@ export const SETTINGS = {
     description: 'OpenAI-compatible api-key mode. Write-only; delivered to the worker per run.' }),
   OPENAI_COMPAT_BASE_URL: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Agent providers', readBy: ['api'],
     description: 'The OpenAI-compatible endpoint, e.g. https://api.deepseek.com/v1 or http://host.docker.internal:8080/v1. Required for that provider.' }),
+  // M11: Ollama. No mode setting: a model on the `ollama` provider talks to the local
+  // server keyless, one on `ollama-cloud` sends OLLAMA_API_KEY to https://ollama.com only.
+  OLLAMA_BASE_URL: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Agent providers', readBy: ['api'],
+    description: 'The local or LAN Ollama server for models on the `ollama` provider, e.g. http://host.docker.internal:11434 (container worker) or http://localhost:11434 (host worker). No /v1. Blank = no local server. The server needs a context of at least 64k (OLLAMA_CONTEXT_LENGTH).' }),
+  OLLAMA_API_KEY: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Agent providers', readBy: ['api'],
+    description: 'Ollama Cloud key (ollama.com/settings/keys) for models on the `ollama-cloud` provider. Sent only to https://ollama.com, never to a local server. Write-only; delivered to the worker per run.' }),
   AGENT_AUTH_GITHUB_MODE: S({ type: 'enum', values: ['gh-token'], default: 'gh-token', tiers: ['env', 'org'], group: 'Agent providers', readBy: ['api'],
     description: 'How a GitHub-backed runtime (Copilot CLI) authenticates. gh-token = GITHUB_COPILOT_TOKEN, a token with Copilot access.' }),
   GITHUB_COPILOT_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Agent providers', readBy: ['api'],

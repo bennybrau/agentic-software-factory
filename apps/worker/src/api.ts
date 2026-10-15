@@ -26,7 +26,7 @@ async function post(base: string, path: string, body: unknown): Promise<unknown>
  * an M8 api, one status per provider. Never carries a credential. */
 export interface AgentAuthStatus {
   mode: string; credentialPresent: boolean;
-  providers?: Partial<Record<string, { mode: string; credentialPresent: boolean }>>;
+  providers?: Partial<Record<string, { mode: string; credentialPresent: boolean; baseUrl?: string }>>;
 }
 
 export const api = {
@@ -67,8 +67,9 @@ export const api = {
   async deregister(): Promise<void> {
     await fetch(`${config.registryUrl}/workers/${config.id}/deregister`, { method: 'POST', headers: headers(), body: '{}' }).catch(() => {});
   },
-  async claim(runtimes: string[]): Promise<ClaimResponse> {
-    const json = (await post(config.registryUrl, `/workers/${config.id}/claim`, { runtimes })) as { claim: unknown };
+  /** `capabilities`: the offered `<runtime>@<provider>` pairs (M11 WP4); the registry routes by them. */
+  async claim(runtimes: string[], capabilities?: string[]): Promise<ClaimResponse> {
+    const json = (await post(config.registryUrl, `/workers/${config.id}/claim`, { runtimes, ...(capabilities ? { capabilities } : {}) })) as { claim: unknown };
     return claimResponseSchema.parse(json.claim);
   },
   async finish(taskId: string, input: FinishTaskInput): Promise<void> {

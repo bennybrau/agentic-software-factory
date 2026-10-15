@@ -293,3 +293,37 @@ test('M9 race: a suspend() during a view-change re-preflight that then FAILS kee
   assert.deepEqual(h.offer.kinds, []);
   assert.equal(h.offer.status.find((s) => s.kind === 'claude-code')!.reason, 'Google login expired');
 });
+
+// M11 WP4: a runtime is a candidate once per provider it can serve.
+function ollamaHarness(views: Record<string, ProviderAuthView | null>, passing: string[]) {
+  const seen: Array<{ provider: string; baseUrl?: string }> = [];
+  const offer = new RuntimeOffer(
+    [{ runtime: rt('claude-code'), provider: 'anthropic' }, { runtime: rt('claude-code'), provider: 'ollama' }],
+    async (_r, auth) => { seen.push({ provider: auth.providerKind, baseUrl: auth.baseUrl }); return passing.includes(auth.providerKind) ? { ok: true } : { ok: false, reason: `${auth.providerKind} down` }; },
+    () => {},
+  );
+  return { offer, seen, refresh: () => offer.refresh((p: ProviderKind) => views[p] ?? null, () => 'unset') };
+}
+
+test('an Ollama-only worker offers claude-code@ollama though its Claude check fails', async () => {
+  const h = ollamaHarness({ anthropic: { mode: 'oauth-token', credentialPresent: false }, ollama: { mode: 'none', credentialPresent: true, baseUrl: 'http://ollama.lan:11434' } }, ['ollama']);
+  assert.equal(await h.refresh(), true);
+  assert.deepEqual(h.offer.kinds, ['claude-code']);
+  assert.deepEqual(h.offer.capabilities, ['claude-code@ollama']);
+  assert.deepEqual(h.offer.pending, [], 'offered under one provider = not pending');
+  assert.deepEqual(h.seen.find((s) => s.provider === 'ollama'), { provider: 'ollama', baseUrl: 'http://ollama.lan:11434' }, 'the preflight gets the server URL');
+  assert.deepEqual(h.offer.status.map((s) => [s.kind, s.provider, s.ok]), [['claude-code', 'anthropic', false], ['claude-code', 'ollama', true]]);
+});
+
+test('a Claude-only worker offers claude-code@anthropic and not @ollama', async () => {
+  const h = ollamaHarness({ anthropic: { mode: 'api-key', credentialPresent: true }, ollama: { mode: 'none', credentialPresent: true } }, ['anthropic']);
+  await h.refresh();
+  assert.deepEqual(h.offer.capabilities, ['claude-code@anthropic']);
+});
+
+test('both pass: both capabilities, one runtime kind', async () => {
+  const h = ollamaHarness({ anthropic: { mode: 'api-key', credentialPresent: true }, ollama: { mode: 'none', credentialPresent: true, baseUrl: 'http://x:11434' } }, ['anthropic', 'ollama']);
+  await h.refresh();
+  assert.deepEqual(h.offer.kinds, ['claude-code']);
+  assert.deepEqual(h.offer.capabilities, ['claude-code@anthropic', 'claude-code@ollama']);
+});

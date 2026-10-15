@@ -69,6 +69,16 @@ const RUNTIME_PROVIDERS: Record<string, ProviderKind[]> = {
 };
 
 /**
+ * The providers besides its default a runtime is checked and offered for (M11 WP4):
+ * Ollama, for the runtimes that can drive it. An Ollama-only worker then offers
+ * claude-code@ollama even though its Claude check fails. (openai-compatible stays
+ * routed per task under codex's openai offer, as before.)
+ */
+export function extraProviders(runtime: string): ProviderKind[] {
+  return (RUNTIME_PROVIDERS[runtime] ?? []).filter((p) => p === 'ollama' && p !== providerFor(runtime));
+}
+
+/**
  * The auth for one task: the provider that serves the task's MODEL (from the merged
  * catalogue) when the runtime can talk to it — codex + a DeepSeek model ->
  * openai-compatible — else the runtime's default provider (authForRuntime). A

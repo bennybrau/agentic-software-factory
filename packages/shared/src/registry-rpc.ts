@@ -319,6 +319,8 @@ export type RunConflict = z.infer<typeof runConflictSchema>;
 /** What a worker last learned about one runtime: is the CLI installed, and did its auth preflight pass? (#69) */
 export const runtimeStatusSchema = z.object({
   kind: z.string().min(1),
+  /** The provider this status is for (M11 WP4: a runtime is checked once per provider it can serve). */
+  provider: z.string().optional(),
   installed: z.boolean(),
   version: z.string().optional(),
   ok: z.boolean(),
@@ -342,7 +344,14 @@ export type WorkerRegister = z.infer<typeof workerRegisterSchema>;
 export const workerHeartbeatSchema = z.object({ preflight: z.array(runtimeStatusSchema).optional() });
 export type WorkerHeartbeat = z.infer<typeof workerHeartbeatSchema>;
 
-export const claimInputSchema = z.object({ runtimes: z.array(z.string()).min(1) });
+/**
+ * `capabilities` (M11 WP4): every `<runtime>@<providerKind>` pair this worker passed a
+ * check for (`claude-code@anthropic`, `claude-code@ollama`). With it the registry hands
+ * an Ollama-model task only to a worker offering `<runtime>@ollama`, and any other task
+ * only to one offering the runtime under a non-Ollama provider. Absent (a pre-WP4
+ * worker): runtime-only matching, as before.
+ */
+export const claimInputSchema = z.object({ runtimes: z.array(z.string()).min(1), capabilities: z.array(z.string()).optional() });
 export const claimResponseSchema = z.object({ run: runSchema, task: runTaskSchema, team: teamTemplateSchema }).nullable();
 export type ClaimResponse = z.infer<typeof claimResponseSchema>;
 

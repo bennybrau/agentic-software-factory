@@ -88,10 +88,10 @@ test('openai / openai-compatible / github: own mode key, own credential, baseUrl
 test('ollama (M11): keyless local server by default; api-key whenever a Cloud key is set', async () => {
   env({ OLLAMA_BASE_URL: 'http://host.docker.internal:11434', ANTHROPIC_API_KEY: 'key-B' });
   assert.deepEqual(await computeRunAuth('ollama'), { providerKind: 'ollama', mode: 'none', baseUrl: 'http://host.docker.internal:11434' });
-  assert.deepEqual((await describeAgentAuth()).providers.ollama, { mode: 'none', credentialPresent: true });
+  assert.deepEqual((await describeAgentAuth()).providers.ollama, { mode: 'none', credentialPresent: true, baseUrl: 'http://host.docker.internal:11434' }, 'the server URL (not a secret) so the worker can check it');
   env({ OLLAMA_API_KEY: 'oll-F' });
   assert.deepEqual(await computeRunAuth('ollama'), { providerKind: 'ollama', mode: 'api-key', credential: 'oll-F', baseUrl: 'http://host.docker.internal:11434' });
-  assert.deepEqual((await describeAgentAuth()).providers.ollama, { mode: 'api-key', credentialPresent: true });
+  assert.deepEqual((await describeAgentAuth()).providers.ollama, { mode: 'api-key', credentialPresent: true, baseUrl: 'http://host.docker.internal:11434' });
   delete process.env.OLLAMA_BASE_URL;
   assert.deepEqual(await computeRunAuth('ollama'), { providerKind: 'ollama', mode: 'api-key', credential: 'oll-F' }, 'Cloud only: no local URL');
 });

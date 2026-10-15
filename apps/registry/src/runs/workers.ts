@@ -2,6 +2,8 @@ import type { ClaimResponse, FinishTaskInput, FleetWorkerWire, RuntimeStatus, Wo
 import type { Sql, Db } from '../db/pool.js';
 import { appendEventTx, rowToRun, rowToTask, setRunState } from './store.js';
 import { advance } from './orchestrate.js';
+import { ollamaModelIds } from '@asf/shared';
+import { getOrgSettings } from '../settings/store.js';
 
 /**
  * The fleet. A registration is a truthful statement of what this process
@@ -124,7 +126,12 @@ export async function monthUnpricedRuns(sql: Sql): Promise<number> {
  * A task is claimable only when every earlier task in its run is done or
  * skipped, so the orchestrator's ordering is enforced by the claim query.
  */
-export async function claimTask(sql: Sql, workerId: string, runtimes: string[]): Promise<ClaimResponse> {
+export async function claimTask(sql: Sql, workerId: string, runtimes: string[], capabilities?: string[]): Promise<ClaimResponse> {
+  // M11 WP4: with capabilities, a task on an Ollama model needs `<runtime>@ollama`; any
+  // other task needs the runtime under some non-Ollama provider. Ollama-ness is by the
+  // task's model: the catalogue's ollama-kind providers, plus the ollama:/ollama-cloud: prefix.
+  const caps = capabilities ?? null;
+  const ollamaIds = caps ? ollamaModelIds((await getOrgSettings(sql)).MODEL_CATALOG_EXTRA) : [];
   return sql.begin(async (tx) => {
     const cand = await tx`
       SELECT t.id AS task_id, t.run_id
@@ -134,6 +141,11 @@ export async function claimTask(sql: Sql, workerId: string, runtimes: string[]):
          AND r.state IN ('queued', 'running')
          AND r.cancel_requested_at IS NULL
          AND (t.runtime IS NULL OR t.runtime = 'publish' OR t.runtime = ANY(${runtimes}::text[]))
+         AND (${caps}::text[] IS NULL OR t.runtime IS NULL OR t.runtime = 'publish' OR (
+               CASE WHEN t.model = ANY(${ollamaIds}::text[]) OR t.model LIKE 'ollama:%' OR t.model LIKE 'ollama-cloud:%'
+                 THEN (t.runtime || '@ollama') = ANY(${caps}::text[])
+                 ELSE EXISTS (SELECT 1 FROM unnest(${caps}::text[]) c WHERE c LIKE t.runtime || '@%' AND c <> t.runtime || '@ollama')
+               END))
          AND NOT EXISTS (
            SELECT 1 FROM run_task p
             WHERE p.run_id = t.run_id AND p.seq < t.seq AND p.state NOT IN ('done', 'skipped'))

@@ -18,7 +18,7 @@
  */
 import type { AgentRuntime, ProviderKind, RunAuth, RuntimeCapabilities, RuntimeStatus } from '@asf/shared';
 
-export interface ProviderAuthView { mode: string; credentialPresent: boolean; vertex?: RunAuth['vertex'] }
+export interface ProviderAuthView { mode: string; credentialPresent: boolean; vertex?: RunAuth['vertex']; baseUrl?: string }
 
 /**
  * The one rule for every runtime (#70): an agent runs only where something blocks
@@ -45,7 +45,11 @@ interface Candidate {
   suspended?: boolean;
 }
 
-const sigOf = (v: ProviderAuthView | null): string => (v ? `${v.mode}|${v.credentialPresent ? 1 : 0}${v.vertex ? `|${JSON.stringify(v.vertex)}` : ''}` : 'none');
+const sigOf = (v: ProviderAuthView | null): string => (v ? `${v.mode}|${v.credentialPresent ? 1 : 0}${v.vertex ? `|${JSON.stringify(v.vertex)}` : ''}${v.baseUrl ? `|${v.baseUrl}` : ''}` : 'none');
+
+/** The auth a preflight checks, from the api's view of a provider. */
+const authOf = (provider: ProviderKind, mode: string, view: ProviderAuthView | null): RunAuth =>
+  ({ providerKind: provider, mode, ...(view?.vertex ? { vertex: view.vertex } : {}), ...(view?.baseUrl ? { baseUrl: view.baseUrl } : {}) } as RunAuth);
 
 export class RuntimeOffer {
   private readonly candidates: Candidate[];
@@ -61,10 +65,12 @@ export class RuntimeOffer {
     this.candidates = runtimes.map((r) => ({ ...r, offered: false, mode: 'unset', checkedSig: null, checkedAt: 0 }));
   }
 
-  /** The runtime kinds currently offered, in configured order. */
-  get kinds(): string[] { return this.candidates.filter((c) => c.offered).map((c) => c.runtime.kind); }
+  /** The runtime kinds currently offered (under any provider), in configured order. */
+  get kinds(): string[] { return [...new Set(this.candidates.filter((c) => c.offered).map((c) => c.runtime.kind))]; }
+  /** Every offered `<runtime>@<provider>` pair (M11 WP4): what the registry routes tasks by. */
+  get capabilities(): string[] { return this.candidates.filter((c) => c.offered).map((c) => `${c.runtime.kind}@${c.provider}`); }
   get offered(): Array<{ runtime: AgentRuntime; provider: ProviderKind; mode: string }> { return this.candidates.filter((c) => c.offered); }
-  get pending(): string[] { return this.candidates.filter((c) => !c.offered).map((c) => c.runtime.kind); }
+  get pending(): string[] { const on = new Set(this.kinds); return [...new Set(this.candidates.filter((c) => !c.offered && !on.has(c.runtime.kind)).map((c) => c.runtime.kind))]; }
 
   /**
    * The provider's login stopped working (M9 #2: a Google login past its session
@@ -98,7 +104,7 @@ export class RuntimeOffer {
   get status(): RuntimeStatus[] {
     return [
       ...this.candidates.map((c): RuntimeStatus => ({
-        kind: c.runtime.kind, installed: true,
+        kind: c.runtime.kind, provider: c.provider, installed: true,
         ...(c.version ? { version: c.version } : {}),
         ok: c.offered,
         ...(c.offered ? {} : { reason: c.reason ?? 'not checked yet' }),
@@ -125,7 +131,7 @@ export class RuntimeOffer {
         // Same view as when it was offered (or no view: api briefly unreachable): leave it.
         if (!view || c.checkedSig === null || sig === c.checkedSig) continue;
         c.checkedSig = sig; c.checkedAt = this.now();
-        const res = await this.preflight(c.runtime, { providerKind: c.provider, mode: view.mode, ...(view.vertex ? { vertex: view.vertex } : {}) } as RunAuth, { credentialPresent: view.credentialPresent });
+        const res = await this.preflight(c.runtime, authOf(c.provider, view.mode, view), { credentialPresent: view.credentialPresent });
         if (res.ok || c.suspended) { if (res.ok) c.mode = view.mode; continue; }
         c.offered = false; c.reason = res.reason ?? 'auth check failed'; changed = true;
         this.log(`agent auth changed and the new setup failed its check for ${c.runtime.kind} (${c.provider} ${view.mode}): ${res.reason}; no longer offering it`);
@@ -138,7 +144,7 @@ export class RuntimeOffer {
       const first = c.checkedSig === null;
       const viewChanged = !first && sig !== c.checkedSig;
       c.checkedSig = sig; c.checkedAt = this.now();
-      const res = await this.preflight(c.runtime, { providerKind: c.provider, mode, ...(view?.vertex ? { vertex: view.vertex } : {}) } as RunAuth, { credentialPresent: view?.credentialPresent ?? false });
+      const res = await this.preflight(c.runtime, authOf(c.provider, mode, view), { credentialPresent: view?.credentialPresent ?? false });
       if (c.suspended) continue; // the login watch held it while this preflight ran: it wins
       if (!res.ok) {
         c.reason = res.reason ?? 'auth check failed';

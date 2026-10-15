@@ -16,7 +16,9 @@ Decisions (Jon, 2026-10-14):
 2. **Per role**: one team can mix providers (for example Claude plans and reviews, a local
    model implements and tests). Not a whole-team switch only.
 3. **Agent CLI: spike first.** Try both Claude Code and Codex against Ollama and pick per
-   evidence (WP1). Do not build on either before the spike says it works.
+   evidence (WP1). **Spike done ([`OLLAMA_SPIKE.md`](OLLAMA_SPIKE.md)): `claude-code` is the
+   default runtime for Ollama models** (ASF's hooks keep working: scope, cancel, telemetry);
+   `codex` is an opt-in alternative on containerised workers.
 4. **Cost: Ollama runs count as $0**, local and Cloud alike (Cloud is a subscription with
    credits). Runaway protection comes from turn ceilings and time limits, not dollars.
 
@@ -90,7 +92,7 @@ Sources are the Ollama docs and server source; latest release v0.40.4.
 | `apps/web/src/components/q/questions.tsx:268-390,560-606` | AI question has four fixed choices; the model picker does not group by provider | Ollama question and grouped picker (WP5) |
 | `apps/api/src/routes/setup.ts:105-135` | Setup status knows Claude/OpenAI only | Ollama item (WP5) |
 | `apps/registry/.../orchestrate.ts:41`, `dispatch.ts:113-117` | Caps are dollars only | Run wall-clock cap for $0 runs (WP6) |
-| `docker-compose.self-host.yml:92-148` | No `extra_hosts`, so a container worker on Linux cannot reach host Ollama | `host.docker.internal:host-gateway` (WP7) |
+| `docker-compose.self-host.yml:92-148` | No `extra_hosts`, so a container worker on Linux cannot reach host Ollama | `host.docker.internal:host-gateway` on Linux only; it breaks Rancher Desktop (WP7) |
 
 ## Design
 
@@ -199,8 +201,9 @@ Claude or OpenAI keys becomes a valid worker.
 
 ### Networking and packaging
 
-- `docker-compose.self-host.yml`: add `extra_hosts: ["host.docker.internal:host-gateway"]`
-  to the `api` and `worker` services (no-op on Docker Desktop, needed on Linux).
+- **Linux only**: `extra_hosts: ["host.docker.internal:host-gateway"]` on `api` and `worker`, via
+  a Linux override file or `setup.sh` detection. Not in the default compose: on Rancher Desktop it
+  remaps `host.docker.internal` to 172.17.0.1 and breaks the connection (spike finding 7).
 - Document the server side:
   - `OLLAMA_HOST=0.0.0.0` so containers and LAN machines can reach it;
   - `OLLAMA_CONTEXT_LENGTH=64000`, set on the server process (`launchctl setenv` on macOS,

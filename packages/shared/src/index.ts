@@ -18,6 +18,7 @@ export * from './context.js';
 export * from './pricing.js';
 export * from './models.js';
 export * from './vertex.js';
+export * from './ollama.js';
 export * from './gates.js';
 export * from './pipeline.js';
 export * from './settings.js';

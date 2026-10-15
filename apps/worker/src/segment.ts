@@ -1,14 +1,14 @@
 import { mkdir, writeFile, readFile, rename, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
-import type { AdhocTask, AgentSpawn, ClaimResponse, CreateAdhocInput, EventSink, Run, RunContext, RunTask, RuntimeCapabilities, TeamTemplate, ToolPolicy } from '@asf/shared';
+import type { AdhocTask, AgentOutcome, AgentSpawn, ClaimResponse, CreateAdhocInput, EventSink, Run, RunContext, RunTask, RuntimeCapabilities, TeamTemplate, ToolPolicy } from '@asf/shared';
 import { priceUsage, mergeCatalogue, CONFLICT_QUEUED_BY, isGoogleLoginFailure, googleLoginFix } from '@asf/shared';
 import { config } from './config.js';
 import { api } from './api.js';
 import { ensureWorkspace, commitPending, diffStat, wipAtHead, startConflictMerge, filesWithConflictMarkers, type Workspace } from './git.js';
 import { renderPrompt, renderChatTurn, loadPriorArtifacts, readArtifact, attachmentsDir, type ChatTurn } from './prompt.js';
 import { loadRuntime } from './runtimes/index.js';
-import { authForTask } from './auth/index.js';
+import { authForTask, checkAuthConfig, taskModel } from './auth/index.js';
 import { auditWorktree, watchCancel } from './guard.js';
 import { skillsForRole, installNativeSkills, writeFallbackSkills, type FallbackSkill } from './skills.js';
 
@@ -221,12 +221,14 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
   // resolution is only the fallback for an older api that does not send them.
   const maxTurns = maxTurnsFor(ctx, String(task.role), config.maxTurns);
   const timeoutMs = ctx.workerSettings?.segmentTimeoutMs ?? config.segmentTimeoutMs;
+  const tm = taskModel(ctx, task.model);
   const spawnReq: AgentSpawn = {
     role: task.role,
     prompt,
     cwd,
-    model: task.model ?? undefined,
-    effort: task.effort ?? undefined,
+    model: tm.cliModel,
+    // Effort is a vendor feature (claude --effort, codex reasoning effort); Ollama models take none.
+    effort: tm.ollama ? undefined : task.effort ?? undefined,
     maxTurns,
     maxCostUsd: run.maxCostUsd,
     policy: policyFor(writes),
@@ -262,9 +264,14 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
   const beat = needsHeartbeat(runtime.capabilities)
     ? setInterval(() => sink.emit({ kind: 'segment:heartbeat', payload: { role: task.role, runtime: runtime.kind } }), HEARTBEAT_MS)
     : null;
-  let outcome;
+  // An Ollama task with no server URL (or a Cloud key bound for a non-Cloud URL) would
+  // otherwise reach api.anthropic.com with a placeholder token: fail it with the fix.
+  const authCheck = tm.ollama ? checkAuthConfig(spawnReq.auth, process.env, false) : null;
+  let outcome: AgentOutcome;
   try {
-    if (resume) {
+    if (authCheck && !authCheck.ok) {
+      outcome = { outcome: 'failed', text: authCheck.reason, usage: null, costUsd: 0, terminalReason: 'auth_config' };
+    } else if (resume) {
       outcome = await runtime.run({ ...spawnReq, prompt: resume.prompt, resumeSessionId: resume.sessionId }, sink, { signal: cancel.signal });
       // The session is gone (a fresh worker container, a cleared ~/.claude): start over
       // with the whole thread in the prompt instead. Costs a full turn, loses nothing.
@@ -322,7 +329,7 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
     role: task.role, outcome: outcome.outcome,
     text: (outcome.text ?? '').slice(0, 8192),
     turns: outcome.turns ?? null, terminalReason: outcome.terminalReason ?? null,
-    usage: outcome.usage ?? null, costUsd: outcome.costUsd ?? null,
+    usage: outcome.usage ?? null, costUsd: tm.ollama ? 0 : outcome.costUsd ?? null,
   }, task.id);
 
   // A conflict resolution is only done when no file still carries git's markers;
@@ -359,7 +366,9 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
       (kind, payload) => { void api.event(run.id, kind, payload, task.id); }, log);
   }
 
-  const costUsd = outcome.costUsd ?? priceUsage(task.model, outcome.usage, mergeCatalogue(ctx.workerSettings?.modelCatalogExtra).models) ?? 0;
+  // An Ollama task is $0: drop the runtime's figure (Claude Code prices it as Claude) and
+  // use the catalogue rate, which is zero or absent. Its token usage is still recorded.
+  const costUsd = tm.ollama ? 0 : outcome.costUsd ?? priceUsage(task.model, outcome.usage, mergeCatalogue(ctx.workerSettings?.modelCatalogExtra).models) ?? 0;
   const outputRef = task.outputRef; // the artifact the role was asked to write (plan.md, test-report.md, ...)
   // Mirror the artifact to the registry so the UI and the gate can read it without touching this disk.
   // The agent may have written it to the run dir or, using a relative path, into the worktree — look in both.

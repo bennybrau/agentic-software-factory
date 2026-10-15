@@ -21,27 +21,41 @@ import { resolveProviderSecret } from './providers/secrets.js';
  *   openai-compatible  api-key      OPENAI_COMPAT_API_KEY (+ OPENAI_COMPAT_BASE_URL)
  *                      none         nothing (a keyless local server)
  *   github             gh-token     GITHUB_COPILOT_TOKEN
+ *   ollama             none         nothing; baseUrl = OLLAMA_BASE_URL (the local server)
+ *                      api-key      OLLAMA_API_KEY (Ollama Cloud) — the mode is not a setting:
+ *                      it is api-key whenever a Cloud key is set. The worker picks, per
+ *                      task, the catalogue provider's mode and sends the key only to
+ *                      https://ollama.com (auth/ollama.ts).
  * Credentials are org-stored as `secret://org/...` pointers resolved to the live
  * value here. A blank credential returns the bare mode; the worker fails that run
  * with a clear reason rather than the api silently falling back to another mode.
  */
 interface ProviderAuthDef {
-  modeKey: 'AGENT_AUTH_MODE' | 'AGENT_AUTH_OPENAI_MODE' | 'AGENT_AUTH_OPENAI_COMPAT_MODE' | 'AGENT_AUTH_GITHUB_MODE';
+  /** The mode setting; null = the mode is derived (ollama: api-key iff a Cloud key is set). */
+  modeKey: 'AGENT_AUTH_MODE' | 'AGENT_AUTH_OPENAI_MODE' | 'AGENT_AUTH_OPENAI_COMPAT_MODE' | 'AGENT_AUTH_GITHUB_MODE' | null;
   credentialKey: Partial<Record<string, CredentialKey>>;
-  baseUrlKey?: 'OPENAI_BASE_URL' | 'OPENAI_COMPAT_BASE_URL';
+  baseUrlKey?: 'OPENAI_BASE_URL' | 'OPENAI_COMPAT_BASE_URL' | 'OLLAMA_BASE_URL';
 }
-type CredentialKey = 'ANTHROPIC_API_KEY' | 'CLAUDE_CODE_OAUTH_TOKEN' | 'OPENAI_API_KEY' | 'OPENAI_COMPAT_API_KEY' | 'GITHUB_COPILOT_TOKEN';
+type CredentialKey = 'ANTHROPIC_API_KEY' | 'CLAUDE_CODE_OAUTH_TOKEN' | 'OPENAI_API_KEY' | 'OPENAI_COMPAT_API_KEY' | 'GITHUB_COPILOT_TOKEN' | 'OLLAMA_API_KEY';
 
 export const PROVIDER_AUTH: Record<ProviderKind, ProviderAuthDef> = {
   anthropic: { modeKey: 'AGENT_AUTH_MODE', credentialKey: { 'api-key': 'ANTHROPIC_API_KEY', 'oauth-token': 'CLAUDE_CODE_OAUTH_TOKEN' } },
   openai: { modeKey: 'AGENT_AUTH_OPENAI_MODE', credentialKey: { 'api-key': 'OPENAI_API_KEY' }, baseUrlKey: 'OPENAI_BASE_URL' },
   'openai-compatible': { modeKey: 'AGENT_AUTH_OPENAI_COMPAT_MODE', credentialKey: { 'api-key': 'OPENAI_COMPAT_API_KEY' }, baseUrlKey: 'OPENAI_COMPAT_BASE_URL' },
   github: { modeKey: 'AGENT_AUTH_GITHUB_MODE', credentialKey: { 'gh-token': 'GITHUB_COPILOT_TOKEN' } },
+  ollama: { modeKey: null, credentialKey: { 'api-key': 'OLLAMA_API_KEY' }, baseUrlKey: 'OLLAMA_BASE_URL' },
 };
+
+/** A provider's current mode: its setting, or (ollama) api-key when a Cloud key is set. */
+async function modeOf(providerKind: ProviderKind): Promise<string> {
+  const def = PROVIDER_AUTH[providerKind];
+  if (def.modeKey) return String(cfg(def.modeKey));
+  return String(cfg('OLLAMA_API_KEY') ?? '').trim() ? 'api-key' : 'none';
+}
 
 export async function computeRunAuth(providerKind: ProviderKind = 'anthropic'): Promise<RunAuth> {
   const def = PROVIDER_AUTH[providerKind];
-  const mode = String(cfg(def.modeKey));
+  const mode = await modeOf(providerKind);
   const out: RunAuth = { providerKind, mode };
   const baseUrl = def.baseUrlKey ? String(cfg(def.baseUrlKey) ?? '').trim() : '';
   if (baseUrl) out.baseUrl = baseUrl;
@@ -119,7 +133,7 @@ export async function describeAgentAuth(): Promise<ProviderAuthStatus & { provid
 
 async function describeOne(providerKind: ProviderKind): Promise<ProviderAuthStatus> {
   const def = PROVIDER_AUTH[providerKind];
-  const mode = String(cfg(def.modeKey));
+  const mode = await modeOf(providerKind);
   // vertex: "present" = a project is set; the Google login itself is checked on the worker.
   if (providerKind === 'anthropic' && mode === 'vertex') {
     const vertex = vertexAuth();

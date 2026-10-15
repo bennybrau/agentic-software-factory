@@ -23,7 +23,7 @@ export type CloneCredential = z.infer<typeof cloneCredentialSchema>;
  * provider per run: claude-code -> anthropic, codex -> openai or an
  * openai-compatible endpoint (DeepSeek/Qwen/GLM/local vLLM), copilot -> github.
  */
-export const PROVIDER_KINDS = ['anthropic', 'openai', 'openai-compatible', 'github'] as const;
+export const PROVIDER_KINDS = ['anthropic', 'openai', 'openai-compatible', 'github', 'ollama'] as const;
 export const providerKindSchema = z.enum(PROVIDER_KINDS);
 export type ProviderKind = z.infer<typeof providerKindSchema>;
 
@@ -33,6 +33,8 @@ export const AUTH_MODES = {
   openai: ['api-key', 'chatgpt'],
   'openai-compatible': ['api-key', 'none'],
   github: ['gh-token'],
+  // M11: a local/LAN Ollama server takes no key; Ollama Cloud (https://ollama.com) takes OLLAMA_API_KEY.
+  ollama: ['none', 'api-key'],
 } as const satisfies Record<ProviderKind, readonly string[]>;
 export type AnthropicAuthMode = (typeof AUTH_MODES)['anthropic'][number];
 
@@ -69,6 +71,9 @@ const runAuthObject = z.object({
     fastModel: z.string().optional(),
     maxModel: z.string().optional(),
   }).optional(),
+  /** ollama (M11): the provider-native model id the runtime must pin for EVERY call it
+   * makes (Claude Code's background/sub-agent models too), set by the worker per task. */
+  model: z.string().optional(),
   /** @deprecated v1 shim — read `credential`. */
   apiKey: z.string().optional(),
   /** @deprecated v1 shim — read `credential`. */

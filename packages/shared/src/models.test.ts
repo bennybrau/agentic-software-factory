@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MODELS, DEFAULT_ROLE_MODELS, DEFAULT_ROLE_EFFORT, isKnownModel, isKnownEffort, EFFORT_LEVELS, mergeCatalogue, effectiveCatalogue, parseModelAllowlist, substituteModel } from './models.js';
+import { MODELS, DEFAULT_ROLE_MODELS, DEFAULT_ROLE_EFFORT, isKnownModel, isKnownEffort, EFFORT_LEVELS, mergeCatalogue, effectiveCatalogue, parseModelAllowlist, substituteModel, nativeModelId, isOllamaCloud, providerOfModel } from './models.js';
 import { STANDARD_TEAM } from './team.js';
 import { priceUsage, rateFor } from './pricing.js';
 import { resolve, SettingError } from './settings.js';
@@ -154,4 +154,28 @@ test('substituteModel: same tier first, then the nearest; only models the runtim
 
 test('allowlist entries lose surrounding quotes', () => {
   assert.deepEqual([...parseModelAllowlist('"claude-sonnet-5", \'claude-opus-5[1m]\'')!], ['claude-sonnet-5', 'claude-opus-5[1m]']);
+});
+
+test('M11: Ollama providers are built in; ids are namespaced and stripped on the first colon only', () => {
+  const cat = mergeCatalogue({ models: [
+    { id: 'ollama:gpt-oss:20b', tier: 'fast', providerId: 'ollama', runtimes: ['claude-code'] },
+    { id: 'ollama-cloud:glm-5.3', tier: 'max', providerId: 'ollama-cloud', runtimes: ['claude-code', 'codex'] },
+  ] });
+  const local = providerOfModel(cat, 'ollama:gpt-oss:20b');
+  const cloud = providerOfModel(cat, 'ollama-cloud:glm-5.3');
+  assert.deepEqual(local, { id: 'ollama', kind: 'ollama' });
+  assert.equal(cloud?.baseUrl, 'https://ollama.com');
+  assert.equal(nativeModelId('ollama:gpt-oss:20b', local), 'gpt-oss:20b');
+  assert.equal(nativeModelId('ollama-cloud:glm-5.3', cloud), 'glm-5.3');
+  assert.equal(nativeModelId('gpt-oss:20b', local), 'gpt-oss:20b', 'an un-prefixed id is passed through');
+  assert.equal(nativeModelId('claude-sonnet-5', providerOfModel(cat, 'claude-sonnet-5')), 'claude-sonnet-5');
+  assert.equal(nativeModelId('ollama:x', undefined), 'ollama:x', 'unknown provider: untouched');
+  assert.equal(providerOfModel(cat, 'nope'), undefined);
+  assert.equal(isOllamaCloud('https://ollama.com'), true);
+  assert.equal(isOllamaCloud('https://ollama.com/'), true);
+  assert.equal(isOllamaCloud('https://ollama.com.evil.example'), false);
+  assert.equal(isOllamaCloud('http://ollama.com'), false, 'never over plain http');
+  assert.equal(isOllamaCloud('http://localhost:11434'), false);
+  assert.equal(isOllamaCloud(undefined), false);
+  assert.equal(isOllamaCloud('not a url'), false);
 });

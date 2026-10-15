@@ -34,10 +34,39 @@ export interface ModelInfo {
   rate?: ModelRate;
 }
 
+/** Ollama Cloud's API origin (M11). OLLAMA_API_KEY is only ever sent here. */
+export const OLLAMA_CLOUD_URL = 'https://ollama.com';
+
 export const PROVIDERS: ModelProvider[] = [
   { id: 'anthropic', kind: 'anthropic' },
   { id: 'openai', kind: 'openai', credentialKey: 'OPENAI_API_KEY' },
+  // M11: no built-in models. An operator adds `ollama:<name>` / `ollama-cloud:<name>`
+  // entries (rate 0) via MODEL_CATALOG_EXTRA. The local server's URL is OLLAMA_BASE_URL.
+  { id: 'ollama', kind: 'ollama' },
+  { id: 'ollama-cloud', kind: 'ollama', baseUrl: OLLAMA_CLOUD_URL, credentialKey: 'OLLAMA_API_KEY' },
 ];
+
+/** True when `baseUrl` is Ollama Cloud (the only place an Ollama key may go). */
+export function isOllamaCloud(baseUrl: string | undefined): boolean {
+  try { return !!baseUrl && new URL(baseUrl).origin === OLLAMA_CLOUD_URL; } catch { return false; }
+}
+
+/**
+ * The id a runtime passes as --model. Ollama model ids are namespaced by provider
+ * (`ollama:gpt-oss:20b`, `ollama-cloud:glm-5.3`) so they can never collide with a
+ * hosted id; the prefix is split on the FIRST `:` only, since Ollama names contain
+ * `:` themselves. Every other id is passed through unchanged.
+ */
+export function nativeModelId(id: string, provider: Pick<ModelProvider, 'id' | 'kind'> | undefined): string {
+  if (provider?.kind !== 'ollama') return id;
+  return id.startsWith(`${provider.id}:`) ? id.slice(provider.id.length + 1) : id;
+}
+
+/** The provider serving catalogue model `id`, or undefined for an unknown id. */
+export function providerOfModel(cat: ModelCatalogue, id: string | null | undefined): ModelProvider | undefined {
+  const info = id ? cat.models.find((m) => m.id === id) : undefined;
+  return info ? cat.providers.find((p) => p.id === info.providerId) : undefined;
+}
 
 // List prices; cache read = 10% of input, cache write = 125%.
 const OPUS_RATE: ModelRate = { inputPerM: 15, outputPerM: 75, cacheReadPerM: 1.5, cacheWritePerM: 18.75 };

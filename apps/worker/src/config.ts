@@ -49,6 +49,8 @@ export const config = {
   runEventSecret: resolve('RUN_EVENT_SECRET'),
   /** The runtimes this worker offers, in preference order (AGENT_RUNTIMES, or the deprecated AGENT_RUNTIME). */
   runtimes: agentRuntimes(),
+  /** AGENT_PROVIDERS: limit the providers offered (M11 WP4); [] = every one that passes. */
+  providers: resolve('AGENT_PROVIDERS', process.env).split(',').map((x) => x.trim()).filter(Boolean),
   agentAuthMode: resolve('AGENT_AUTH_MODE'),
   claudeBin: resolve('CLAUDE_BIN'),
   codexBin: resolve('CODEX_BIN'),

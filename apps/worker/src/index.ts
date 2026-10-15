@@ -11,12 +11,13 @@ import { createServer } from 'node:http';
 import type { AgentRuntime, ProviderKind } from '@asf/shared';
 import { config } from './config.js';
 import { preflightAgentAuth } from './auth-preflight.js';
-import { providerFor } from './auth/index.js';
+import { extraProviders, providerFor } from './auth/index.js';
+import { preflightOllama } from './ollama-preflight.js';
 import { api } from './api.js';
 import { loadRuntime } from './runtimes/index.js';
 import { runSegment, googleLogin } from './segment.js';
 import { runPublish } from './publish.js';
-import { RuntimeOffer, containerRefusal } from './offer.js';
+import { RuntimeOffer, containerRefusal, type Preflight } from './offer.js';
 import { mintToken, runVertexCheck } from './vertex-check.js';
 import { LoginWatch } from './login-watch.js';
 
@@ -53,9 +54,9 @@ async function executeClaim(claim: NonNullable<Awaited<ReturnType<typeof api.cla
   }
 }
 
-async function pollOnce(runtimes: string[]): Promise<boolean> {
+async function pollOnce(runtimes: string[], capabilities: string[]): Promise<boolean> {
   if (stopping || running >= config.maxConcurrent || !runtimes.length) return false;
-  const claim = await api.claim(runtimes).catch((e) => { log(`claim failed: ${e}`); return null; });
+  const claim = await api.claim(runtimes, capabilities).catch((e) => { log(`claim failed: ${e}`); return null; });
   if (!claim) return false;
   running++; inFlightIds.add(claim.task.id);
   log('claimed', { runId: claim.run.id, role: claim.task.role, seq: claim.task.seq });
@@ -93,14 +94,20 @@ async function main(): Promise<void> {
     const probe = await runtime.probe();
     log('runtime probe', { runtime: kind, ok: probe.ok, version: probe.version });
     if (!probe.ok) { log(`runtime ${kind} did not probe cleanly; not offering it`); missing.push({ kind, reason: 'not installed on this worker' }); continue; }
-    probed.push({ runtime, provider: providerFor(kind), version: probe.version || undefined });
+    // M11 WP4: also checked (and offered) under each extra provider it can drive, so an
+    // Ollama-only worker offers claude-code@ollama though its Claude check fails.
+    // AGENT_PROVIDERS, when set, limits which providers are offered at all.
+    const providers = [providerFor(kind), ...extraProviders(kind)].filter((p) => !config.providers.length || config.providers.includes(p));
+    if (!providers.length) { missing.push({ kind, reason: `AGENT_PROVIDERS=${config.providers.join(',')} leaves it no provider` }); continue; }
+    for (const provider of providers) probed.push({ runtime, provider, version: probe.version || undefined });
   }
   if (!probed.length) { log(`no runtime is installed (tried ${config.runtimes.join(', ')}); exiting`); process.exit(1); }
   // Vertex checks (M9) run here, the only place with the Google login. Started before
   // the wait-for-an-AI loop below: a fresh worker is exactly where the first check runs.
   const claude = probed.find((p) => p.runtime.kind === 'claude-code');
   if (claude) startVertexChecks(claude.runtime);
-  const offer = new RuntimeOffer(probed, preflightAgentAuth, log, config.authRecheckMs);
+  const preflight: Preflight = (rt, auth, o) => (auth.providerKind === 'ollama' ? preflightOllama(auth, o) : preflightAgentAuth(rt, auth, o));
+  const offer = new RuntimeOffer(probed, preflight, log, config.authRecheckMs);
   for (const m of missing) offer.notInstalled(m.kind, m.reason);
   await offer.refresh((p) => effFor(eff, p), fallbackMode);
   while (!offer.kinds.length && !stopping) {
@@ -180,7 +187,7 @@ async function main(): Promise<void> {
   const heartbeat = setInterval(() => {
     void api.heartbeat(offer.status).then((h) => { if (h === 'unknown') registered = false; }, () => {}).then(() => reconcileAuthMode());
   }, config.heartbeatIntervalMs);
-  const poll = setInterval(() => { void (async () => { while (await pollOnce(offer.kinds)) { /* drain capacity */ } })(); }, config.pollIntervalMs);
+  const poll = setInterval(() => { void (async () => { while (await pollOnce(offer.kinds, offer.capabilities)) { /* drain capacity */ } })(); }, config.pollIntervalMs);
 
   const shutdown = async () => {
     if (stopping) return;

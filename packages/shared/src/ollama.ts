@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MODELS, OLLAMA_CLOUD_URL, type ModelInfo, type ModelTier } from './models.js';
+import { mergeCatalogue, MODELS, OLLAMA_CLOUD_URL, type ModelInfo, type ModelTier } from './models.js';
 
 /**
  * Ollama discovery + check (M11 WP3; docs/M11_OLLAMA.md §Discovery). Pure helpers
@@ -124,3 +124,25 @@ export const ollamaCatalogueRequestSchema = z.object({
     tier: z.enum(['fast', 'balanced', 'max']).optional(),
   })).min(1).max(100),
 });
+
+/** True for an `ollama:` / `ollama-cloud:` catalogue id. */
+export function isOllamaModelId(id: string | null | undefined): boolean {
+  return !!id && /^ollama(-cloud)?:/.test(id);
+}
+
+/**
+ * The catalogue ids served by Ollama (M11 WP4 routing): every model whose provider is
+ * of kind `ollama` in the merged catalogue, plus any `ollama:` / `ollama-cloud:` id
+ * (the registry also matches the prefix in SQL, so a model since removed from the
+ * catalogue still never reaches a worker without Ollama). A catalogue that fails to
+ * parse yields [] and the prefix rule alone applies.
+ */
+export function ollamaModelIds(catalogExtra: unknown): string[] {
+  try {
+    const cat = mergeCatalogue(catalogExtra);
+    const kinds = new Map(cat.providers.map((p) => [p.id, p.kind]));
+    return cat.models.filter((m) => kinds.get(m.providerId) === 'ollama' || isOllamaModelId(m.id)).map((m) => m.id);
+  } catch {
+    return [];
+  }
+}

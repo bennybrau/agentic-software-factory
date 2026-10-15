@@ -116,6 +116,8 @@ export interface ProviderAuthStatus {
   vertex?: RunAuth['vertex'];
   /** Set when a credential IS saved but can't be read (#9: ASF_SECRET_KEY missing/wrong). */
   error?: string;
+  /** ollama: OLLAMA_BASE_URL (the local server), so the worker can check it can reach it (M11 WP4). Never a secret. */
+  baseUrl?: string;
 }
 
 /**
@@ -132,6 +134,13 @@ export async function describeAgentAuth(): Promise<ProviderAuthStatus & { provid
 }
 
 async function describeOne(providerKind: ProviderKind): Promise<ProviderAuthStatus> {
+  const s = await describeMode(providerKind);
+  if (providerKind !== 'ollama') return s;
+  const baseUrl = String(cfg('OLLAMA_BASE_URL') ?? '').trim();
+  return baseUrl ? { ...s, baseUrl } : s;
+}
+
+async function describeMode(providerKind: ProviderKind): Promise<ProviderAuthStatus> {
   const def = PROVIDER_AUTH[providerKind];
   const mode = await modeOf(providerKind);
   // vertex: "present" = a project is set; the Google login itself is checked on the worker.

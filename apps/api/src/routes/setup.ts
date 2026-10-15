@@ -127,7 +127,9 @@ export function registerSetupRoutes(app: FastifyInstance, deps: { tickets: Ticke
     // which a worker does only once its OpenAI preflight passed (#163).
     // A worker still registered but whose Claude check now fails (M9 #2: its Google login
     // expired) takes no tasks: it is not "ready", and its own reason says why.
-    const statusDown = (w: (typeof fleet.workers)[number], kind: string) => (w.preflight ?? []).find((s) => s.kind === kind && !s.ok);
+    // M11 WP4: a runtime has one status per provider it can serve; only the team AI's counts here.
+    const teamProvider = teamAi === 'openai' ? 'openai' : 'anthropic';
+    const statusDown = (w: (typeof fleet.workers)[number], kind: string) => (w.preflight ?? []).find((s) => s.kind === kind && (!s.provider || s.provider === teamProvider) && !s.ok);
     const claudeDown = (w: (typeof fleet.workers)[number]) => statusDown(w, 'claude-code');
     const matching = teamAi === 'openai'
       ? fleet.workers.find((w) => (w.runtimes ?? []).includes('codex') && !statusDown(w, 'codex'))

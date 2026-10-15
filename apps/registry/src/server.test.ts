@@ -43,7 +43,11 @@ test('rpc + worker routes over HTTP with the shared secret; SSE carries events',
     await readUntil('run:succeeded');
     // Every event, in commit order: a client resuming from Last-Event-ID must not skip one.
     const seqs = [...buf.matchAll(new RegExp(`id: ${runId}:(\\d+)`, 'g'))].map((m) => Number(m[1]));
-    assert.deepEqual(seqs, seqs.map((_, i) => i + 1), `events out of order or missing: ${seqs.join(',')}`);
+    // Contiguous from wherever the subscription caught the run: run:created commits
+    // before the SSE client subscribes, so whether seq 1 arrives is a race (it lost
+    // often under a busy test DB). What matters is no gap and no reordering after it.
+    assert.ok(seqs.length >= 3 && seqs[0]! <= 2, `too few events: ${seqs.join(',')}`);
+    assert.deepEqual(seqs, seqs.map((_, i) => seqs[0]! + i), `events out of order or missing: ${seqs.join(',')}`);
     assert.match(buf, /task:started/);
     assert.match(buf, /task:finished/);
     await sseDone();

@@ -23,7 +23,7 @@ export function registerWorkerRoutes(app: FastifyInstance, sql: Sql): void {
     if (!p.success) return reply.code(400).send({ error: 'bad_request', issues: p.error.issues });
     const alive = await workers.heartbeat(sql, req.params.id);
     if (!alive) return reply.code(404).send({ error: 'not_found', reason: 'unknown worker; register again' });
-    return { claim: await workers.claimTask(sql, req.params.id, p.data.runtimes) };
+    return { claim: await workers.claimTask(sql, req.params.id, p.data.runtimes, p.data.capabilities) };
   });
   app.post<{ Params: { id: string } }>('/tasks/:id/finish', async (req, reply) => {
     const p = finishTaskInputSchema.safeParse(req.body);

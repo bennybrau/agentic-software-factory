@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   MODELS, PIPELINE_STAGES, QUESTIONS, detectApprovalPreset, applyApprovalPreset, setFactoryMerges, effectiveStages, detectTeamAi, teamAiWrites,
+  MODEL_GROUPS, modelGroup, teamAis, runtimeForPick, allowlistWith,
   BUDGET_PRESETS, detectBudgetPreset, subscriptionSharingWarning, vertexWrites, vertexTier, CLAUDE_TERMS_URL, CLAUDE_USAGE_DOC_URL, type ApprovalPreset, type PipelineStage, type StageConfig,
 } from '@asf/shared/ui';
 import { api } from '../../api';
 import { setupFlags } from '../../setup-flags';
 import { lookQ } from '../ThemeSettings';
 import { VertexSetup, initialVertexDraft, vertexDraftProblem, type VertexDraft } from './vertex';
+import { OllamaModels, emptyOllamaDraft, type OllamaDraft } from './ollama';
 import { Choices, Field, SecretField, CheckButton, Locked, Tip, HealthNote, str, secretIsSet, unanswered, needsFix, type ByKey, type SettingsStore } from './ui';
 
 /**
@@ -283,6 +285,9 @@ export const aiQ: Question = {
   why: 'Pick what your company already pays for.',
   tipNote: 'Claude on Google Cloud uses the Google login of the computer running the factory (gcloud auth application-default login); docs/VERTEX.md. Bedrock is set up in .env only (AGENT_AUTH_MODE=bedrock). A Claude subscription is for one person’s own use (docs/CLAUDE_USAGE.md). Choosing ChatGPT / OpenAI runs every step on Codex with GPT models; you can still pick per ticket when you send it.',
   summary: (b) => {
+    // M11 WP5: roles on different AIs (per-role picker) read as the mix, not just the implementer's.
+    const ais = teamAis((k) => b[k]?.value, catalogueCache);
+    if (ais.length > 1) return <><b>Mixed: {ais.join(' + ')}</b> · each job’s AI is under <b>Which AI model does each job?</b></>;
     if (detectTeamAi((k) => b[k]?.value) === 'openai') {
       return <><b>{AI_LABEL.openai}</b>{!secretIsSet(b.OPENAI_API_KEY) && <span className="warn"> · no key saved yet</span>}</>;
     }
@@ -536,7 +541,7 @@ const ROLES = [
 ] as const;
 const EFFORT_LABEL: Record<string, string> = { low: 'Quick', medium: 'Normal', high: 'Thorough', xhigh: 'Very thorough', max: 'As hard as it can' };
 const TIER_LABEL: Record<string, string> = { fast: 'Fastest', balanced: 'Balanced', max: 'Most capable' };
-type CatalogueModel = { id: string; label: string; tier: string; runtimes: string[] };
+type CatalogueModel = { id: string; label: string; tier: string; runtimes: string[]; providerId?: string };
 // The factory's runnable models (GET /api/models: built-ins + MODEL_CATALOG_EXTRA,
 // narrowed to MODEL_ALLOWLIST). Starts as the built-in list so the first paint
 // works; useCatalogue() swaps in the server's answer. Module-level so the
@@ -546,14 +551,24 @@ function useCatalogue(): CatalogueModel[] {
   const [models, setModels] = useState<CatalogueModel[]>(catalogueCache);
   useEffect(() => {
     let live = true;
-    api.models().then((r) => { catalogueCache = r.models; if (live) setModels(r.models); }).catch(() => { /* keep the built-ins */ });
-    return () => { live = false; };
+    const on = () => { if (live) setModels(catalogueCache); };
+    catalogueListeners.add(on);
+    api.models().then((r) => { catalogueCache = r.models; on(); }).catch(() => { /* keep the built-ins */ });
+    return () => { live = false; catalogueListeners.delete(on); };
   }, []);
   return models;
 }
+/** Re-read the catalogue everywhere (after the Ollama question adds models). */
+const catalogueListeners = new Set<() => void>();
+function refreshCatalogue(): Promise<void> {
+  return api.models().then((r) => { catalogueCache = r.models; catalogueListeners.forEach((f) => f()); }).catch(() => {});
+}
 const modelLabel = (id: string) => {
   const m = catalogueCache.find((x) => x.id === id);
-  return m ? `${TIER_LABEL[m.tier] ?? m.tier} (${m.label.split(' — ')[0]})` : id;
+  if (!m) return id;
+  const g = modelGroup(m);
+  if (g === 'Ollama on your computer' || g === 'Ollama Cloud') return `${m.id.replace(/^ollama(-cloud)?:/, '')} (free)`;
+  return `${TIER_LABEL[m.tier] ?? m.tier} (${m.label.split(' — ')[0]})`;
 };
 
 export const modelsQ: Question = {
@@ -562,6 +577,8 @@ export const modelsQ: Question = {
   why: 'Stronger models do better work on hard tickets, but cost more and take longer. You can still change this for a single ticket when you send it.',
   summary: (b) => {
     const tiers = ROLES.map((r) => { const id = str(b[`MODEL_DEFAULT_${r.role}`]); return catalogueCache.find((m) => m.id === id)?.tier ?? (id || '?'); });
+    const ais = teamAis((k) => b[k]?.value, catalogueCache);
+    if (ais.length > 1) return <>{ROLES.map((r) => `${r.label.toLowerCase()}: ${modelLabel(str(b[`MODEL_DEFAULT_${r.role}`]))}`).join(' · ')}</>;
     const plan = TIER_LABEL[tiers[0]] ?? tiers[0], rest = TIER_LABEL[tiers[2]] ?? tiers[2];
     return tiers[0] === tiers[1] && tiers[2] === tiers[3]
       ? <><b>{plan}</b> plans and writes code · <b>{rest}</b> tests and reviews</>
@@ -570,7 +587,15 @@ export const modelsQ: Question = {
   Body: function ModelsBody({ store, actions }) {
     const b = store.byKey;
     const models = useCatalogue();
-    const [d, setD] = useState<Record<string, string>>(() => Object.fromEntries(ROLES.flatMap((r) => [[`MODEL_DEFAULT_${r.role}`, str(b[`MODEL_DEFAULT_${r.role}`])], [`EFFORT_DEFAULT_${r.role}`, str(b[`EFFORT_DEFAULT_${r.role}`])]])));
+    const [d, setD] = useState<Record<string, string>>(() => Object.fromEntries(ROLES.flatMap((r) => [[`MODEL_DEFAULT_${r.role}`, str(b[`MODEL_DEFAULT_${r.role}`])], [`EFFORT_DEFAULT_${r.role}`, str(b[`EFFORT_DEFAULT_${r.role}`])], [`RUNTIME_DEFAULT_${r.role}`, str(b[`RUNTIME_DEFAULT_${r.role}`])]])));
+    // M11 WP5: every model, grouped by the AI it runs on; picking one moves the role to a
+    // runtime that can drive it (an Ollama model keeps claude-code; a GPT model, Codex).
+    const pick = (role: string, id: string) => {
+      const rk = `RUNTIME_DEFAULT_${role}`;
+      const rt = b[rk]?.envPinned ? null : runtimeForPick(models.find((m) => m.id === id), d[rk] ?? '');
+      setD({ ...d, [`MODEL_DEFAULT_${role}`]: id, ...(rt ? { [rk]: rt } : {}) });
+    };
+    const groups = MODEL_GROUPS.map((g) => ({ g, ms: models.filter((m) => modelGroup(m) === g) })).filter((x) => x.ms.length);
     const { busy, error, run } = useSaver(store);
     const save = () => run(Object.entries(d).filter(([k, v]) => v !== str(b[k])));
     return (
@@ -582,9 +607,11 @@ export const modelsQ: Question = {
             return (
               <tr key={r.role}>
                 <td>{r.label}</td>
-                <td><select value={d[mk]} disabled={b[mk]?.envPinned} onChange={(e) => setD({ ...d, [mk]: e.target.value })}>
+                <td><select value={d[mk]} disabled={b[mk]?.envPinned} onChange={(e) => pick(r.role, e.target.value)}>
                   {!models.some((m) => m.id === d[mk]) && <option value={d[mk]}>{d[mk] ? `${d[mk]} (not available)` : 'Choose a model'}</option>}
-                  {models.filter((m) => m.runtimes.includes(str(b[`RUNTIME_DEFAULT_${r.role}`]) || 'claude-code')).map((m) => <option key={m.id} value={m.id}>{modelLabel(m.id)}</option>)}
+                  {groups.map(({ g, ms }) => (
+                    <optgroup key={g} label={g}>{ms.map((m) => <option key={m.id} value={m.id}>{modelLabel(m.id)}</option>)}</optgroup>
+                  ))}
                 </select></td>
                 <td><select value={d[ek]} disabled={b[ek]?.envPinned} onChange={(e) => setD({ ...d, [ek]: e.target.value })}>
                   {(b[ek]?.values ?? []).map((v) => <option key={v} value={v}>{EFFORT_LABEL[v] ?? v}</option>)}
@@ -593,6 +620,76 @@ export const modelsQ: Question = {
             );
           })}
         </tbody></table>
+        {actions({ save, busy, error })}
+      </>
+    );
+  },
+};
+
+// ── 6b. Ollama (M11 WP5) ─────────────────────────────────────────────────────
+
+const ollamaIds = () => catalogueCache.filter((m) => { const g = modelGroup(m); return g === 'Ollama on your computer' || g === 'Ollama Cloud'; }).map((m) => m.id);
+
+export const ollamaQ: Question = {
+  id: 'ollama',
+  title: 'Use free models with Ollama?',
+  why: 'Ollama runs open models on your own computer, or on Ollama Cloud. Jobs on them cost nothing. They are slower and less capable than Claude, so they suit simple tickets or one job (such as writing the code) in a mixed team.',
+  tipNote: 'Local: Ollama 0.14.0 or newer, listening on all interfaces (OLLAMA_HOST=0.0.0.0). From the bundled containers the address is http://host.docker.internal:11434. Models need tool calling and 64k of context. Cloud keys only ever go to https://ollama.com. docs/OLLAMA.md',
+  summary: (b) => {
+    const n = ollamaIds().length;
+    const where = [str(b.OLLAMA_BASE_URL) && `server at ${str(b.OLLAMA_BASE_URL)}`, secretIsSet(b.OLLAMA_API_KEY) && 'Ollama Cloud key saved'].filter(Boolean).join(' · ');
+    if (!where && !n) return <span className="muted">Not set up</span>;
+    return <><b>{n ? `${n} model${n === 1 ? '' : 's'} added` : 'No models added yet'}</b>{where && <> · {where}</>}</>;
+  },
+  Body: function OllamaBody({ store, actions }) {
+    const b = store.byKey;
+    const models = useCatalogue();
+    const have = models.map((m) => m.id);
+    const [url, setUrl] = useState(str(b.OLLAMA_BASE_URL));
+    const [key, setKey] = useState('');
+    const [draft, setDraft] = useState<OllamaDraft>(emptyOllamaDraft);
+    const { busy, error, setError, run } = useSaver(store);
+    const [note, setNote] = useState<string | null>(null);
+    const urlProblem = () => (url.trim() && !/^https?:\/\/[^\s/]+/.test(url.trim()) ? 'The server address starts with http:// (for example http://host.docker.internal:11434).' : null);
+    const saveConnection = () => run([
+      ...(url.trim() !== str(b.OLLAMA_BASE_URL) ? [['OLLAMA_BASE_URL', url.trim() || null] as [string, unknown]] : []),
+      ...secretEntry('OLLAMA_API_KEY', key),
+    ], urlProblem);
+    const save = async (): Promise<boolean> => {
+      if (!(await saveConnection())) return false;
+      const picked = Object.values(draft.picked).filter((m) => !have.includes(m.id));
+      if (!picked.length) return true;
+      const r = await api.ollamaCatalogue(picked);
+      if (r.status !== 200) { setError(r.body.reason ?? `Couldn’t add the models (${r.status}).`); return false; }
+      const ids = picked.map((m) => m.id);
+      const allow = allowlistWith(b.MODEL_ALLOWLIST?.value, ids);
+      if (allow && b.MODEL_ALLOWLIST?.envPinned) setNote(`Added. Your admin limits the factory’s models in .env (MODEL_ALLOWLIST), so add ${ids.join(', ')} there too.`);
+      else if (allow && !(await run([['MODEL_ALLOWLIST', allow]]))) return false;
+      store.reload();
+      await refreshCatalogue();
+      setDraft(emptyOllamaDraft());
+      return true;
+    };
+    const cloudSet = secretIsSet(b.OLLAMA_API_KEY) || !!key.trim();
+    return (
+      <>
+        <h4 style={{ margin: '4px 0' }}>On your own computer</h4>
+        <Field s={b.OLLAMA_BASE_URL} label="Ollama server address" placeholder="http://host.docker.internal:11434" value={url} onChange={setUrl}
+          help={<>Install Ollama from <a href="https://ollama.com/download" target="_blank" rel="noreferrer">ollama.com</a>, pull a model that can use tools (e.g. <span className="mono">ollama pull qwen3-coder</span>), and start it with <span className="mono">OLLAMA_HOST=0.0.0.0</span> so the factory can reach it. Leave blank if you only use Ollama Cloud.</>} />
+        {(url.trim() || str(b.OLLAMA_BASE_URL)) && <OllamaModels source="local" inCatalogue={have} draft={draft} setDraft={setDraft} beforeList={saveConnection} />}
+
+        <h4 style={{ margin: '18px 0 4px' }}>On Ollama Cloud</h4>
+        <SecretField s={b.OLLAMA_API_KEY} label="Ollama Cloud key" placeholder="Paste your key" value={key} onChange={setKey} howTo={[
+          <>Sign in at <a href="https://ollama.com" target="_blank" rel="noreferrer">ollama.com</a> (the free plan includes models such as gpt-oss:120b).</>,
+          <>Open <a href="https://ollama.com/settings/keys" target="_blank" rel="noreferrer">Settings → Keys</a>, click <b>Add key</b>, and paste it here.</>,
+        ]} />
+        {cloudSet && <OllamaModels source="cloud" inCatalogue={have} draft={draft} setDraft={setDraft} beforeList={saveConnection} />}
+
+        <p className="muted small" style={{ marginTop: 10 }}>
+          Tick a model to check it: it must call tools, answer, and have at least 64k of context. Ticked models are added on Save, at no cost.
+          Then choose which job uses them under <b>Which AI model does each job?</b>, or pick one for a single ticket when you send it.
+        </p>
+        {note && <p className="warn small">{note}</p>}
         {actions({ save, busy, error })}
       </>
     );
@@ -712,4 +809,4 @@ export const alertsQ: Question = {
 };
 
 export const ESSENTIALS: Question[] = [ticketsQ, codeQ, aiQ, approvalsQ, spendingQ];
-export const LATER: Question[] = [modelsQ, boardQ, guidanceQ, alertsQ, lookQ];
+export const LATER: Question[] = [ollamaQ, modelsQ, boardQ, guidanceQ, alertsQ, lookQ];

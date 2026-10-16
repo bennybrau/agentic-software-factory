@@ -1,4 +1,4 @@
-import type { CreateRecurringTaskInput, RecurringTask, UpdateRecurringTaskInput, SplitFamilyWire, AdhocLimits, AdhocTask, AdhocFileInput, ActiveThemeWire, ThemeSummaryWire, ThemeImageRef, ArtifactWire, ArtifactVersionWire, TaskProgressWire, GateWire, RunMessageWire, Run, RunTask, RunEvent, SettingView, FleetWire, TodayWire, WorkQueueEntry, NotificationWire, TicketScope, TicketSprint, LocalWorkerStatus, UpdateStatus, ThirdPartySkill, SkillRole, VertexCheckState } from '@asf/shared';
+import type { CreateRecurringTaskInput, RecurringTask, UpdateRecurringTaskInput, SplitFamilyWire, AdhocLimits, AdhocTask, AdhocFileInput, ActiveThemeWire, ThemeSummaryWire, ThemeImageRef, ArtifactWire, ArtifactVersionWire, TaskProgressWire, GateWire, RunMessageWire, Run, RunTask, RunEvent, SettingView, FleetWire, TodayWire, WorkQueueEntry, NotificationWire, TicketScope, TicketSprint, LocalWorkerStatus, UpdateStatus, ThirdPartySkill, SkillRole, VertexCheckState, OllamaSource, OllamaModelsResult, OllamaCheck } from '@asf/shared';
 
 export interface TicketRow { id: string; key: string; title: string; bucket: string; priority: number | null; status: string; url: string; body: string; }
 export interface RunDetail { run: Run; tasks: RunTask[]; gates: GateWire[]; artifacts: ArtifactWire[]; artifactVersions?: ArtifactVersionWire[]; taskProgress?: Record<string, TaskProgressWire>; messages?: RunMessageWire[]; split?: SplitFamilyWire | null;
@@ -131,6 +131,9 @@ export const api = {
   models: () => fetch('/api/models').then(j<{ models: { id: string; label: string; tier: string; providerId: string; runtimes: string[] }[] }>),
   vertexCheckStart: (req: { projectId: string; region: string; models: string[] }) => sendJson<{ id: string }>('POST', '/api/providers/vertex/check', req),
   vertexCheck: (id: string) => fetch(`/api/providers/vertex/check/${encodeURIComponent(id)}`).then(j<VertexCheckState>),
+  ollamaModels: (source: OllamaSource) => fetch(`/api/providers/ollama/models?source=${source}`).then(j<OllamaModelsResult>),
+  ollamaCheck: (source: OllamaSource, model: string) => sendJson<OllamaCheck>('POST', '/api/providers/ollama/check', { source, model }),
+  ollamaCatalogue: (models: { id: string; tier?: string }[]) => sendJson<{ ok?: boolean; models?: string[]; reason?: string }>('POST', '/api/providers/ollama/catalogue', { models }),
   openaiCheck: () => fetch('/api/providers/openai/check').then(j<{ ok: boolean; identity?: string; reason?: string; code?: string }>),
   fleet: () => fetch('/api/fleet').then(j<Fleet>),
   setupStatus: () => fetch('/api/setup/status').then(j<SetupStatus>),

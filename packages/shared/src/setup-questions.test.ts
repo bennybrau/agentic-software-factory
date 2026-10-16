@@ -7,6 +7,7 @@ import {
   detectBudgetPreset, APPROVAL_PRESETS, detectTeamAi, teamAiWrites, TEAM_AI_MODELS,
 } from './setup-questions.js';
 import { MODELS } from './models.js';
+import { modelGroup, teamAis, runtimeForPick, allowlistWith } from './setup-questions.js';
 
 const orgSettable = Object.entries(SETTINGS).filter(([, d]) => (d.tiers as readonly string[]).includes('org')).map(([k]) => k);
 
@@ -101,4 +102,42 @@ test('teamAiWrites never writes a model the (allowlisted) catalogue hides', () =
   const toOpenai = Object.fromEntries(teamAiWrites('openai', () => '', narrowed));
   assert.equal(toOpenai.RUNTIME_DEFAULT_PLANNER, 'codex');
   assert.equal(toOpenai.MODEL_DEFAULT_PLANNER, undefined);
+});
+
+// ── M11 WP5: per-role picker groups, the team mix, the Ollama question's writes ──
+
+test('modelGroup: Claude, OpenAI, Ollama local and Cloud', () => {
+  assert.equal(modelGroup({ id: 'claude-sonnet-5', providerId: 'anthropic' }), 'Claude');
+  assert.equal(modelGroup({ id: 'claude-sonnet-5@20250929', providerId: 'vertex' }), 'Claude');
+  assert.equal(modelGroup({ id: 'gpt-6-sol', providerId: 'openai' }), 'OpenAI');
+  assert.equal(modelGroup({ id: 'ollama:qwen3-coder', providerId: 'ollama' }), 'Ollama on your computer');
+  assert.equal(modelGroup({ id: 'ollama-cloud:gpt-oss:120b', providerId: 'ollama-cloud' }), 'Ollama Cloud');
+  assert.equal(modelGroup({ id: 'ollama-cloud:gpt-oss:120b' }), 'Ollama Cloud', 'by id when the provider is unknown');
+  assert.equal(modelGroup({ id: 'x@1' }), 'Other');
+});
+
+test('teamAis: one AI, a Claude + Ollama mix, unknown ids ignored', () => {
+  const cat = [...MODELS, { id: 'ollama-cloud:gpt-oss:120b', providerId: 'ollama-cloud' }];
+  const get = (v: Record<string, string>) => (k: string) => v[k];
+  const claude = { MODEL_DEFAULT_PLANNER: 'claude-opus-4-8', MODEL_DEFAULT_IMPLEMENTER: 'claude-opus-4-8', MODEL_DEFAULT_TESTER: 'claude-sonnet-5', MODEL_DEFAULT_REVIEWER: 'claude-sonnet-5' };
+  assert.deepEqual(teamAis(get(claude), cat), ['Claude']);
+  assert.deepEqual(teamAis(get({ ...claude, MODEL_DEFAULT_IMPLEMENTER: 'ollama-cloud:gpt-oss:120b' }), cat), ['Claude', 'Ollama']);
+  assert.deepEqual(teamAis(get({ ...claude, MODEL_DEFAULT_PLANNER: 'x@1' }), cat), ['Claude']);
+});
+
+test('runtimeForPick: keeps a runtime that can drive the model, else its first', () => {
+  const ollama = { runtimes: ['claude-code', 'codex'] };
+  assert.equal(runtimeForPick(ollama, 'claude-code'), null);
+  assert.equal(runtimeForPick(ollama, 'codex'), null, 'an Ollama model on a Codex role keeps Codex');
+  assert.equal(runtimeForPick(ollama, ''), null, 'blank = claude-code, which drives it');
+  assert.equal(runtimeForPick({ runtimes: ['codex'] }, 'claude-code'), 'codex', 'a GPT model moves the role to Codex');
+  assert.equal(runtimeForPick({ runtimes: ['claude-code'] }, 'codex'), 'claude-code');
+  assert.equal(runtimeForPick(undefined, 'codex'), null);
+});
+
+test('allowlistWith: a blank list stays blank; a list in use gains the new ids once', () => {
+  assert.equal(allowlistWith('', ['ollama:qwen3-coder']), null);
+  assert.equal(allowlistWith(undefined, ['ollama:qwen3-coder']), null);
+  assert.equal(allowlistWith('claude-sonnet-5, claude-opus-4-8', ['ollama:qwen3-coder', 'claude-sonnet-5']), 'claude-sonnet-5,claude-opus-4-8,ollama:qwen3-coder');
+  assert.equal(allowlistWith('claude-sonnet-5,ollama:qwen3-coder', ['ollama:qwen3-coder']), null);
 });

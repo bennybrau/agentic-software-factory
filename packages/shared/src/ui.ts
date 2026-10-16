@@ -10,6 +10,7 @@ export * from './claude-terms.js';
 export * from './pipeline.js';
 export { MODELS } from './models.js';
 export * from './vertex.js';
+export * from './ollama.js';
 export * from './adhoc.js';
 export * from './split.js';
 export * from './conflict.js';

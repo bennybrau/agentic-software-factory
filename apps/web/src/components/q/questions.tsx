@@ -628,19 +628,23 @@ export const modelsQ: Question = {
 
 // ── 6b. Ollama (M11 WP5) ─────────────────────────────────────────────────────
 
-const ollamaIds = () => catalogueCache.filter((m) => { const g = modelGroup(m); return g === 'Ollama on your computer' || g === 'Ollama Cloud'; }).map((m) => m.id);
+const isOllama = (m: CatalogueModel) => { const g = modelGroup(m); return g === 'Ollama on your computer' || g === 'Ollama Cloud'; };
+
+/** The collapsed row's answer. A component, not a plain read of catalogueCache: the row
+ *  renders before anything has fetched /api/models, and the cache alone never re-renders it. */
+function OllamaSummary({ b }: { b: ByKey }) {
+  const n = useCatalogue().filter(isOllama).length;
+  const where = [str(b.OLLAMA_BASE_URL) && `server at ${str(b.OLLAMA_BASE_URL)}`, secretIsSet(b.OLLAMA_API_KEY) && 'Ollama Cloud key saved'].filter(Boolean).join(' · ');
+  if (!where && !n) return <span className="muted">Not set up</span>;
+  return <><b>{n ? `${n} model${n === 1 ? '' : 's'} added` : 'No models added yet'}</b>{where && <> · {where}</>}</>;
+}
 
 export const ollamaQ: Question = {
   id: 'ollama',
   title: 'Use free models with Ollama?',
   why: 'Ollama runs open models on your own computer, or on Ollama Cloud. Jobs on them cost nothing. They are slower and less capable than Claude, so they suit simple tickets or one job (such as writing the code) in a mixed team.',
   tipNote: 'Local: Ollama 0.14.0 or newer, listening on all interfaces (OLLAMA_HOST=0.0.0.0). From the bundled containers the address is http://host.docker.internal:11434. Models need tool calling and 64k of context. Cloud keys only ever go to https://ollama.com. docs/OLLAMA.md',
-  summary: (b) => {
-    const n = ollamaIds().length;
-    const where = [str(b.OLLAMA_BASE_URL) && `server at ${str(b.OLLAMA_BASE_URL)}`, secretIsSet(b.OLLAMA_API_KEY) && 'Ollama Cloud key saved'].filter(Boolean).join(' · ');
-    if (!where && !n) return <span className="muted">Not set up</span>;
-    return <><b>{n ? `${n} model${n === 1 ? '' : 's'} added` : 'No models added yet'}</b>{where && <> · {where}</>}</>;
-  },
+  summary: (b) => <OllamaSummary b={b} />,
   Body: function OllamaBody({ store, actions }) {
     const b = store.byKey;
     const models = useCatalogue();

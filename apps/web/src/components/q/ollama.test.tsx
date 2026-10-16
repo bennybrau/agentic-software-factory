@@ -62,3 +62,8 @@ test('the per-role picker groups models by AI', () => {
   assert.match(html, /<optgroup label="Claude">/);
   assert.match(html, /<optgroup label="OpenAI">/, 'every model is offered; picking one moves the role to a runtime that drives it');
 });
+
+test('the collapsed Ollama row is a component, so it re-renders once /api/models answers', () => {
+  // A plain read of the module cache showed "No models added yet" on a fresh Settings page (v1.8.0).
+  assert.equal(typeof (ollamaQ.summary(store.byKey) as { type?: unknown }).type, 'function');
+});

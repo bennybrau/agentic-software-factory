@@ -270,6 +270,8 @@ export const SETTINGS = {
 
   PIPELINE_STAGES: S({ type: 'json', default: {}, tiers: ['org'], group: 'Policy', readBy: ['api'],
     description: 'Per-stage pipeline config set in Settings ("When should it check with you?"): which stages ASF performs and whether a human approves each. Shape {"<stage>":{"enabled":bool,"gate":"required|notify|auto"}} for stages plan, implement, test, review, create_mr, merge. Empty = the standard team with all gates required. The merge stage gate (before_merge) may be relaxed here (org tier) but never from a dispatch; create_mr cannot be off while merge is on.' }),
+  RUN_MAX_MINUTES: S({ type: 'number', default: 0, tiers: ['env', 'org'], group: 'Models & budget', readBy: ['registry'],
+    description: 'Cancel a run once its agents have worked this many minutes in total (0 = no limit). Time spent waiting for a person (a gate, a question) does not count. Suggested: 180 when any job runs on Ollama, whose local models can grind slowly for hours; MAX_TURNS_* and SEGMENT_TIMEOUT_MS still bound each task (M11).' }),
   ORG_MAX_COST_USD: S({ type: 'number', default: 25, tiers: ['env', 'org'], group: 'Models & budget', readBy: ['api'], description: 'Hard per-run cap. A dispatch asking for more is refused with a reason.' }),
   ORG_MONTHLY_BUDGET_USD: S({ type: 'number', default: 0, tiers: ['env', 'org'], group: 'Models & budget', readBy: ['api'], description: 'Dispatch refuses once this calendar month’s summed run cost passes it. 0 = no budget.' }),
   LOOP_REPEAT_DETECT: S({ type: 'boolean', default: true, tiers: ['env'], group: 'Policy', readBy: ['registry'],

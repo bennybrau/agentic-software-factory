@@ -179,6 +179,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 | `EFFORT_DEFAULT_IMPLEMENTER` | low \| medium \| high \| xhigh \| max | `high` | env, org | api | Reasoning effort the implementer runs with unless the dispatch overrides it. |
 | `EFFORT_DEFAULT_TESTER` | low \| medium \| high \| xhigh \| max | `low` | env, org | api | Reasoning effort the tester runs with unless the dispatch overrides it. |
 | `EFFORT_DEFAULT_REVIEWER` | low \| medium \| high \| xhigh \| max | `medium` | env, org | api | Reasoning effort the reviewer runs with unless the dispatch overrides it. |
+| `RUN_MAX_MINUTES` | number | `0` | env, org | registry | Cancel a run once its agents have worked this many minutes in total (0 = no limit). Time spent waiting for a person (a gate, a question) does not count. Suggested: 180 when any job runs on Ollama, whose local models can grind slowly for hours; MAX_TURNS_* and SEGMENT_TIMEOUT_MS still bound each task (M11). |
 | `ORG_MAX_COST_USD` | number | `25` | env, org | api | Hard per-run cap. A dispatch asking for more is refused with a reason. |
 | `ORG_MONTHLY_BUDGET_USD` | number | `0` | env, org | api | Dispatch refuses once this calendar month’s summed run cost passes it. 0 = no budget. |
 

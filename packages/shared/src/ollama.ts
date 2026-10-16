@@ -159,3 +159,15 @@ export function ollamaModelIds(catalogExtra: unknown): string[] {
     return [];
   }
 }
+
+/** The Ollama Cloud page with the account's usage (Cloud spend isn't in ASF dollars). */
+export const OLLAMA_CLOUD_USAGE_URL = 'https://ollama.com/settings';
+
+/**
+ * Whether a $0 task is free by design (an Ollama model) rather than unpriced (a
+ * plan-billed runtime or a model with no rate): the run view says "free (Ollama)" and
+ * Admin's unpriced count leaves it out (M11 WP6).
+ */
+export function isFreeModel(id: string | null | undefined, ollamaIds: readonly string[] = []): boolean {
+  return isOllamaModelId(id) || (!!id && ollamaIds.includes(id));
+}

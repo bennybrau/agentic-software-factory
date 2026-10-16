@@ -31,7 +31,7 @@ export const QUESTIONS: readonly QuestionDef[] = [
     'RUNTIME_DEFAULT_PLANNER', 'RUNTIME_DEFAULT_IMPLEMENTER', 'RUNTIME_DEFAULT_TESTER', 'RUNTIME_DEFAULT_REVIEWER'] },
   { id: 'approvals', tier: 'essentials', keys: ['PIPELINE_STAGES'] },
   { id: 'spending', tier: 'essentials', keys: ['ORG_MAX_COST_USD', 'ORG_MONTHLY_BUDGET_USD'] },
-  { id: 'ollama', tier: 'later', keys: ['OLLAMA_BASE_URL', 'OLLAMA_API_KEY'] },
+  { id: 'ollama', tier: 'later', keys: ['OLLAMA_BASE_URL', 'OLLAMA_API_KEY', 'RUN_MAX_MINUTES'] },
   { id: 'models', tier: 'later', keys: ['MODEL_DEFAULT_PLANNER', 'MODEL_DEFAULT_IMPLEMENTER', 'MODEL_DEFAULT_TESTER', 'MODEL_DEFAULT_REVIEWER', 'EFFORT_DEFAULT_PLANNER', 'EFFORT_DEFAULT_IMPLEMENTER', 'EFFORT_DEFAULT_TESTER', 'EFFORT_DEFAULT_REVIEWER'] },
   { id: 'board', tier: 'later', keys: ['TICKET_STATUS_INPROGRESS', 'TICKET_STATUS_INREVIEW', 'TICKET_STATUS_DONE', 'TICKET_ASSIGNEE'] },
   { id: 'guidance', tier: 'later', keys: ['ROLE_SKILL_PLANNER', 'ROLE_SKILL_IMPLEMENTER', 'ROLE_SKILL_TESTER', 'ROLE_SKILL_REVIEWER'] },

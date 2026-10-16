@@ -3,13 +3,14 @@ import { config } from '../config.js';
 import { appendEventTx, setRunState } from './store.js';
 import { orphanTask } from './workers.js';
 import { abandonExpiredGates } from './gates.js';
+import { enforceTimeLimit } from './time-limit.js';
 
 /**
  * The fallback for a kill -9. Registration/deregistration are the primary
  * path; this notices what they could not report. It is a set of decisions,
  * not queries, which is why exactly one process (the registry) runs it.
  */
-export interface SweepResult { staleRuns: string[]; deadWorkers: string[]; prunedEvents: number; abandonedGates: string[] }
+export interface SweepResult { staleRuns: string[]; deadWorkers: string[]; prunedEvents: number; abandonedGates: string[]; timeLimited?: string[] }
 
 export async function sweep(sql: Sql, now: Date = new Date()): Promise<SweepResult> {
   const result: SweepResult = { staleRuns: [], deadWorkers: [], prunedEvents: 0, abandonedGates: [] };
@@ -38,6 +39,7 @@ export async function sweep(sql: Sql, now: Date = new Date()): Promise<SweepResu
     result.prunedEvents = pruned.length;
   });
   result.abandonedGates = await abandonExpiredGates(sql, now);
+  result.timeLimited = await enforceTimeLimit(sql, now);
   return result;
 }
 
@@ -45,7 +47,7 @@ export function startSweeper(sql: Sql, log: { info: (o: unknown, m?: string) => 
   const timer = setInterval(async () => {
     try {
       const r = await sweep(sql);
-      if (r.staleRuns.length || r.deadWorkers.length || r.prunedEvents || r.abandonedGates.length) log.info(r, 'sweep');
+      if (r.staleRuns.length || r.deadWorkers.length || r.prunedEvents || r.abandonedGates.length || r.timeLimited?.length) log.info(r, 'sweep');
     } catch (err) { log.error(err, 'sweep failed'); }
   }, config.reconcileIntervalMs);
   timer.unref();

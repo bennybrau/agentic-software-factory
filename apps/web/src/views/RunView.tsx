@@ -14,6 +14,7 @@ import { PAGE, outcomeLabel, runStateLabel, taskStateLabel } from '../words';
 import { groupStages, type Attempt } from '../stages';
 import { crewName, laneLabel, memberName } from '../theme-view';
 import { useMe } from '../useMe';
+import { runCostText, taskCostText } from '../cost-words';
 
 // Run page view preferences (#155), kept per browser. localStorage can throw
 // (private mode, disabled storage), so every access is guarded.
@@ -98,7 +99,7 @@ export function RunView() {
           )}
         </div>
         <div className="row">
-          <span className="muted">${run.costUsd.toFixed(2)} / ${run.maxCostUsd.toFixed(0)}</span>
+          <span className="muted">{runCostText(run, detail.tasks)}</span>
           {!['succeeded', 'failed', 'cancelled', 'halted'].includes(run.state) && <button className="btn ghost" onClick={() => api.cancel(runId).then(load)}>Cancel</button>}
           {run.state === 'stale' && <button className="btn" onClick={() => api.resume(runId).then(load)}>Resume</button>}
         </div>
@@ -180,7 +181,7 @@ export function RunView() {
                   {s.attempts.map((a) => (
                     <div key={a.task.id}>
                       <div onClick={() => setOpenTask(openTask === a.task.id ? null : a.task.id)} style={{ cursor: 'pointer', fontSize: 13, padding: '2px 0' }} title="Show what this try was asked, said, and changed">
-                        <span className={`dot ${a.task.state}`} />Try {a.n} · ${a.task.costUsd.toFixed(2)}{feedbackText(a)}{openTask === a.task.id ? ' ▾' : ' ▸'}
+                        <span className={`dot ${a.task.state}`} />Try {a.n} · {taskCostText(a.task)}{feedbackText(a)}{openTask === a.task.id ? ' ▾' : ' ▸'}
                       </div>
                       {openTask === a.task.id && <TaskPanel task={a.task} versions={detail.artifactVersions ?? []} events={events} />}
                     </div>
@@ -374,7 +375,7 @@ function TaskPanel({ task, versions, events }: { task: RunTask; versions: Versio
           <div>model: <span className="mono">{task.model ?? '—'}</span></div>
           <div>turns: {result?.turns != null ? String(result.turns) : '—'}{started?.maxTurns ? ` / ${String(started.maxTurns)} ceiling` : ''}</div>
           <div>tokens: {usage ? `${usage.inputTokens ?? 0} in · ${usage.outputTokens ?? 0} out` : '—'}</div>
-          <div>cost: ${task.costUsd.toFixed(4)}</div>
+          <div>cost: {taskCostText(task, 4)}</div>
         </div>
       )}
     </div>

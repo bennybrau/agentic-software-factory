@@ -7,7 +7,7 @@ OpenAI, an OpenAI-compatible endpoint, GitHub). One worker can offer several run
 
 | runtime | CLI | providers | installed in the worker image |
 | --- | --- | --- | --- |
-| `claude-code` | `claude -p … --output-format json` | anthropic | yes |
+| `claude-code` | `claude -p … --output-format json` | anthropic, ollama ([`OLLAMA.md`](OLLAMA.md)) | yes |
 | `codex` | `codex exec --json` | openai, openai-compatible | yes |
 | `opencode` | `opencode run --format json` | anthropic, openai, openai-compatible | no; install it and set `OPENCODE_BIN` |
 | `copilot` | `copilot -p … --silent` | github | no; install it and set `COPILOT_BIN` |

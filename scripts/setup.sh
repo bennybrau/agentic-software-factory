@@ -498,6 +498,21 @@ else
   COMPOSE=(docker compose -f docker-compose.self-host.yml)
   COMPOSE_ARG="-f docker-compose.self-host.yml"
 fi
+# A native Linux daemon doesn't define host.docker.internal, which the api and worker
+# use to reach a server on this machine (Ollama, docs/OLLAMA.md): layer the overlay
+# that maps it. ASF_HOST_GATEWAY in .env: 1 = always, 0 = never, blank = Linux only.
+# Same rule as host_gateway_on in scripts/lib/common.sh (this script is standalone).
+if [ "$MODE" != "3" ]; then
+  case "$(read_env_key "$ENV_FILE" ASF_HOST_GATEWAY 2>/dev/null || true)" in
+    1|on|true|yes)  hg=1 ;;
+    0|off|false|no) hg=0 ;;
+    *) if [ "$(uname -s)" = "Linux" ]; then hg=1; else hg=0; fi ;;
+  esac
+  if [ "$hg" = 1 ]; then
+    COMPOSE+=(-f docker-compose.host-gateway.yml)
+    COMPOSE_ARG="$COMPOSE_ARG -f docker-compose.host-gateway.yml"
+  fi
+fi
 
 # Bring the stack up: --pull grabs the prebuilt images (fast, ~3 min) then `up -d`;
 # the default builds from this checkout (`up -d --build`), which is what a PR that

@@ -73,6 +73,7 @@ docs/SELF_HOSTING.md  Compose reference: the containers, volumes, ports, and hos
 docs/UPGRADING.md     asf update, additive migrations, pinning ASF_VERSION, restore from backup.
 docs/CLAUDE_USAGE.md  Which Claude credential to use; Anthropic's terms in plain words.
 docs/VERTEX.md        Claude Code on Vertex AI (GCP project + host ADC).
+docs/OLLAMA.md        Free models: a local Ollama server or Ollama Cloud, mixed into a team.
 docs/HOSTING.md       Running it on GCP (Cloud Run + Cloud SQL + IAP + Vertex); infra runbook.
 ```
 

@@ -1,6 +1,6 @@
 # M11: Run agent roles on Ollama models (local and Ollama Cloud)
 
-Status: PLANNED. Milestone https://github.com/bennybrau/agentic-software-factory/milestone/3, issues #20 (WP1) to #27 (WP8).
+Status: WP1–WP7 DONE (user guide: [`OLLAMA.md`](OLLAMA.md)); WP8 next. Milestone https://github.com/bennybrau/agentic-software-factory/milestone/3, issues #20 (WP1) to #27 (WP8).
 
 ## The need
 
@@ -193,16 +193,18 @@ Claude or OpenAI keys becomes a valid worker.
 - Ollama tasks are priced $0 (catalogue rate zero), and the run view shows "free (Ollama)"
   rather than "unpriced".
 - A new **`RUN_MAX_MINUTES`** org setting (default 0 = off; suggested 180 when any role
-  uses Ollama) cancels a run whose wall clock exceeds it. It is enforced where the cost cap
-  is (`orchestrate.ts`). Per-role `MAX_TURNS_*` and `SEGMENT_TIMEOUT_MS` keep doing their
+  uses Ollama) cancels a run whose agents' summed working time exceeds it. Time at a gate or
+  a question is a person's and doesn't count. As built (WP6), the sweeper enforces it
+  (`runs/time-limit.ts`), since a long task never reaches `advance()`. Per-role `MAX_TURNS_*` and `SEGMENT_TIMEOUT_MS` keep doing their
   job.
 - Ollama Cloud spend is not tracked in ASF dollars. The Ollama question links to the
   account usage page, and the check route can show `api/usage` for 24h.
 
 ### Networking and packaging
 
-- **Linux only**: `extra_hosts: ["host.docker.internal:host-gateway"]` on `api` and `worker`, via
-  a Linux override file or `setup.sh` detection. Not in the default compose: on Rancher Desktop it
+- **Linux only**: `extra_hosts: ["host.docker.internal:host-gateway"]` on `api` and `worker`, in
+  `docker-compose.host-gateway.yml`, which `asf`/`setup.sh` layer on Linux (`ASF_HOST_GATEWAY`
+  overrides; as built in WP7). Not in the default compose: on Rancher Desktop it
   remaps `host.docker.internal` to 172.17.0.1 and breaks the connection (spike finding 7).
 - Document the server side:
   - `OLLAMA_HOST=0.0.0.0` so containers and LAN machines can reach it;

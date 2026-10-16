@@ -22,6 +22,15 @@ assert_eq()       { [ "$1" = "$2" ] && pass || fail "$3 (got '$1', want '$2')"; 
 # --- an isolated fake checkout: asf + common.sh + compose file --------------
 FAKE_ROOT="$(mktemp -d)"
 EMPTY_BIN="$(mktemp -d)"   # a PATH with no docker on it
+# /usr/bin holds docker on CI runners and many Linux boxes, so the no-docker PATH is
+# EMPTY_BIN alone, filled with links to every /usr/bin + /bin tool except docker.
+for d in /bin /usr/bin; do
+  for f in "$d"/*; do
+    n="${f##*/}"
+    case "$n" in docker|docker-*|com.docker*) continue ;; esac
+    [ -e "$EMPTY_BIN/$n" ] || ln -s "$f" "$EMPTY_BIN/$n" 2>/dev/null || true
+  done
+done
 cleanup() { rm -rf "$FAKE_ROOT" "$EMPTY_BIN"; }
 trap cleanup EXIT
 
@@ -31,10 +40,11 @@ cp "$REPO_ROOT/scripts/host-worker.sh" "$FAKE_ROOT/scripts/host-worker.sh"
 cp "$REPO_ROOT/scripts/lib/common.sh" "$FAKE_ROOT/scripts/lib/common.sh"
 cp "$REPO_ROOT/docker-compose.self-host.yml" "$FAKE_ROOT/docker-compose.self-host.yml"
 cp "$REPO_ROOT/docker-compose.host-worker.yml" "$FAKE_ROOT/docker-compose.host-worker.yml"
+cp "$REPO_ROOT/docker-compose.host-gateway.yml" "$FAKE_ROOT/docker-compose.host-gateway.yml"
 chmod +x "$FAKE_ROOT/scripts/asf" "$FAKE_ROOT/scripts/host-worker.sh"
 
 # core utilities doctor calls (df/awk/stat/basename) live in /usr/bin:/bin
-run_asf() { ( cd "$FAKE_ROOT" && PATH="$EMPTY_BIN:/usr/bin:/bin" NO_COLOR=1 "$FAKE_ROOT/scripts/asf" "$@" ); }
+run_asf() { ( cd "$FAKE_ROOT" && PATH="$EMPTY_BIN" NO_COLOR=1 "$FAKE_ROOT/scripts/asf" "$@" ); }
 
 # --- help -------------------------------------------------------------------
 out="$(run_asf help 2>&1)"; code=$?
@@ -70,6 +80,7 @@ case "$*" in
     line="$(head -1 "$FAKE_STATES")"; rest="$(tail -n +2 "$FAKE_STATES")"
     [ -n "$rest" ] && printf '%s\n' "$rest" > "$FAKE_STATES"
     printf '%s' "$line" ;;
+  *" ps -q worker"*) [ "${FAKE_WORKER_GONE:-0}" = 1 ] || echo cid123 ;;
   *" ps -q "*) echo cid123 ;;
   inspect*) echo healthy ;;
 esac
@@ -128,6 +139,7 @@ echo "$*" >> "$FAKE_LOG"
 case "$*" in
   *" exec -T registry node "*) head -1 "$FAKE_STATES" | tr -d '\n' ;;
   *" exec -T backup "*) cat >/dev/null ;;
+  *" ps -q worker"*) [ "${FAKE_WORKER_GONE:-0}" = 1 ] || echo cid123 ;;
   *" ps -q "*) echo cid123 ;;
   inspect*) echo healthy ;;
 esac
@@ -170,6 +182,98 @@ out="$(run_asf_fd restore bad.sql.gz </dev/null 2>&1)"; code=$?
 assert_eq "$code" "1" "restore refuses a corrupt dump"
 assert_eq "$(cat "$FAKE_ROOT/docker.log")" "" "a corrupt dump touches nothing"
 rm -f "$FAKE_ROOT"/*.sql.gz "$FAKE_ROOT/.env" "$FAKE_ROOT/states" "$FAKE_ROOT/docker.log"; rm -rf "$FAKE_DOCKER_BIN"
+
+# --- host.docker.internal overlay + doctor's Ollama section (M11 WP7) -----------
+# A fake docker answers the api settings read, and /api/version + /api/ps from the
+# api and worker containers; a fake curl stands in for this host.
+FAKE_DOCKER_BIN="$(mktemp -d)"
+cat > "$FAKE_DOCKER_BIN/docker" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_LOG"
+ver() { [ "$1" = 1 ] || exit 2; printf '{"version":"%s"}' "$FAKE_VER"; }
+case "$*" in
+  *" exec -T api node "*"/api/settings"*) printf '%s' "$FAKE_SETTINGS" ;;
+  *" exec -T worker node "*"/api/version") ver "$FAKE_WORKER_UP" ;;
+  *" exec -T api node "*"/api/version") ver "$FAKE_API_UP" ;;
+  *" exec -T worker node "*"/api/ps") printf '%s' "${FAKE_PS:-}" ;;
+  *" ps -q worker"*) [ "${FAKE_WORKER_GONE:-0}" = 1 ] || echo cid123 ;;
+  *" ps -q "*) echo cid123 ;;
+  inspect*) echo healthy ;;
+esac
+exit 0
+EOF
+cat > "$FAKE_DOCKER_BIN/curl" <<'EOF'
+#!/usr/bin/env bash
+echo "curl $*" >> "$FAKE_LOG"
+[ "$FAKE_HOST_UP" = 1 ] || exit 7
+printf '{"version":"%s"}' "$FAKE_VER"
+EOF
+chmod +x "$FAKE_DOCKER_BIN/docker" "$FAKE_DOCKER_BIN/curl"
+printf 'ASF_PORT=8787\nRUN_EVENT_SECRET=abc\nASF_SECRET_KEY=k\n' > "$FAKE_ROOT/.env"; chmod 600 "$FAKE_ROOT/.env"
+ollama_doctor() { # env assignments as args; prints doctor's Ollama section
+  ( cd "$FAKE_ROOT" && env PATH="$FAKE_DOCKER_BIN:/usr/bin:/bin" NO_COLOR=1 FAKE_LOG="$FAKE_ROOT/docker.log" \
+      FAKE_VER=0.40.4 FAKE_WORKER_UP=1 FAKE_API_UP=1 FAKE_HOST_UP=1 "$@" "$FAKE_ROOT/scripts/asf" doctor 2>&1 ) | sed -n '/^Ollama/,/^Storage/p'
+}
+URL='http://host.docker.internal:11434'
+
+out="$(ollama_doctor FAKE_SETTINGS='OK|0|')"
+assert_contains "$out" "not set up (optional" "doctor: Ollama not set up is information, not a warning"
+case "$out" in *"✗"*|*"⚠"*) fail "an unset Ollama must not warn or fail" ;; *) pass ;; esac
+
+out="$(ollama_doctor FAKE_SETTINGS="OK|1|$URL" FAKE_PS='{"models":[{"name":"qwen3-coder:latest","context_length":65536}]}')"
+assert_contains "$out" "✓ Ollama Cloud key saved" "doctor: reports a saved Cloud key"
+assert_contains "$out" "✓ server $URL reachable from the worker: Ollama 0.40.4" "doctor: server reachable from the worker, with its version"
+assert_contains "$out" "✓ context: loaded model runs with 65536 tokens" "doctor: reads the loaded context from /api/ps"
+
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_PS='{"models":[{"context_length":4096}]}')"
+assert_contains "$out" "⚠ context: a loaded model runs with only 4096 tokens" "doctor: warns about a small context"
+assert_contains "$out" "OLLAMA_CONTEXT_LENGTH=65536" "doctor: the context fix names the setting"
+
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_VER=0.12.3)"
+assert_contains "$out" "✗ Ollama 0.12.3 at $URL is too old" "doctor: fails an Ollama older than 0.14.0"
+
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_WORKER_UP=0 FAKE_HOST_UP=0)"
+assert_contains "$out" "⚠ Ollama server $URL not reachable from the worker" "doctor: a stopped server is a warning"
+
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_WORKER_UP=0 FAKE_HOST_UP=1)"
+assert_contains "$out" "✗ Ollama answers on this host but not from the worker container" "doctor: up on the host but out of the container's reach is a failure"
+assert_contains "$(grep '^curl' "$FAKE_ROOT/docker.log" | tail -1)" "curl -fsS -m 5 http://127.0.0.1:11434/api/version" "doctor: the host probe swaps host.docker.internal for 127.0.0.1"
+
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_API_UP=0)"
+assert_contains "$out" "⚠ the api container can't reach $URL" "doctor: flags the api container separately (Settings' model list)"
+
+# worker container not running (a fresh install with no agent credential): probe from the api
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_WORKER_GONE=1 FAKE_WORKER_UP=0)"
+assert_contains "$out" "the worker container isn't running" "doctor: says when the worker container is down"
+assert_contains "$out" "✓ server $URL reachable from the api container: Ollama 0.40.4" "doctor: falls back to the api container"
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_WORKER_GONE=1 FAKE_API_UP=0)"
+assert_contains "$out" "✗ Ollama answers on this host but not from the api container" "doctor: names the container it probed from"
+
+out="$(ollama_doctor FAKE_SETTINGS='OK|0|http://localhost:11434')"
+assert_contains "$out" "✗ OLLAMA_BASE_URL is http://localhost:11434: inside a container" "doctor: localhost in container mode is the container itself"
+assert_contains "$out" "host.docker.internal:11434" "doctor: the localhost fix names host.docker.internal"
+
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL" FAKE_VER=)"
+assert_contains "$out" "not like an Ollama server" "doctor: a server that isn't Ollama is named"
+
+# the overlay: ASF_HOST_GATEWAY=1 layers it, =0 never, blank = Linux only
+status_files() { : > "$FAKE_ROOT/docker.log"; ( cd "$FAKE_ROOT" && PATH="$FAKE_DOCKER_BIN:/usr/bin:/bin" NO_COLOR=1 FAKE_LOG="$FAKE_ROOT/docker.log" "$FAKE_ROOT/scripts/asf" status >/dev/null 2>&1 ); head -1 "$FAKE_ROOT/docker.log"; }
+printf 'ASF_HOST_GATEWAY=1\n' >> "$FAKE_ROOT/.env"
+assert_contains "$(status_files)" "docker-compose.host-gateway.yml" "ASF_HOST_GATEWAY=1 layers the host-gateway overlay"
+out="$(ollama_doctor FAKE_SETTINGS="OK|0|$URL")"
+assert_contains "$out" "host.docker.internal is mapped to this host" "doctor: says when the overlay is on"
+printf 'ASF_HOST_GATEWAY=0\n' >> "$FAKE_ROOT/.env"
+case "$(status_files)" in *host-gateway*) fail "ASF_HOST_GATEWAY=0 must not layer the overlay" ;; *) pass ;; esac
+printf 'ASF_HOST_GATEWAY=\n' >> "$FAKE_ROOT/.env"
+if [ "$(uname -s)" = "Linux" ]; then
+  assert_contains "$(status_files)" "docker-compose.host-gateway.yml" "blank ASF_HOST_GATEWAY layers the overlay on Linux"
+else
+  case "$(status_files)" in *host-gateway*) fail "blank ASF_HOST_GATEWAY must not layer the overlay off Linux" ;; *) pass ;; esac
+fi
+printf 'ASF_MODE=2\nASF_HOST_GATEWAY=1\n' >> "$FAKE_ROOT/.env"
+line="$(status_files)"
+assert_contains "$line" "docker-compose.host-worker.yml -f $FAKE_ROOT/docker-compose.host-gateway.yml" "mode 2 layers both overlays"
+rm -f "$FAKE_ROOT/.env" "$FAKE_ROOT/docker.log"; rm -rf "$FAKE_DOCKER_BIN"
 
 # --- doctor flags an empty ASF_SECRET_KEY (even with docker absent) ------------
 printf 'ASF_PORT=8787\nRUN_EVENT_SECRET=abc\nASF_SECRET_KEY=\n' > "$FAKE_ROOT/.env"; chmod 600 "$FAKE_ROOT/.env"
@@ -219,7 +323,7 @@ assert_contains "$out" "pass --yes" "reset without --yes explains the guard"
 # --- host-worker mode (ASF_MODE=2): worker subcommands route to the host supervisor
 FAKE_HOME="$(mktemp -d)"
 printf 'ASF_MODE=2\nASF_PORT=8787\n' > "$FAKE_ROOT/.env"
-run_asf_m2() { ( cd "$FAKE_ROOT" && HOME="$FAKE_HOME" PATH="$EMPTY_BIN:/usr/bin:/bin" NO_COLOR=1 "$FAKE_ROOT/scripts/asf" "$@" ); }
+run_asf_m2() { ( cd "$FAKE_ROOT" && HOME="$FAKE_HOME" PATH="$EMPTY_BIN" NO_COLOR=1 "$FAKE_ROOT/scripts/asf" "$@" ); }
 
 # `asf logs worker` tails the host worker log instead of docker (no container in mode 2)
 out="$(run_asf_m2 logs worker 2>&1)"; code=$?

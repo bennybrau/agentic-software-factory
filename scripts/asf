@@ -30,11 +30,22 @@ BACKUP_DIR="$ROOT/backups"
 # worker, and route worker up/down/status/logs to the host supervisor.
 HOST_WORKER_MODE=0
 HOST_WORKER="$SCRIPT_DIR/host-worker.sh"
+COMPOSE_FILES=(-f "$COMPOSE_FILE")
+COMPOSE_ARG="-f $COMPOSE_FILE"   # for the hints we print
 if [ "$(read_env_key "$ENV_FILE" ASF_MODE)" = "2" ]; then
   HOST_WORKER_MODE=1
   HOST_WORKER_OVERLAY="$ROOT/docker-compose.host-worker.yml"
-  compose() { docker compose -f "$COMPOSE_FILE" -f "$HOST_WORKER_OVERLAY" "$@"; }
+  COMPOSE_FILES+=(-f "$HOST_WORKER_OVERLAY")
+  COMPOSE_ARG="$COMPOSE_ARG -f docker-compose.host-worker.yml"
 fi
+# Linux: map host.docker.internal for the api and worker (see host_gateway_on).
+HOST_GATEWAY=0
+if host_gateway_on "$ENV_FILE"; then
+  HOST_GATEWAY=1
+  COMPOSE_FILES+=(-f "$ROOT/docker-compose.host-gateway.yml")
+  COMPOSE_ARG="$COMPOSE_ARG -f docker-compose.host-gateway.yml"
+fi
+compose() { docker compose "${COMPOSE_FILES[@]}" "$@"; }
 
 usage() {
   cat <<'EOF'
@@ -351,6 +362,108 @@ cmd_reset() {
   ok "stack down and all volumes removed"
 }
 
+# --- Ollama (M11 WP7, docs/OLLAMA.md) ------------------------------------------
+version_ge() { # $1 >= $2, dotted numbers ("0.40.4" >= "0.14.0")
+  local a b i x y
+  IFS=. read -r -a a <<< "$1"; IFS=. read -r -a b <<< "$2"
+  for i in 0 1 2; do
+    x="${a[$i]:-0}"; y="${b[$i]:-0}"; x="${x%%[!0-9]*}"; y="${y%%[!0-9]*}"
+    [ "${x:-0}" -gt "${y:-0}" ] && return 0
+    [ "${x:-0}" -lt "${y:-0}" ] && return 1
+  done
+  return 0
+}
+OLLAMA_MIN_VERSION=0.14.0     # packages/shared/src/ollama.ts
+OLLAMA_MIN_CONTEXT=64000
+
+# GET a URL from this host (curl), body -> stdout; exit 3 when curl is missing.
+host_fetch() { command -v curl >/dev/null 2>&1 || return 3; curl -fsS -m 5 "$1" 2>/dev/null; }
+
+# Where the Ollama server is probed from: the worker container (or this host in mode 2).
+# When the worker container isn't running, doctor_ollama falls back to the api's.
+OLLAMA_PROBE=worker
+ollama_from_worker() { # $1 = url
+  if [ "$HOST_WORKER_MODE" -eq 1 ]; then host_fetch "$1"; else node_fetch "$OLLAMA_PROBE" "$1"; fi
+}
+
+doctor_ollama() {
+  section "Ollama"
+  local res rest key url body ver ps min hurl where
+  res="$(api_check /api/settings 'const s=Object.fromEntries((j.settings||[]).map(x=>[x.key,x])); const k=(s.OLLAMA_API_KEY||{}).value; return "OK|"+(k?"1":"0")+"|"+((s.OLLAMA_BASE_URL||{}).value||"")')"
+  if [ "${res%%|*}" != "OK" ]; then warn "Ollama settings not readable" "is the api up? asf logs api"; return 0; fi
+  rest="${res#OK|}"; key="${rest%%|*}"; url="${rest#*|}"; url="${url%/}"
+  if [ -z "$url" ] && [ "$key" != "1" ]; then
+    info "not set up (optional: free models on your own machine or Ollama Cloud, docs/OLLAMA.md)"
+    return 0
+  fi
+  [ "$key" = "1" ] && ok "Ollama Cloud key saved (sent only to https://ollama.com)"
+  [ -z "$url" ] && return 0
+
+  [ "$HOST_GATEWAY" -eq 1 ] && info "host.docker.internal is mapped to this host (docker-compose.host-gateway.yml)"
+  if [ "$HOST_WORKER_MODE" -ne 1 ]; then
+    case "$url" in
+      *://localhost*|*://127.*|*://\[::1\]*|*://0.0.0.0*)
+        bad "OLLAMA_BASE_URL is ${url}: inside a container that is the container itself, not this machine" \
+          "use http://host.docker.internal:11434 (Settings → Use free models with Ollama?)"
+        return 0 ;;
+    esac
+  fi
+
+  OLLAMA_PROBE=worker; where="the worker"
+  if [ "$HOST_WORKER_MODE" -eq 1 ]; then
+    where="this host (the worker runs here)"
+  else
+    case "$(container_health worker)" in
+      healthy|running|starting) ;;
+      *) OLLAMA_PROBE=api; where="the api container"
+         info "the worker container isn't running (see Containers), so this checks from the api container, on the same network" ;;
+    esac
+  fi
+  if body="$(ollama_from_worker "$url/api/version")"; then
+    ver="$(printf '%s' "$body" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
+    if [ -z "$ver" ]; then
+      bad "${url} answered from ${where}, but not like an Ollama server" "check the address and port in Settings → Use free models with Ollama?"
+      return 0
+    elif version_ge "$ver" "$OLLAMA_MIN_VERSION"; then
+      ok "server ${url} reachable from ${where}: Ollama ${ver}"
+    else
+      bad "Ollama ${ver} at ${url} is too old: ASF needs ${OLLAMA_MIN_VERSION} or later" "update Ollama on that machine (https://ollama.com/download)"
+      return 0
+    fi
+  else
+    # Say whether it's down, or up but out of the container's reach.
+    hurl="$(printf '%s' "$url" | sed 's#://host\.docker\.internal#://127.0.0.1#')"
+    if [ "$HOST_WORKER_MODE" -ne 1 ] && [ "$hurl" != "$url" ] && host_fetch "$hurl/api/version" >/dev/null; then
+      if [ "$(uname -s)" = "Linux" ] && [ "$HOST_GATEWAY" -ne 1 ]; then
+        bad "Ollama answers on this host but not from the ${OLLAMA_PROBE} container" "set ASF_HOST_GATEWAY=1 in .env (or remove ASF_HOST_GATEWAY=0), then asf up"
+      else
+        bad "Ollama answers on this host but not from the ${OLLAMA_PROBE} container" \
+          "make it listen on every interface: OLLAMA_HOST=0.0.0.0 (docs/OLLAMA.md), then restart Ollama"
+      fi
+    else
+      warn "Ollama server ${url} not reachable from ${where}" "start Ollama (jobs on local Ollama models wait until it is up); docs/OLLAMA.md"
+    fi
+    return 0
+  fi
+
+  # Settings lists and checks models from the api container.
+  if [ "$HOST_WORKER_MODE" -ne 1 ] && [ "$OLLAMA_PROBE" = worker ] && ! node_fetch api "$url/api/version" >/dev/null; then
+    warn "the api container can't reach ${url}: Settings can't list or check its models" "asf up (re-applies the compose files), then asf doctor"
+  fi
+
+  # The context the server really loaded (only visible while a model is loaded).
+  ps="$(ollama_from_worker "$url/api/ps" || true)"
+  min="$(printf '%s' "$ps" | grep -o '"context_length" *: *[0-9]*' | grep -o '[0-9]*$' | sort -n | head -1 || true)"
+  if [ -z "$min" ]; then
+    info "context: no model loaded right now (Settings' model check measures it)"
+  elif [ "$min" -ge "$OLLAMA_MIN_CONTEXT" ]; then
+    ok "context: loaded model runs with ${min} tokens"
+  else
+    warn "context: a loaded model runs with only ${min} tokens; jobs need ${OLLAMA_MIN_CONTEXT}" \
+      "start Ollama with OLLAMA_CONTEXT_LENGTH=65536 (docs/OLLAMA.md), then restart it"
+  fi
+}
+
 cmd_doctor() {
   DOCTOR_FAIL=0
   DOCTOR_WARN=0
@@ -503,6 +616,8 @@ cmd_doctor() {
   if [ "${res%%|*}" = "WARN" ]; then
     warn "agent auth: ${res#*|}" "use a Claude API key, Vertex or Bedrock for a shared factory (docs/CLAUDE_USAGE.md)"
   fi
+
+  doctor_ollama
 
   if [ "$HOST_WORKER_MODE" -eq 1 ]; then
     section "Host worker"

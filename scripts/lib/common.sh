@@ -27,6 +27,19 @@ die()  { printf '%serror:%s %s\n' "$C_RED" "$C_RESET" "$1" >&2; exit "${2:-1}"; 
 COMPOSE_ARG="-f $COMPOSE_FILE"
 compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
 
+# Whether to layer docker-compose.host-gateway.yml, which maps host.docker.internal
+# to the host for the api and worker (M11 WP7). A native Linux daemon needs it;
+# Docker/Rancher Desktop define the name themselves, and on Rancher for macOS the
+# mapping would point at the VM instead of the Mac. ASF_HOST_GATEWAY in .env:
+# 1 = always, 0 = never, blank/auto = on Linux only.
+host_gateway_on() { # $1 = env file ; exit 0 iff the overlay applies
+  case "$(read_env_key "$1" ASF_HOST_GATEWAY)" in
+    1|on|true|yes)   return 0 ;;
+    0|off|false|no)  return 1 ;;
+    *) [ "$(uname -s)" = "Linux" ] ;;
+  esac
+}
+
 # --- env-file reader (last KEY=value wins; blank if absent) -----------------
 read_env_key() { # $1 = file, $2 = key
   local file=$1 key=$2 line val=""

@@ -1,0 +1,21 @@
+# host.docker.internal on a native Linux Docker daemon (M11 WP7, docs/OLLAMA.md).
+#
+# Containers reach a server on the host (an Ollama server, say) at
+# http://host.docker.internal:<port>. Docker Desktop and Rancher Desktop define that
+# name already. A native Linux daemon does not, so this overlay maps it to the host
+# gateway for the two services that call such a server: the api (Settings' model
+# list and check) and the worker (the jobs).
+#
+# scripts/asf and scripts/setup.sh layer it automatically on Linux. ASF_HOST_GATEWAY
+# in .env overrides that: 1 = always, 0 = never, blank/auto = Linux only.
+#
+# Never on Rancher Desktop for macOS: there host-gateway is the VM's docker bridge
+# (172.17.0.1), not the Mac, and connections to the Mac are refused.
+name: asf
+services:
+  api:
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+  worker:
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'

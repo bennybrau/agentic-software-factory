@@ -11,6 +11,7 @@ on:
       - 'apps/*/Dockerfile'
       - 'db/**'
       - 'docs/INSTALL.md'
+      - 'docs/OLLAMA.md'
 
 jobs:
   # A clean Ubuntu box with only Docker: run the wizard exactly as an operator
@@ -70,6 +71,41 @@ jobs:
           code=0
           scripts/asf doctor || code=$?
           [ "$code" -le 1 ] || { echo "asf doctor exited $code"; exit 1; }
+
+      - name: Ollama on Linux, as docs/OLLAMA.md says (M11 WP7)
+        run: |
+          # The server side, exactly as the Linux steps in docs/OLLAMA.md.
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo mkdir -p /etc/systemd/system/ollama.service.d
+          printf '[Service]\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\nEnvironment="OLLAMA_CONTEXT_LENGTH=65536"\n' \
+            | sudo tee /etc/systemd/system/ollama.service.d/override.conf
+          sudo systemctl daemon-reload
+          sudo systemctl restart ollama
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/version && break; sleep 2; done
+          # A small model with a 128k context (qwen3:0.6b tops out at 40k and fails the 64k check).
+          ollama pull llama3.2:1b
+          api=http://127.0.0.1:18787
+          curl -sf -XPUT "$api/api/settings/OLLAMA_BASE_URL" -H 'content-type: application/json' \
+            -d '{"value":"http://host.docker.internal:11434"}' >/dev/null
+          # The api container reaches it through the host-gateway overlay setup.sh layered on Linux.
+          curl -sf "$api/api/providers/ollama/models?source=local" | tee models.json
+          grep -q '"ok":true' models.json && grep -q 'llama3.2:1b' models.json \
+            || { echo "Settings could not list this machine's models"; exit 1; }
+          curl -s -XPOST "$api/api/providers/ollama/check" -H 'content-type: application/json' \
+            -d '{"source":"local","model":"llama3.2:1b"}' | tee check.json
+          echo
+          grep -q '"effectiveContext":65536' check.json \
+            || { echo "the model did not load with the 64k context the docs set"; exit 1; }
+          scripts/asf doctor > doctor.txt 2>&1 || true   # other sections may warn; only Ollama's is judged
+          sed -n '/^Ollama/,/^Storage/p' doctor.txt | tee ollama.txt
+          grep -q 'host.docker.internal is mapped to this host' ollama.txt || { echo "overlay not layered"; exit 1; }
+          # No agent credential here, so the worker container isn't running and doctor
+          # probes from the api container (same network, same overlay).
+          grep -qE '✓ server http://host.docker.internal:11434 reachable from the (worker|api container): Ollama' ollama.txt \
+            || { echo "doctor: containers can't reach Ollama"; exit 1; }
+          grep -q '✓ context: loaded model runs with 65536 tokens' ollama.txt || { echo "doctor: context not 64k"; exit 1; }
+          if grep -qE '✗|⚠' ollama.txt; then echo "doctor's Ollama section is not green"; exit 1; fi
+          echo "ok: Ollama on Linux reachable from the api and worker containers; doctor's Ollama section is green"
 
       - name: day-2 CLI — backup writes a dump
         run: |

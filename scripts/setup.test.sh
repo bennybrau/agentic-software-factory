@@ -30,7 +30,15 @@ assert_eq() { # $1=actual $2=expected $3=message
 # --- an isolated fake checkout: setup.sh, .env.example, compose file only ---
 FAKE_ROOT="$(mktemp -d)"
 FAKE_BIN="$(mktemp -d)"
-cleanup() { rm -rf "$FAKE_ROOT" "$FAKE_BIN"; }
+NODOCKER_BIN="$(mktemp -d)"   # /usr/bin + /bin minus docker (CI runners keep docker in /usr/bin)
+for d in /bin /usr/bin; do
+  for f in "$d"/*; do
+    n="${f##*/}"
+    case "$n" in docker|docker-*|com.docker*) continue ;; esac
+    [ -e "$NODOCKER_BIN/$n" ] || ln -s "$f" "$NODOCKER_BIN/$n" 2>/dev/null || true
+  done
+done
+cleanup() { rm -rf "$FAKE_ROOT" "$FAKE_BIN" "$NODOCKER_BIN"; }
 trap cleanup EXIT
 
 mkdir -p "$FAKE_ROOT/scripts"
@@ -39,6 +47,7 @@ cp "$REPO_ROOT/scripts/worker-host.sh" "$FAKE_ROOT/scripts/worker-host.sh"
 cp "$REPO_ROOT/.env.example" "$FAKE_ROOT/.env.example"
 cp "$REPO_ROOT/docker-compose.self-host.yml" "$FAKE_ROOT/docker-compose.self-host.yml"
 cp "$REPO_ROOT/docker-compose.host-worker.yml" "$FAKE_ROOT/docker-compose.host-worker.yml"
+cp "$REPO_ROOT/docker-compose.host-gateway.yml" "$FAKE_ROOT/docker-compose.host-gateway.yml"
 chmod +x "$FAKE_ROOT/scripts/setup.sh" "$FAKE_ROOT/scripts/worker-host.sh"
 git init -q "$FAKE_ROOT"
 
@@ -75,7 +84,7 @@ assert_eq "$code" "2" "unknown option exits 2"
 
 # --- docker missing => preflight fails, exit 1, no .env written ---------
 rm -f "$FAKE_ROOT/.env"
-out="$(cd "$FAKE_ROOT" && PATH="/usr/bin:/bin" ./scripts/setup.sh --non-interactive --no-up 2>&1)"; code=$?
+out="$(cd "$FAKE_ROOT" && PATH="$NODOCKER_BIN" ./scripts/setup.sh --non-interactive --no-up 2>&1)"; code=$?
 assert_eq "$code" "1" "missing docker => exit 1"
 assert_contains "$out" "docker not found" "missing docker => clear failure message"
 [ -f "$FAKE_ROOT/.env" ] && fail "no .env should be written when preflight fails" || pass

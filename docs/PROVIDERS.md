@@ -147,6 +147,12 @@ No call site outside `providers/tickets/` may import a provider directly — the
 factory and the hot-swap registry are the only way the rest of the api obtains
 one.
 
+## Ollama setup
+
+Ollama models (a server on your computer or network, or Ollama Cloud) are the `ollama` provider.
+They run under `claude-code` and are free in ASF's spend. Server setup, the Settings
+question, `asf doctor`, and the models to pick are in [`OLLAMA.md`](OLLAMA.md).
+
 ## Codex setup
 
 The `codex` agent runtime drives the OpenAI Codex CLI (`codex exec --json`). It

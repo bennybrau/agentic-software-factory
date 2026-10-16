@@ -95,6 +95,8 @@ question per screen, plain language, no setting names):
      model and you keep the ones that answer. Works in mode 1. Fresh-Mac walkthrough:
      [`VERTEX.md`](VERTEX.md).
    - **Bedrock**: set in `.env` only.
+   - **Free models with Ollama** (later, in **Settings**): a model on your own machine or on
+     Ollama Cloud, for any job in the team, next to Claude. See [`OLLAMA.md`](OLLAMA.md).
 3. **When should it check with you?** Three presets, or step by step. See [`PIPELINE.md`](PIPELINE.md).
 4. **How much can it spend?** A per-ticket and monthly limit.
 

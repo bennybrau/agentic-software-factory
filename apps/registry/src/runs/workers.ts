@@ -106,16 +106,20 @@ export async function monthCostUsd(sql: Sql): Promise<number> {
  * Runs this calendar month (UTC) with at least one agent task that finished without a
  * cost figure: a plan-billed runtime (Copilot, a Claude subscription) or a model with
  * no rate. The worker reports such a task as $0, so ORG_MONTHLY_BUDGET_USD undercounts
- * by exactly these runs — Admin shows the number beside the spend (M8 WP H). Publish
+ * by exactly these runs — Admin shows the number beside the spend (M8 WP H). Tasks on
+ * Ollama models are free, not unpriced, and don't count (M11 WP6). Publish
  * tasks cost nothing by design; failed/skipped tasks may never have reached the agent.
  */
 export async function monthUnpricedRuns(sql: Sql): Promise<number> {
+  // An Ollama task is $0 by design (free, not unpriced; M11 WP6).
+  const ollamaIds = ollamaModelIds((await getOrgSettings(sql)).MODEL_CATALOG_EXTRA);
   const [row] = await sql`SELECT count(DISTINCT r.id) AS n FROM agent_run r
     JOIN run_task t ON t.run_id = r.id
    WHERE r.created_at >= date_trunc('month', now())
      AND t.finished_at IS NOT NULL AND t.cost_usd = 0
      AND t.state NOT IN ('failed', 'skipped')
-     AND coalesce(t.runtime, '') <> 'publish'`;
+     AND coalesce(t.runtime, '') <> 'publish'
+     AND NOT (coalesce(t.model, '') = ANY(${ollamaIds}::text[]) OR t.model LIKE 'ollama:%' OR t.model LIKE 'ollama-cloud:%')`;
   return Number(row.n);
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   MODELS, PIPELINE_STAGES, QUESTIONS, detectApprovalPreset, applyApprovalPreset, setFactoryMerges, effectiveStages, detectTeamAi, teamAiWrites,
-  MODEL_GROUPS, modelGroup, teamAis, runtimeForPick, allowlistWith,
+  MODEL_GROUPS, OLLAMA_CLOUD_USAGE_URL, modelGroup, teamAis, runtimeForPick, allowlistWith,
   BUDGET_PRESETS, detectBudgetPreset, subscriptionSharingWarning, vertexWrites, vertexTier, CLAUDE_TERMS_URL, CLAUDE_USAGE_DOC_URL, type ApprovalPreset, type PipelineStage, type StageConfig,
 } from '@asf/shared/ui';
 import { api } from '../../api';
@@ -651,6 +651,7 @@ export const ollamaQ: Question = {
     const have = models.map((m) => m.id);
     const [url, setUrl] = useState(str(b.OLLAMA_BASE_URL));
     const [key, setKey] = useState('');
+    const [mins, setMins] = useState(Number(b.RUN_MAX_MINUTES?.value ?? 0) > 0 ? str(b.RUN_MAX_MINUTES) : '');
     const [draft, setDraft] = useState<OllamaDraft>(emptyOllamaDraft);
     const { busy, error, setError, run } = useSaver(store);
     const [note, setNote] = useState<string | null>(null);
@@ -658,7 +659,8 @@ export const ollamaQ: Question = {
     const saveConnection = () => run([
       ...(url.trim() !== str(b.OLLAMA_BASE_URL) ? [['OLLAMA_BASE_URL', url.trim() || null] as [string, unknown]] : []),
       ...secretEntry('OLLAMA_API_KEY', key),
-    ], urlProblem);
+      ...((mins.trim() ? Number(mins) : 0) !== Number(b.RUN_MAX_MINUTES?.value ?? 0) ? [['RUN_MAX_MINUTES', mins.trim() ? Number(mins) : 0] as [string, unknown]] : []),
+    ], () => urlProblem() ?? (mins.trim() && !(Number(mins) >= 0) ? 'The time limit is a number of minutes (leave it blank for none).' : null));
     const save = async (): Promise<boolean> => {
       if (!(await saveConnection())) return false;
       const picked = Object.values(draft.picked).filter((m) => !have.includes(m.id));
@@ -688,6 +690,15 @@ export const ollamaQ: Question = {
           <>Open <a href="https://ollama.com/settings/keys" target="_blank" rel="noreferrer">Settings → Keys</a>, click <b>Add key</b>, and paste it here.</>,
         ]} />
         {cloudSet && <OllamaModels source="cloud" inCatalogue={have} draft={draft} setDraft={setDraft} beforeList={saveConnection} />}
+        {cloudSet && <p className="muted small">Ollama Cloud use is free in ASF’s spend, but your plan has hourly and weekly limits: see them on <a href={OLLAMA_CLOUD_USAGE_URL} target="_blank" rel="noreferrer">your Ollama account</a>.</p>}
+
+        <h4 style={{ margin: '18px 0 4px' }}>Time limit</h4>
+        <div className="inline">
+          <span>Stop a ticket after its AI has worked</span>
+          <input type="number" min={0} value={b.RUN_MAX_MINUTES?.envPinned ? str(b.RUN_MAX_MINUTES) : mins} disabled={b.RUN_MAX_MINUTES?.envPinned} placeholder="no limit" style={{ width: 90 }} onChange={(e) => setMins(e.target.value)} />
+          <span>minutes.</span>
+        </div>
+        <p className="muted small">Ollama jobs cost nothing, so the spending limit never stops one, and a slow model can work for hours. 180 minutes is a good limit. Time waiting for you doesn’t count.</p>
 
         <p className="muted small" style={{ marginTop: 10 }}>
           Tick a model to check it: it must call tools, answer, and have at least 64k of context. Ticked models are added on Save, at no cost.

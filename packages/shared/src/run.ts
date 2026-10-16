@@ -90,7 +90,7 @@ export const RUN_EVENT_KINDS = [
   'segment:result', 'segment:diff',
   'branch:created', 'commit:created', 'branch:pushed',
   'change_request:opened', 'change_request:updated', 'change_request:feedback', 'change_request:ready', 'change_request:merged', 'change_request:closed',
-  'run:stale', 'run:cancelled', 'run:failed', 'run:succeeded', 'run:split',
+  'run:stale', 'run:cancelled', 'run:failed', 'run:succeeded', 'run:split', 'run:time_limit',
   'publish:conflict', 'conflict:merging', 'conflict:resolved',
   'auth:expired',
 ] as const;

@@ -7,6 +7,7 @@ import { recordNotification } from './notification-store.js';
 import { newId } from './ids.js';
 import { maybeLoopBackForConflict } from './conflict.js';
 import { config } from '../config.js';
+import { TIME_LIMIT_PREFIX, settleTimeLimited } from './time-limit.js';
 
 /**
  * The orchestrator. Deterministic, idempotent, plain TypeScript: called after
@@ -30,7 +31,10 @@ export async function advance(sql: Sql, runId: string): Promise<void> {
   await sql.begin(async (tx) => {
     // Cancellation wins as soon as nothing is running.
     const running = tasks.some((t) => t.state === 'running');
-    if (run.cancelRequestedAt && !running) return settleCancelled(tx, runId);
+    if (run.cancelRequestedAt && !running) {
+      // A run stopped by RUN_MAX_MINUTES keeps that reason (M11 WP6), not "by operator".
+      return run.reason?.startsWith(TIME_LIMIT_PREFIX) ? settleTimeLimited(tx, runId, run.reason) : settleCancelled(tx, runId);
+    }
 
     // A hard failure or an over-budget run stops everything (once nothing is running).
     const failed = tasks.find((t) => t.state === 'failed');

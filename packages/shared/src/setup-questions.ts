@@ -31,6 +31,7 @@ export const QUESTIONS: readonly QuestionDef[] = [
     'RUNTIME_DEFAULT_PLANNER', 'RUNTIME_DEFAULT_IMPLEMENTER', 'RUNTIME_DEFAULT_TESTER', 'RUNTIME_DEFAULT_REVIEWER'] },
   { id: 'approvals', tier: 'essentials', keys: ['PIPELINE_STAGES'] },
   { id: 'spending', tier: 'essentials', keys: ['ORG_MAX_COST_USD', 'ORG_MONTHLY_BUDGET_USD'] },
+  { id: 'ollama', tier: 'later', keys: ['OLLAMA_BASE_URL', 'OLLAMA_API_KEY'] },
   { id: 'models', tier: 'later', keys: ['MODEL_DEFAULT_PLANNER', 'MODEL_DEFAULT_IMPLEMENTER', 'MODEL_DEFAULT_TESTER', 'MODEL_DEFAULT_REVIEWER', 'EFFORT_DEFAULT_PLANNER', 'EFFORT_DEFAULT_IMPLEMENTER', 'EFFORT_DEFAULT_TESTER', 'EFFORT_DEFAULT_REVIEWER'] },
   { id: 'board', tier: 'later', keys: ['TICKET_STATUS_INPROGRESS', 'TICKET_STATUS_INREVIEW', 'TICKET_STATUS_DONE', 'TICKET_ASSIGNEE'] },
   { id: 'guidance', tier: 'later', keys: ['ROLE_SKILL_PLANNER', 'ROLE_SKILL_IMPLEMENTER', 'ROLE_SKILL_TESTER', 'ROLE_SKILL_REVIEWER'] },
@@ -45,13 +46,11 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   AGENT_AUTH_OPENAI_COMPAT_MODE: 'operator: set in .env',
   OPENAI_COMPAT_API_KEY: 'operator: set in .env',
   OPENAI_COMPAT_BASE_URL: 'operator: set in .env',
-  OLLAMA_BASE_URL: 'operator: set in .env (the Ollama question is M11 WP5)',
-  OLLAMA_API_KEY: 'operator: set in .env (the Ollama question is M11 WP5)',
   AGENT_AUTH_GITHUB_MODE: 'operator: set in .env',
   GITHUB_COPILOT_TOKEN: 'operator: set in .env',
   // Model catalogue as data (M8 WP D). The AI question sets the per-role runtime as a whole team (#162); a per-role picker is #69.
-  MODEL_CATALOG_EXTRA: 'advanced model catalogue (JSON, Admin)',
-  MODEL_ALLOWLIST: 'which models the factory may run (Admin); the Claude on Google Cloud answer sets it to the models its check found',
+  MODEL_CATALOG_EXTRA: 'advanced model catalogue (JSON, Admin); the Ollama question adds the models it checked',
+  MODEL_ALLOWLIST: 'which models the factory may run (Admin); the Claude on Google Cloud answer sets it to the models its check found, and the Ollama question adds its models when a list is in use',
   STALE_AFTER_MIN: 'operator tuning',
   WORKER_TTL_SECONDS: 'operator tuning',
   EVENT_RETENTION_DAYS: 'operator tuning',
@@ -176,4 +175,65 @@ export function teamAiWrites(ai: TeamAi, get: (key: string) => unknown, models: 
     }
   }
   return out;
+}
+
+// ── Per-role model picker and the team's mix of AIs (M11 WP5) ─────────────────
+
+/** The provider groups the per-role model picker shows, in this order. */
+export const MODEL_GROUPS = ['Claude', 'OpenAI', 'Ollama on your computer', 'Ollama Cloud', 'Other'] as const;
+export type ModelGroup = typeof MODEL_GROUPS[number];
+
+/** Which picker group a catalogue model falls in, by its provider (or id, for Ollama). */
+export function modelGroup(m: { id: string; providerId?: string }): ModelGroup {
+  const p = m.providerId ?? '';
+  if (p === 'ollama-cloud' || m.id.startsWith('ollama-cloud:')) return 'Ollama Cloud';
+  if (p === 'ollama' || m.id.startsWith('ollama:')) return 'Ollama on your computer';
+  if (p === 'openai' || p === 'openai-compatible') return 'OpenAI';
+  if (p === 'anthropic' || p === 'vertex' || p === 'bedrock' || m.id.startsWith('claude')) return 'Claude';
+  return 'Other';
+}
+
+/** The AI a group bills to, for the team summary ("Mixed: Claude + Ollama"). */
+const GROUP_AI: Record<ModelGroup, string> = { Claude: 'Claude', OpenAI: 'OpenAI', 'Ollama on your computer': 'Ollama', 'Ollama Cloud': 'Ollama', Other: 'Other' };
+
+/**
+ * The AIs the four roles' default models run on, in role order, de-duplicated
+ * (["Claude"], ["Claude", "Ollama"]). A model not in the catalogue counts by its id prefix, else not at all.
+ */
+export function teamAis(get: (key: string) => unknown, models: ReadonlyArray<{ id: string; providerId?: string }>): string[] {
+  const out: string[] = [];
+  for (const r of TEAM_ROLES) {
+    const id = String(get(`MODEL_DEFAULT_${r}`) ?? '');
+    if (!id) continue;
+    const g = modelGroup(models.find((m) => m.id === id) ?? { id });
+    if (g === 'Other') continue; // an unknown id says nothing about which AI it is
+    const ai = GROUP_AI[g];
+    if (!out.includes(ai)) out.push(ai);
+  }
+  return out;
+}
+
+/**
+ * The runtime a role should use after picking `model`: the current one if it can drive
+ * the model, else the model's first (approved) runtime. Picking an Ollama model on a
+ * Codex role keeps Codex; on a Claude role keeps claude-code; a GPT model moves the
+ * role to Codex. Null = no change.
+ */
+export function runtimeForPick(model: { runtimes: string[] } | undefined, currentRuntime: string): string | null {
+  if (!model?.runtimes.length) return null;
+  const cur = currentRuntime || 'claude-code';
+  if (model.runtimes.includes(cur)) return null;
+  return model.runtimes[0]!;
+}
+
+/**
+ * MODEL_ALLOWLIST after enabling `ids` (the Ollama question): when a list is in use the
+ * new models must be on it or /api/models hides them; a blank list (= every model) stays
+ * blank. Null = nothing to write.
+ */
+export function allowlistWith(current: unknown, ids: readonly string[]): string | null {
+  const have = String(current ?? '').split(/[\s,]+/).filter(Boolean);
+  if (!have.length) return null;
+  const add = ids.filter((id) => !have.includes(id));
+  return add.length ? [...have, ...add].join(',') : null;
 }

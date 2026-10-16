@@ -1,6 +1,7 @@
 import {
   maxContextOf, ollamaContextFix, ollamaModelId, ollamaSourceUrl, ollamaTier, ollamaVersionAtLeast, parseParamsB,
   OLLAMA_MIN_CONTEXT, OLLAMA_MIN_VERSION, type OllamaModel, type OllamaSource,
+  type OllamaFailCode, type OllamaModelsResult, type OllamaCheck,
 } from '@asf/shared';
 import { computeRunAuth } from './agent-auth.js';
 
@@ -23,17 +24,7 @@ export async function ollamaTarget(source: OllamaSource, o: { baseUrl?: string; 
   return { source, url, key };
 }
 
-export type OllamaFailCode =
-  | 'not_configured' | 'unreachable' | 'old_server' | 'invalid_key' | 'not_in_plan'
-  | 'model_missing' | 'no_tools' | 'context_too_small' | 'rate_limited' | 'other';
-
-export type OllamaModelsResult =
-  | { ok: true; source: OllamaSource; url: string; models: OllamaModel[] }
-  | { ok: false; source: OllamaSource; code: OllamaFailCode; reason: string };
-
-export type OllamaCheck =
-  | { ok: true; source: OllamaSource; model: string; version: string | null; effectiveContext: number | null; maxContext: number | null; reply: string }
-  | { ok: false; source: OllamaSource; model: string; code: OllamaFailCode; reason: string; version?: string | null; effectiveContext?: number | null };
+export type { OllamaFailCode, OllamaModelsResult, OllamaCheck } from '@asf/shared';
 
 type Fetch = typeof fetch;
 const TIMEOUT_MS = 15_000;

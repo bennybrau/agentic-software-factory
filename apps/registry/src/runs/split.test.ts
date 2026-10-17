@@ -125,6 +125,17 @@ test('an edited plan at approval is what gets split (a person can remove or resh
   assert.equal((await claimTask(db.sql, 's4', ['claude-code']))?.task.role, 'implementer');
 });
 
+test('a part naming another repository is queued for it; the others keep the parent repository', { skip }, async () => {
+  const plan = '# Plan\n\n```asf-split\n[{"title": "Here", "body": "b"}, {"title": "There", "body": "b", "repo": "repo-2"}]\n```\n';
+  const runId = await plannedRun('s7', 'SP-7', plan);
+  const gate = await getOpenGate(db.sql, runId);
+  await resolveGate(db.sql, gate!.id, { decision: 'approve', by: 'jon', note: null, editedArtifact: null });
+  const parts = await db.sql`SELECT id, body FROM adhoc_task WHERE parent_run_id = ${runId} ORDER BY part`;
+  const queued = await db.sql`SELECT ticket_id, repo_id FROM work_queue WHERE ticket_id IN ${db.sql(parts.map((p) => String(p.id)))} ORDER BY position`;
+  assert.deepEqual(queued.map((q) => q.repoId), ['repo-1', 'repo-2']);
+  assert.match(String(parts[1].body), /goes into the repository `repo-2`/);
+});
+
 test('a malformed split is refused at approval with the reason; the gate stays open', { skip }, async () => {
   const bad = '# Plan\n\n```asf-split\n[{"title": "only one", "body": "b"}]\n```\n';
   const runId = await plannedRun('s5', 'SP-5', bad);

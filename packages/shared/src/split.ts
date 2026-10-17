@@ -22,6 +22,8 @@ export const splitSubtaskSchema = z.object({
   body: z.string().trim().min(1).max(20_000),
   /** 1-based positions of EARLIER sub-tasks whose PRs must merge before this one starts. */
   dependsOn: z.array(z.number().int().positive()).default([]),
+  /** Path of another connected repository this part goes into; unset = the parent's repository. */
+  repo: z.string().trim().min(1).max(300).optional(),
 });
 export type SplitSubtask = z.infer<typeof splitSubtaskSchema>;
 
@@ -57,7 +59,9 @@ export function parseSplit(planMd: string | null | undefined): SplitParse {
     return { kind: 'invalid', reason: `sub-task ${i.path.length ? `${Number(i.path[0]) + 1} ${i.path.slice(1).join('.')}`.trim() : ''}: ${i.message}`.replace(/ +:/, ':') };
   }
   const subtasks = parsed.data;
-  if (subtasks.length < SPLIT_MIN) return { kind: 'invalid', reason: `a split needs at least ${SPLIT_MIN} sub-tasks (got ${subtasks.length}); for one, just write the plan` };
+  // One part is allowed only as a hand-off to another repository.
+  const handOff = subtasks.length === 1 && !!subtasks[0].repo;
+  if (subtasks.length < SPLIT_MIN && !handOff) return { kind: 'invalid', reason: `a split needs at least ${SPLIT_MIN} sub-tasks (got ${subtasks.length}); a single part needs a \`repo\` to hand it off to another repository, otherwise just write the plan` };
   if (subtasks.length > SPLIT_MAX) return { kind: 'invalid', reason: `at most ${SPLIT_MAX} sub-tasks (got ${subtasks.length})` };
   for (const [i, s] of subtasks.entries()) {
     const pos = i + 1;
@@ -107,5 +111,6 @@ export function subtaskBody(s: SplitSubtask, n: number, of: number, parent: { ke
   const deps = depKeys.length
     ? `It starts only after ${depKeys.join(', ')} ${depKeys.length === 1 ? 'is' : 'are'} merged, so that work is already on the default branch.`
     : 'It does not depend on the other parts.';
-  return `${s.body.trim()}\n\n---\n\nThis is part ${n} of ${of} of ${parent.key} (${parent.title}), which was split because it was too big for one pull request. Do only this part; the other parts are separate tasks. ${deps} This is already a sub-task: do not split it again.`;
+  const repo = s.repo ? ` It goes into the repository \`${s.repo}\`.` : '';
+  return `${s.body.trim()}\n\n---\n\nThis is part ${n} of ${of} of ${parent.key} (${parent.title}), which was split because it was too big for one pull request. Do only this part; the other parts are separate tasks. ${deps}${repo} This is already a sub-task: do not split it again.`;
 }

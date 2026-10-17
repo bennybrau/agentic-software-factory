@@ -92,6 +92,8 @@ export const createAdhocRequestSchema = z.object({
   title: z.string().trim().min(1).max(200),
   body: z.string().max(100_000).default(''),
   files: z.array(adhocFileInputSchema).default([]),
+  /** Created from the chat: the api appends the connected repositories to the body. */
+  chat: z.boolean().default(false),
 });
 export type CreateAdhocRequest = z.infer<typeof createAdhocRequestSchema>;
 

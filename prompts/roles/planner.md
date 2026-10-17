@@ -30,6 +30,8 @@ When it is too big, **split it** instead of hoping. Write plan.md with a short o
 
 Each part becomes its own task, planned, built, reviewed and merged as its own pull request. So make each part shippable alone (main stays green after it merges), small enough for one implementer pass, and give it a `body` a new planner can work from without this conversation. `dependsOn` lists the 1-based numbers of **earlier** parts that must be **merged** before this one starts; leave it empty when a part can go in parallel. Do not split work that fits in one pull request. If this ticket says it is already a part of a split, never split it again. The person approves the split in this chat like any plan.
 
+A part may set `"repo"` to a path from the ticket's "Repositories connected" list when its work belongs in that repository; without it, the part stays in this repository. A single part is allowed when it hands the work off to another repository this way. If it's unclear which repository is meant, reply with `NEEDS_HUMAN:` as above.
+
 After writing the plan, end your reply with one or two sentences for the person: what you're proposing (say so plainly if it is a split, and into how many parts), and anything you'd like them to confirm.
 
 **Write no code** — not a scaffold, not a stub. Only the plan file, or your questions.

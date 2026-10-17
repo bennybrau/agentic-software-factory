@@ -104,3 +104,28 @@ The fixture was fixed and both qwen3-coder impl runs were repeated; the table sh
   5× slower under Claude Code.
 - **Not tested yet:** Ollama Cloud models (no API key on this machine). Repeat the impl case
   with `glm-5.3-flash` or `kimi-k2.7-code` once a key exists, as part of WP8.
+
+## WP8: live runs on real tickets (2026-10-17)
+
+Issue #27. The live stack ran v1.10.0 on the same Mac Studio (M2 Max, 32 GB), with Rancher Desktop and a container worker. The target was this repo (`bennybrau/agentic-software-factory`), using real tickets that fix real gaps. The plan gate was required; everything else ran unattended.
+
+| ticket | team | outcome | wall time (agent) | cost | notes |
+|---|---|---|---|---|---|
+| #37 tests for `isFreeModel` | all 4 roles on `ollama-cloud:gpt-oss:120b` | PR #38, CI green | plan 0.3 m, impl 0.9 m, test 0.3 m, review 0.2 m | $0 | The planner didn't write `plan.md` (#41). The tests went in a new file rather than the existing `ollama.test.ts`. |
+| #36 time-limited task reason, local | Claude Opus plans, `ollama:qwen3-coder` implements and tests, Claude Sonnet reviews | **cancelled** after 22 min still implementing (26 tool calls, 6 edits) | plan 0.8 m, impl 22+ m | $0.39 | Too slow on this hardware to be worth waiting for. |
+| #36, rerun on Cloud | Claude Opus plans, `ollama-cloud:gpt-oss:120b` implements and tests, Claude Sonnet reviews | PR #39 after 1 change request; real-DB tests 5/5, CI green | round 1: plan 0.7 m, impl 2.1 m, test 3.5 m, review 0.4 m; round 2: 2.7 m | $1.14 (Claude only) | Round 1 had a real bug that nobody in the team caught (#40). |
+
+### Findings
+
+1. **Ollama Cloud is fast enough to use.** `gpt-oss:120b` took about a minute per role, as fast as or faster than Claude on these tickets, at $0.
+2. **A mixed team works end to end.** Each role routed to the right provider, and Claude's cost was counted while Cloud's showed as free. The request-changes loop also worked: a change request sent the run back through Claude's planner, a Cloud implementer and Claude's reviewer to a fixed PR in about 3 minutes.
+3. **Weaker models follow ASF's protocol less reliably.** The Cloud planner returned its plan as text and never wrote `plan.md`; the task still finished `done` with no artifact (#41). The same model as implementer and tester did write files and commits correctly.
+4. **Skipped is not passed (#40).** The worker has no Postgres, so registry DB tests skip. The Cloud tester reported "mostly SKIP … passed", and Claude's reviewer approved a fix whose own test fails against a real database. `runInfo.cancel_requested_at` was always undefined because the registry client camelCases columns. This is a factory gap, not an Ollama one: a Claude tester would face the same skipped tests. Even so, a weaker tester makes it likelier to slip through.
+5. **Local `qwen3-coder` on a 32 GB M2 Max is too slow for a real ticket in this repo.** It ran at 16–18 tok/s. In the WP1 spike, a small fixture took about 100 s. Here, on a large monorepo, it was still implementing after 22 minutes. Local support stays for people with faster GPUs, with `RUN_MAX_MINUTES` as the backstop.
+
+### Recommendations (folded into `OLLAMA.md`)
+
+- **Default mixed team:** Claude plans and reviews; `ollama-cloud:gpt-oss:120b` implements and tests. The plan and the review are where the weaker model's protocol slips cost the most.
+- **All-Cloud teams** are fine for small, well-scoped tickets, but give the plan gate a real look: check that a plan exists (until #41 lands).
+- **Local models** need a fast GPU. On a 32 GB Apple-silicon Mac, use them only for very small tickets, and set `RUN_MAX_MINUTES`.
+- **Turn limits:** no change. No role came near `MAX_TURNS_*`; the runs that went wrong failed on protocol or on skipped tests, not on turn counts.

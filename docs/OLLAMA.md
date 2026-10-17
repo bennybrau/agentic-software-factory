@@ -145,18 +145,23 @@ Ollama
 
 ## Which models
 
-The evidence so far comes from [`OLLAMA_SPIKE.md`](OLLAMA_SPIKE.md):
+The evidence comes from the spike and live runs on real tickets in
+[`OLLAMA_SPIKE.md`](OLLAMA_SPIKE.md):
 
-- **On your computer:** `qwen3-coder` (30B, about 18 GB) is the best local choice. It did a
-  real implementer task in about 100 s on an Apple-silicon Mac. `gpt-oss:20b` works too, but
-  is about 5× slower under Claude Code. Small models (under about 14B) often lose track of
-  the agent's steps.
-- **Ollama Cloud:** `gpt-oss:120b` and `nemotron-3-super` are on the free plan. Larger coding
-  models such as `kimi-k2.7-code` and `glm-5.3` need Ollama Pro.
-
-A local model is much slower than Claude; 15–20 tokens a second is normal on a laptop. A
-local model is a good fit for small, well-scoped tickets, or for a team where Claude does the
-planning and reviewing.
+- **Recommended team:** Claude plans and reviews; Ollama Cloud `gpt-oss:120b` writes the code
+  and the tests. On real tickets each Cloud role took about a minute, at $0. Planning and
+  reviewing are where a weaker model's slips cost the most. In one run, a Cloud planner
+  answered with its plan but never saved it as the plan file.
+- **All on Ollama Cloud:** fine for small, well-scoped tickets. Check that a plan is actually
+  there before you approve it.
+- **Ollama Cloud models:** `gpt-oss:120b` and `nemotron-3-super` are on the free plan. Larger
+  coding models such as `kimi-k2.7-code` and `glm-5.3` need Ollama Pro.
+- **On your computer:** `qwen3-coder` (30B, about 18 GB) is the best local choice;
+  `gpt-oss:20b` is about 5× slower under Claude Code. Small models (under about 14B) often lose
+  track of the agent's steps. Speed depends on the GPU. On a 32 GB M2 Max (16–18 tokens a
+  second), `qwen3-coder` did a small fixture task in about 100 s, but a real ticket in a large
+  repository was still going after 22 minutes. Use local models on a fast GPU, or only for
+  very small tickets, and set the [time limit](#limits).
 
 ## Limits
 

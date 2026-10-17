@@ -105,7 +105,7 @@ jobs:
             || { echo "doctor: containers can't reach Ollama"; exit 1; }
           grep -q '✓ context: loaded model runs with 65536 tokens' ollama.txt || { echo "doctor: context not 64k"; exit 1; }
           if grep -qE '✗|⚠' ollama.txt; then echo "doctor's Ollama section is not green"; exit 1; fi
-          echo "ok: Ollama on Linux reachable from the api and worker containers; doctor's Ollama section is green"
+          echo "ok: Ollama on Linux reachable from the ASF containers (doctor names the one it checked from); doctor's Ollama section is green"
 
       - name: day-2 CLI — backup writes a dump
         run: |

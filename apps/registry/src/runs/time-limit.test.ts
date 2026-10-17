@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { STANDARD_TEAM, teamTemplateSchema } from '@asf/shared';
-import { createRun, getRun } from './store.js';
+import { createRun, getRun, requestCancel } from './store.js';
 import { claimTask, finishTask, registerWorker, monthUnpricedRuns } from './workers.js';
 import { putOrgSetting, deleteOrgSetting } from '../settings/store.js';
 import { enforceTimeLimit } from './time-limit.js';
@@ -47,9 +47,12 @@ test('under the limit: nothing happens; over it with a task running: cancel requ
   assert.notEqual(r.run.state, 'cancelled', 'still running until the worker stops the task');
   assert.deepEqual(await enforceTimeLimit(db.sql), [], 'trips once');
   // The worker stops the agent and reports the task; the orchestrator settles the run.
-  await finishTask(db.sql, taskId, { outcome: 'failed', outputRef: null, costUsd: 0, reason: 'cancelled' });
+  await finishTask(db.sql, taskId, { outcome: 'failed', outputRef: null, costUsd: 0, reason: 'run cancelled by the operator' });
   r = (await getRun(db.sql, runId))!;
   assert.equal(r.run.state, 'cancelled');
+  const plannerTask = r.tasks.find(t => t.id === taskId);
+  assert.ok(plannerTask);
+  assert.equal(plannerTask!.reason, 'cancelled: run time limit');
   assert.match(r.run.reason ?? '', /^time limit reached: its agents worked 200 min, over the 180 min limit/);
   const n = await db.sql`SELECT title FROM notification WHERE run_id = ${runId}`;
   assert.ok(n.some((x) => /time limit/.test(String(x.title))));
@@ -71,6 +74,23 @@ test('waiting at a gate does not count; a run already over the limit there settl
   assert.match(r.run.reason ?? '', /time limit reached: its agents worked 90 min, over the 60 min limit/);
   assert.ok(r.tasks.filter((t) => t.state === 'pending').length === 0, 'the rest of the team is skipped');
   await deleteOrgSetting(db.sql, 'RUN_MAX_MINUTES');
+});
+
+
+test('operator cancel request leaves task reason unchanged', { skip }, async () => {
+  await drain(db.sql);
+  await registerWorker(db.sql, { id: 'w3', host: 'h', runtimes: ['claude-code'], maxConcurrent: 4, inFlightTaskIds: [] });
+  const { runId, taskId } = await startPlanner('tl4');
+  // Request cancellation while task is running.
+  await requestCancel(db.sql, runId, null);
+  // Worker reports operator cancellation.
+  await finishTask(db.sql, taskId, { outcome: 'failed', outputRef: null, costUsd: 0, reason: 'run cancelled by the operator' });
+  const r = (await getRun(db.sql, runId))!;
+  assert.equal(r.run.state, 'cancelled');
+  assert.equal(r.run.reason, 'cancelled by operator');
+  const task = r.tasks.find(t => t.id === taskId);
+  assert.ok(task);
+  assert.equal(task!.reason, 'run cancelled by the operator');
 });
 
 test('a $0 task on an Ollama model is free, not unpriced', { skip }, async () => {

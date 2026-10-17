@@ -20,6 +20,9 @@ import { recordNotification } from './notification-store.js';
  */
 export const TIME_LIMIT_PREFIX = 'time limit reached';
 
+/** Reason stored on timed‑out tasks and events. */
+export const TIME_LIMIT_TASK_REASON = 'cancelled: run time limit';
+
 export async function workedMinutes(tx: Db | Sql, runId: string, now: Date): Promise<number> {
   const [row] = await tx`SELECT coalesce(sum(extract(epoch FROM (coalesce(finished_at, ${now}::timestamptz) - started_at))), 0) AS s
     FROM run_task WHERE run_id = ${runId} AND started_at IS NOT NULL AND coalesce(runtime, '') <> 'publish'`;
@@ -57,7 +60,7 @@ export async function enforceTimeLimit(sql: Sql, now: Date = new Date()): Promis
 
 /** Settle a time-limited run: what advance()'s cancellation does, keeping the reason. */
 export async function settleTimeLimited(tx: Db, runId: string, reason: string): Promise<void> {
-  await tx`UPDATE run_task SET state = 'skipped', reason = 'cancelled: run time limit' WHERE run_id = ${runId} AND state IN ('pending','awaiting_gate','needs_human')`;
+  await tx`UPDATE run_task SET state = 'skipped', reason = ${TIME_LIMIT_TASK_REASON} WHERE run_id = ${runId} AND state IN ('pending','awaiting_gate','needs_human')`;
   await tx`UPDATE run_gate SET state = 'abandoned' WHERE run_id = ${runId} AND state = 'open'`;
   await setRunState(tx, runId, 'cancelled', reason);
   await appendEventTx(tx, { runId, taskId: null, kind: 'run:cancelled', source: 'orchestrator', payload: { immediate: true, reason } });

@@ -4,6 +4,7 @@ import { appendEventTx, rowToRun, rowToTask, setRunState } from './store.js';
 import { advance } from './orchestrate.js';
 import { ollamaModelIds } from '@asf/shared';
 import { getOrgSettings } from '../settings/store.js';
+import { TIME_LIMIT_PREFIX, TIME_LIMIT_TASK_REASON } from './time-limit.js';
 
 /**
  * The fleet. A registration is a truthful statement of what this process
@@ -174,11 +175,17 @@ export async function finishTask(sql: Sql, taskId: string, input: FinishTaskInpu
     if (rows.length === 0) throw new Error(`task not found: ${taskId}`);
     const task = rowToTask(rows[0]);
     if (task.state !== 'running') throw new Error(`task ${taskId} is ${task.state}, not running`);
+    // Load run information to possibly adjust reason for time limit cancellations
+    const [runInfo] = await tx`SELECT cancel_requested_at, reason FROM agent_run WHERE id = ${task.runId}`;
+    let reasonToStore = input.reason;
+    if (runInfo && runInfo.cancelRequestedAt != null && typeof runInfo.reason === 'string' && runInfo.reason.startsWith(TIME_LIMIT_PREFIX) && input.outcome !== 'done') {
+      reasonToStore = TIME_LIMIT_TASK_REASON;
+    }
     await tx`UPDATE run_task SET state = ${input.outcome}, output_ref = coalesce(${input.outputRef}, output_ref),
-      cost_usd = ${input.costUsd}, reason = ${input.reason}, finished_at = now() WHERE id = ${taskId}`;
+      cost_usd = ${input.costUsd}, reason = ${reasonToStore}, finished_at = now() WHERE id = ${taskId}`;
     await tx`UPDATE agent_run SET cost_usd = (SELECT coalesce(sum(cost_usd), 0) FROM run_task WHERE run_id = ${task.runId}) WHERE id = ${task.runId}`;
     await appendEventTx(tx, { runId: task.runId, taskId, kind: 'task:finished', source: 'worker',
-      payload: { role: task.role, outcome: input.outcome, costUsd: input.costUsd, reason: input.reason } });
+      payload: { role: task.role, outcome: input.outcome, costUsd: input.costUsd, reason: reasonToStore } });
     return task.runId;
   });
   await advance(sql, runId);

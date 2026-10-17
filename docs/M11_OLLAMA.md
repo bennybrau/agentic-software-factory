@@ -1,6 +1,6 @@
 # M11: Run agent roles on Ollama models (local and Ollama Cloud)
 
-Status: WP1–WP7 DONE (user guide: [`OLLAMA.md`](OLLAMA.md)); WP8 next. Milestone https://github.com/bennybrau/agentic-software-factory/milestone/3, issues #20 (WP1) to #27 (WP8).
+Status: DONE (user guide: [`OLLAMA.md`](OLLAMA.md); live results: [`OLLAMA_SPIKE.md`](OLLAMA_SPIKE.md#wp8-live-runs-on-real-tickets-2026-10-17)). Follow-ups: #40, #41. Milestone https://github.com/bennybrau/agentic-software-factory/milestone/3, issues #20 (WP1) to #27 (WP8).
 
 ## The need
 

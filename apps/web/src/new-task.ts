@@ -25,6 +25,36 @@ export function newTaskProblem(title: string, files: PickedMeta[], limits: Adhoc
   return attachmentProblem(files, limits);
 }
 
+const CHAT_TITLE_MAX = 80;
+
+/**
+ * The task title for a chat message: its first non-empty line with the Markdown
+ * stripped, cut at a word boundary to fit, or 'New chat' if nothing is left.
+ */
+export function chatTitle(text: string): string {
+  const line = text.split('\n').map((l) => l
+    .replace(/^\s*(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)+/, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`]/g, '')
+    .trim()).find(Boolean);
+  if (!line) return 'New chat';
+  if (line.length <= CHAT_TITLE_MAX) return line;
+  const cut = line.slice(0, CHAT_TITLE_MAX + 1);
+  const space = cut.lastIndexOf(' ');
+  return (space > 0 ? cut.slice(0, space) : line.slice(0, CHAT_TITLE_MAX)).trimEnd();
+}
+
+/** Why the chat message cannot be sent yet, or null. */
+export function chatProblem(text: string, files: PickedMeta[], limits: AdhocLimits): string | null {
+  if (!text.trim()) return 'Say what we should work on.';
+  return attachmentProblem(files, limits);
+}
+
+/** The repository a chat starts in: the one the task names, else the first connected one. */
+export function pickChatRepo(preview: { suggestedRepoId: string | null; repos: { id: string }[] }): string | null {
+  return preview.suggestedRepoId ?? preview.repos[0]?.id ?? null;
+}
+
 /**
  * Where to go after saving an ad-hoc task: straight to the Start screen for it
  * ('start'), or back to the Things-to-do list ('later'). The id must already be

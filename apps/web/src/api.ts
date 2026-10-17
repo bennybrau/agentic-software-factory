@@ -58,7 +58,7 @@ export const api = {
   ticketStatuses: (scope?: string) => fetch(`/api/tickets/statuses${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`).then(j<string[]>),
   dispatchPreview: (id: string) => fetch(`/api/tickets/${encodeURIComponent(id)}/dispatch`).then(j<{ ticket: { id: string; key: string; title: string }; team: unknown; gates: Record<string, { mode: string }>; repos: { id: string; path: string }[]; suggestedRepoId: string | null; whyNot: string[]; blocker: { code: string; reason: string; link: string } | null; models: { id: string; label: string; tier: string; runtimes: string[] }[]; runtimes: string[]; defaultModels: Record<string, string>; defaultRuntimes: Record<string, string>; efforts: string[]; defaultEfforts: Record<string, string | null>; orgDisabledRoles?: string[] }>),
   adhocLimits: () => fetch('/api/adhoc/limits').then(j<AdhocLimits>),
-  createAdhoc: (body: { title: string; body: string; files: AdhocFileInput[] }) =>
+  createAdhoc: (body: { title: string; body: string; files: AdhocFileInput[]; chat?: boolean }) =>
     fetch('/api/adhoc', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       .then(async (r) => ({ status: r.status, body: (await r.json().catch(() => ({}))) as { task?: AdhocTask; reason?: string } })),
   listAdhoc: () => fetch('/api/adhoc').then(j<{ tasks: AdhocTask[] }>),

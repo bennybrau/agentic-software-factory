@@ -173,3 +173,11 @@ test('index.html sets a device-width viewport, so phones get the phone layout', 
   const html = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.html'), 'utf8');
   assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/);
 });
+
+test('the Orchestrator chat classes exist, each with a phone rule', () => {
+  const phone = [...css.matchAll(/@media \(max-width: 639px\)\s*\{([\s\S]*?)\n\}/g)].map((m) => m[1]).join('\n');
+  for (const cls of ['.chat-page', '.chat-composer', '.chat-proposed', '.chat-empty']) {
+    assert.match(css, new RegExp(`(^|\\n)\\${cls}\\s*\\{`), `${cls} rule`);
+    assert.ok(phone.includes(cls), `${cls} needs a max-width: 639px rule`);
+  }
+});

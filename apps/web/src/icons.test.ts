@@ -140,7 +140,7 @@ function ligatures(gsub: Buffer): Set<string> {
 
 test('the source uses the icons we expect to find (scanner sanity check)', () => {
   const used = iconsInSource(sourceFiles(SRC));
-  for (const name of ['checklist', 'add_task', 'notifications', 'picture_as_pdf', 'description']) {
+  for (const name of ['checklist', 'chat', 'notifications', 'picture_as_pdf', 'description']) {
     assert.ok(used.has(name), `scanner missed ${name}`);
   }
 });

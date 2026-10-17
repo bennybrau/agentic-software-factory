@@ -23,6 +23,43 @@ test('every role prompt renders with its priors and leaves no {{placeholders}}',
   }
 });
 
+test('the tester must call skipped tests unverified, and the reviewer must not approve on them (#40)', async () => {
+  const t = await renderPrompt('tester', 'run_x', { ...base, prior: priorsFor.tester });
+  assert.match(t, /skipped test did not run/);
+  assert.match(t, /`Verified: yes`/);
+  assert.match(t, /`Verified: no — <why>`/);
+  assert.match(t, /Never report skipped tests as passing/);
+  assert.match(t, /TEST_DATABASE_URL/);
+  const r = await renderPrompt('reviewer', 'run_x', { ...base, prior: priorsFor.reviewer });
+  assert.match(r, /`Verified: no`/);
+  assert.match(r, /don't `APPROVE` on the strength of the tests/);
+  assert.match(r, /write `ESCALATE`, even if the change looks right to you/);
+});
+
+test('roles that run tests are told a scratch test database is already in their environment (#40)', async () => {
+  const url = 'postgres://test:pw123@testdb:5432/test';
+  const env = { ASF_TEST_DB_ACTIVE: '1', DATABASE_TEST_URL: url, TEST_DATABASE_URL: url };
+  for (const role of ['implementer', 'tester', 'reviewer']) {
+    const p = await renderPrompt(role, 'run_x', { ...base, prior: priorsFor[role], env });
+    assert.match(p, /## TEST DATABASE/, role);
+    assert.match(p, /`TEST_DATABASE_URL` and `DATABASE_TEST_URL` are set in your environment/, role);
+    assert.match(p, /don't put a different URL on the command line/, role);
+    assert.ok(!p.includes(url) && !p.includes('pw123') && !p.includes('testdb:5432'), `${role}: the URL itself is never in the prompt`);
+    assert.ok(p.indexOf('## TEST DATABASE') < p.indexOf('Run id: run_x'), 'above the trailer');
+  }
+  const planner = await renderPrompt('planner', 'run_x', { ...base, prior: {}, env });
+  assert.ok(!planner.includes('## TEST DATABASE'), 'the planner runs no tests');
+  const one = await renderPrompt('tester', 'run_x', { ...base, prior: priorsFor.tester, env: { ASF_TEST_DB_ACTIVE: '1', DATABASE_TEST_URL: 'x' } });
+  assert.match(one, /`DATABASE_TEST_URL` is set in your environment and points at it/);
+  // .env.example ships a localhost DATABASE_TEST_URL that every container worker inherits:
+  // without the overlay's marker it is only a default, so no claim that a database exists.
+  const dflt = { DATABASE_TEST_URL: 'postgres://asf:asf@localhost:5432/asf_test' };
+  for (const e of [{}, dflt, { ...dflt, ASF_TEST_DB_ACTIVE: '0' }, { ASF_TEST_DB_ACTIVE: '1', DATABASE_TEST_URL: '  ' }]) {
+    const none = await renderPrompt('tester', 'run_x', { ...base, prior: priorsFor.tester, env: e });
+    assert.ok(!none.includes('## TEST DATABASE'), 'no variable, no section');
+  }
+});
+
 test('a genuinely-absent prior artifact renders a placeholder, not a crash', async () => {
   const p = await renderPrompt('reviewer', 'run_x', { ...base, prior: { 'plan.md': 'THE PLAN' } });
   assert.match(p, /\(not available\)/);

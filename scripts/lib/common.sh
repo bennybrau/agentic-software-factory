@@ -40,6 +40,24 @@ host_gateway_on() { # $1 = env file ; exit 0 iff the overlay applies
   esac
 }
 
+# A yes/no .env value, forgiving of case, quotes, spaces, a trailing comment and CRLF:
+# prints 1, 0, or nothing (blank or unrecognised).
+env_flag() { # $1 = env file, $2 = key
+  local v
+  v="$(read_env_key "$1" "$2" | tr -d '\r"'"'"'' | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')"
+  case "$v" in
+    1|on|true|yes)  printf 1 ;;
+    0|off|false|no) printf 0 ;;
+  esac
+}
+
+# Whether to layer docker-compose.testdb.yml, a scratch Postgres the agents' tests can
+# use (#40). Off unless ASF_TEST_DB in .env is yes. Never in host-worker mode
+# (ASF_MODE=2): the host worker can't reach it.
+test_db_on() { # $1 = env file ; exit 0 iff the overlay applies
+  [ "$(read_env_key "$1" ASF_MODE)" != "2" ] && [ "$(env_flag "$1" ASF_TEST_DB)" = 1 ]
+}
+
 # --- env-file reader (last KEY=value wins; blank if absent) -----------------
 read_env_key() { # $1 = file, $2 = key
   local file=$1 key=$2 line val=""

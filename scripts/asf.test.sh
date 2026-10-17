@@ -41,6 +41,7 @@ cp "$REPO_ROOT/scripts/lib/common.sh" "$FAKE_ROOT/scripts/lib/common.sh"
 cp "$REPO_ROOT/docker-compose.self-host.yml" "$FAKE_ROOT/docker-compose.self-host.yml"
 cp "$REPO_ROOT/docker-compose.host-worker.yml" "$FAKE_ROOT/docker-compose.host-worker.yml"
 cp "$REPO_ROOT/docker-compose.host-gateway.yml" "$FAKE_ROOT/docker-compose.host-gateway.yml"
+cp "$REPO_ROOT/docker-compose.testdb.yml" "$FAKE_ROOT/docker-compose.testdb.yml"
 chmod +x "$FAKE_ROOT/scripts/asf" "$FAKE_ROOT/scripts/host-worker.sh"
 
 # core utilities doctor calls (df/awk/stat/basename) live in /usr/bin:/bin
@@ -273,6 +274,24 @@ fi
 printf 'ASF_MODE=2\nASF_HOST_GATEWAY=1\n' >> "$FAKE_ROOT/.env"
 line="$(status_files)"
 assert_contains "$line" "docker-compose.host-worker.yml -f $FAKE_ROOT/docker-compose.host-gateway.yml" "mode 2 layers both overlays"
+# the agents' scratch test database: off by default, ASF_TEST_DB=1 layers it (#40)
+printf 'ASF_HOST_GATEWAY=0\nASF_MODE=1\n' >> "$FAKE_ROOT/.env"
+case "$(status_files)" in *testdb*) fail "the test-db overlay must be off by default" ;; *) pass ;; esac
+printf 'ASF_TEST_DB=1\n' >> "$FAKE_ROOT/.env"
+assert_contains "$(status_files)" "-f $FAKE_ROOT/docker-compose.testdb.yml" "ASF_TEST_DB=1 layers the test-db overlay"
+printf 'ASF_TEST_DB=0\n' >> "$FAKE_ROOT/.env"
+case "$(status_files)" in *testdb*) fail "ASF_TEST_DB=0 must not layer the test-db overlay" ;; *) pass ;; esac
+for v in 'TRUE' '"1"' "'yes'" ' On ' '1 # scratch db' "$(printf '1\r')"; do
+  printf 'ASF_TEST_DB=%s\n' "$v" >> "$FAKE_ROOT/.env"
+  assert_contains "$(status_files)" "docker-compose.testdb.yml" "ASF_TEST_DB=[$v] reads as on"
+done
+printf 'ASF_TEST_DB=nope\n' >> "$FAKE_ROOT/.env"
+case "$(status_files)" in *testdb*) fail "an unrecognised ASF_TEST_DB must read as off" ;; *) pass ;; esac
+# host-worker mode: never layered (its worker can't reach the container database)
+printf 'ASF_TEST_DB=1\nASF_MODE=2\n' >> "$FAKE_ROOT/.env"
+line="$(status_files)"
+case "$line" in *testdb*) fail "mode 2 must not layer the test-db overlay" ;; *) pass ;; esac
+assert_contains "$line" "docker-compose.host-worker.yml" "mode 2 still layers its own overlay"
 rm -f "$FAKE_ROOT/.env" "$FAKE_ROOT/docker.log"; rm -rf "$FAKE_DOCKER_BIN"
 
 # --- doctor flags an empty ASF_SECRET_KEY (even with docker absent) ------------

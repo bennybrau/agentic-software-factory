@@ -32,6 +32,8 @@ full list, with defaults and precedence, is in [`CONFIGURATION.md`](CONFIGURATIO
 |---|---|
 | `docker-compose.self-host.yml` | The whole stack as containers: `postgres`, `registry`, `api`, `worker`, `backup`. `scripts/setup.sh` and `scripts/asf` drive it (compose project `asf`). |
 | `docker-compose.host-worker.yml` | An overlay for **host-worker mode** — publishes the registry on `127.0.0.1:8788` and moves the container worker behind a profile so it doesn't start. |
+| `docker-compose.host-gateway.yml` | Maps `host.docker.internal` to the host on native Linux Docker, so the api and worker can reach a server there (Ollama, [`OLLAMA.md`](OLLAMA.md#linux)). Layered on Linux; `ASF_HOST_GATEWAY` overrides. |
+| `docker-compose.testdb.yml` | A scratch Postgres for the agents' tests ([below](#a-test-database-for-the-agents)). Layered when `.env` has `ASF_TEST_DB=1`. |
 
 `scripts/asf` is the day-2 wrapper over the first file, so you never type a compose
 command (`asf up|down|logs|status|doctor|update|backup|restore|reset`). See
@@ -46,6 +48,7 @@ command (`asf up|down|logs|status|doctor|update|backup|restore|reset`). See
 | `api` | `127.0.0.1:${ASF_PORT:-8787}` → `8787` | Serves the web bundle + the API on one loopback origin. Put Tailscale/Caddy in front to reach it from elsewhere ([`INSTALL.md`](INSTALL.md#reach-it-from-other-devices--tailscale)). |
 | `worker` | internal `8790` | `worktrees` + `runs` volumes. Mounts the host's `~/.config/gcloud` read-only for Vertex ADC. `deploy.resources.limits.memory: 8g`. |
 | `backup` | — | Nightly `pg_dump` into the `backups` volume, 14-day retention. |
+| `testdb` | not published | Only with `ASF_TEST_DB=1`. Scratch Postgres for the agents' tests, in memory. |
 
 **Volumes:** `pgdata`, `worktrees`, `runs`, `backups` — all named, so state survives
 `down` and lives outside any TCC-protected path. Only `reset` (`down -v`) removes them.
@@ -86,6 +89,32 @@ stored write-only (a `secret://org/<KEY>` pointer in `org_setting`, the bytes in
 separate `org_secret` sink, encrypted at rest with `ASF_SECRET_KEY`) and never echoed back; the switch takes effect on the next
 request with no restart. Full mechanics and the `TicketProvider` contract are in
 [`PROVIDERS.md`](PROVIDERS.md).
+
+## A test database for the agents
+
+If your repository has tests that need Postgres, they can't run inside the worker as
+shipped: there is no database there, so they skip. A skipped test proves nothing. The
+tester says so in its report (`Verified: no — …`), and the reviewer escalates to you
+instead of approving. Give the agents a database to make those tests run:
+
+1. Add `ASF_TEST_DB=1` to `.env`.
+2. Run `asf up`.
+
+That starts `testdb` (`docker-compose.testdb.yml`), a Postgres 16 on the compose
+network, and gives the worker its URL as `TEST_DATABASE_URL` and `DATABASE_TEST_URL`.
+`asf doctor` lists it under Containers.
+
+- **It's scratch.** The data lives in memory and is gone when the container restarts.
+  Every run shares it, so suites should make their own schema or database (most do).
+- **Only the containers can reach it.** It isn't published to the host, so in host-worker
+  mode (`ASF_MODE=2`) `ASF_TEST_DB` is ignored. Give that worker a database of your own:
+  set `DATABASE_TEST_URL` (or `TEST_DATABASE_URL`) and `ASF_TEST_DB_ACTIVE=1` in its
+  environment so the agents are told it's there.
+- **Another variable name?** If your tests read a different variable, add it under
+  `worker.environment` in a compose override of your own.
+
+`setup.sh --force` keeps the setting. To turn it off, set `ASF_TEST_DB=0`, then `asf down`
+and `asf up`.
 
 ## Verifying a running stack
 

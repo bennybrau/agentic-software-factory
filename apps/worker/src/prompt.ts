@@ -20,6 +20,31 @@ export interface PromptVars {
   budget?: { implementerTurns: number; timeoutMinutes: number };  // what one implementer pass gets, so the planner can size (and split) its plan
   conflict?: { base: string; files: string[] };  // re-run to resolve a merge conflict with the current base (files empty = it merged cleanly)
   thirdPartySkills?: FallbackSkill[];  // skills written to the run dir for a runtime that doesn't load skill folders; empty/absent = no section
+  env?: NodeJS.ProcessEnv;  // the environment the agent inherits (default process.env); read for the test-database note
+}
+
+/** Variables naming a scratch test database the operator gave the agents (ASF_TEST_DB, docker-compose.testdb.yml). */
+export const TEST_DB_ENV_KEYS = ['TEST_DATABASE_URL', 'DATABASE_TEST_URL'] as const;
+/**
+ * Set to 1 by docker-compose.testdb.yml: the URLs above point at a database that is
+ * really there. Without it they are only defaults (`.env.example` ships a localhost
+ * DATABASE_TEST_URL, which every container worker inherits), so no section.
+ */
+export const TEST_DB_ACTIVE_KEY = 'ASF_TEST_DB_ACTIVE';
+
+/**
+ * Tell the roles that run tests that a scratch test database is already in their
+ * environment (#40). Without this, an agent copies a URL from the repo's docs or
+ * defaults (`localhost:5432`) onto the command line, overriding the working one, and
+ * every database test skips. Names only, never the value. Only when ASF_TEST_DB_ACTIVE=1
+ * says the database is real; otherwise no section.
+ */
+export function renderTestDb(role: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (role === 'planner' || (env[TEST_DB_ACTIVE_KEY] ?? '').trim() !== '1') return '';
+  const set = TEST_DB_ENV_KEYS.filter((k) => (env[k] ?? '').trim() !== '');
+  if (!set.length) return '';
+  const names = set.map((k) => `\`${k}\``).join(' and ');
+  return `\n\n---\n\n## TEST DATABASE\n\nA scratch Postgres for tests is already set up: ${names} ${set.length > 1 ? 'are' : 'is'} set in your environment and point${set.length > 1 ? '' : 's'} at it. Run database tests with the environment as it is: don't put a different URL on the command line (for example a \`localhost\` default from the repo's docs or code), or the tests can't reach a database and skip. It's scratch and shared with other runs, so create your own schema or database rather than dropping anything you didn't create.`;
 }
 
 /**
@@ -179,7 +204,7 @@ export async function renderPrompt(role: string, runId: string, vars: PromptVars
   const skillSection = vars.skill && vars.skill.trim()
     ? `\n\n---\n\n## ROLE SKILL\n\nStanding guidance for the ${role} on this factory. Follow it unless the ticket or the approved plan explicitly overrides it:\n\n${vars.skill.trim()}`
     : '';
-  return conflictBanner + banner + rendered.trimEnd() + renderConversation(vars.conversation) + wipNote + skillSection + renderThirdPartySkills(vars.thirdPartySkills) + renderTodos(vars.todos) + '\n' + TRAILER(runId, vars.cwd, role);
+  return conflictBanner + banner + rendered.trimEnd() + renderConversation(vars.conversation) + wipNote + skillSection + renderThirdPartySkills(vars.thirdPartySkills) + renderTestDb(role, vars.env) + renderTodos(vars.todos) + '\n' + TRAILER(runId, vars.cwd, role);
 }
 
 /** Which prior artifacts a role reads, by convention. Missing files are simply absent. */

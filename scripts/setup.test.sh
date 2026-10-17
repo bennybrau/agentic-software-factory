@@ -48,6 +48,7 @@ cp "$REPO_ROOT/.env.example" "$FAKE_ROOT/.env.example"
 cp "$REPO_ROOT/docker-compose.self-host.yml" "$FAKE_ROOT/docker-compose.self-host.yml"
 cp "$REPO_ROOT/docker-compose.host-worker.yml" "$FAKE_ROOT/docker-compose.host-worker.yml"
 cp "$REPO_ROOT/docker-compose.host-gateway.yml" "$FAKE_ROOT/docker-compose.host-gateway.yml"
+cp "$REPO_ROOT/docker-compose.testdb.yml" "$FAKE_ROOT/docker-compose.testdb.yml"
 chmod +x "$FAKE_ROOT/scripts/setup.sh" "$FAKE_ROOT/scripts/worker-host.sh"
 git init -q "$FAKE_ROOT"
 
@@ -125,12 +126,15 @@ after="$(cat "$FAKE_ROOT/.env")"
 assert_eq "$after" "$before" "re-run without --force leaves .env untouched"
 
 # --- --force regenerates and backs up the old .env ------------------------
+printf 'ASF_TEST_DB=1\nASF_HOST_GATEWAY=0\n' >> "$FAKE_ROOT/.env"
 out="$(ASF_MODE=1 ASF_PORT=9123 run_setup --non-interactive --no-up --force 2>&1)"; code=$?
 assert_eq "$code" "0" "--force re-run succeeds"
 [ -f "$FAKE_ROOT/.env.bak" ] && pass || fail "--force backs up the previous .env"
 new_secret="$(get RUN_EVENT_SECRET)"
 [ "$new_secret" != "$secret" ] && pass || fail "--force regenerates RUN_EVENT_SECRET"
 assert_eq "$(get ASF_SECRET_KEY)" "$skey" "--force KEEPS ASF_SECRET_KEY (a new key would orphan saved tokens)"
+assert_eq "$(get ASF_TEST_DB)" "1" "--force keeps ASF_TEST_DB (#40)"
+assert_eq "$(get ASF_HOST_GATEWAY)" "0" "--force keeps ASF_HOST_GATEWAY"
 
 # --- upgrade: an .env from before #9 gets a key on re-run; nothing else changes
 grep -v '^ASF_SECRET_KEY=' "$FAKE_ROOT/.env" > "$FAKE_ROOT/.env.old" && cp "$FAKE_ROOT/.env.old" "$FAKE_ROOT/.env" && rm -f "$FAKE_ROOT/.env.old"

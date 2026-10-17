@@ -1,0 +1,47 @@
+# A scratch Postgres for the agents' tests (#40, docs/SELF_HOSTING.md).
+#
+# Without a database, a repository's database tests skip inside the worker, and a
+# skipped test proves nothing. This overlay adds `testdb`, a throwaway Postgres on the
+# compose network, and points the worker at it, so the tester (and implementer) can
+# run those tests for real.
+#
+# - Scratch only: the data lives in memory (tmpfs) and is gone on restart. Never put
+#   anything here you want to keep. Every run shares it, so tests should create their
+#   own schema or database (most suites already do).
+# - Not published to the host, so only the containers can reach it.
+# - The worker gets the URL under the two common names, TEST_DATABASE_URL and
+#   DATABASE_TEST_URL. If your repository reads another name, add it under
+#   `worker.environment` in a compose override of your own.
+#
+# scripts/asf and scripts/setup.sh layer it when .env has ASF_TEST_DB=1 (off by
+# default), never in host-worker mode (ASF_MODE=2), whose worker can't reach it.
+name: asf
+services:
+  testdb:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U test -d test']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+  worker:
+    depends_on:
+      testdb:
+        condition: service_healthy
+    environment:
+      # Tells the worker the URLs below are a real, reachable database, so it can say
+      # so in the agents' prompts. .env.example's localhost DATABASE_TEST_URL is not.
+      ASF_TEST_DB_ACTIVE: '1'
+      TEST_DATABASE_URL: postgres://test:test@testdb:5432/test
+      DATABASE_TEST_URL: postgres://test:test@testdb:5432/test

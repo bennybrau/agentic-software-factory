@@ -45,6 +45,13 @@ if host_gateway_on "$ENV_FILE"; then
   COMPOSE_FILES+=(-f "$ROOT/docker-compose.host-gateway.yml")
   COMPOSE_ARG="$COMPOSE_ARG -f docker-compose.host-gateway.yml"
 fi
+# A scratch Postgres for the agents' tests (see test_db_on).
+TEST_DB=0
+if test_db_on "$ENV_FILE"; then
+  TEST_DB=1
+  COMPOSE_FILES+=(-f "$ROOT/docker-compose.testdb.yml")
+  COMPOSE_ARG="$COMPOSE_ARG -f docker-compose.testdb.yml"
+fi
 compose() { docker compose "${COMPOSE_FILES[@]}" "$@"; }
 
 usage() {
@@ -525,6 +532,11 @@ cmd_doctor() {
   local svc status container_svcs="postgres registry api worker backup"
   # In host-worker mode the container worker is intentionally not running.
   [ "$HOST_WORKER_MODE" -eq 1 ] && container_svcs="postgres registry api backup"
+  # The agents' scratch test database (ASF_TEST_DB=1, docker-compose.testdb.yml).
+  [ "$TEST_DB" -eq 1 ] && container_svcs="$container_svcs testdb"
+  if [ "$HOST_WORKER_MODE" -eq 1 ] && [ "$(env_flag "$ENV_FILE" ASF_TEST_DB)" = 1 ]; then
+    info "ASF_TEST_DB is ignored in host-worker mode: the host worker can't reach the container database (docs/SELF_HOSTING.md)"
+  fi
   for svc in $container_svcs; do
     status="$(container_health "$svc")"
     case "$status" in

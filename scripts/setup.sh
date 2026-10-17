@@ -304,6 +304,9 @@ else
   [ -n "$SECRET_KEY_VALUE" ] || SECRET_KEY_VALUE="$(rand_hex 32)"
   # ...and an unfinished rotation's old key, or the tokens still on it are lost.
   SECRET_KEY_PREVIOUS_VALUE="$(read_env_key "$ENV_FILE" ASF_SECRET_KEY_PREVIOUS)"
+  # Keep the stack-layout choices a person made in .env (they aren't in .env.example).
+  HOST_GATEWAY_VALUE="$(read_env_key "$ENV_FILE" ASF_HOST_GATEWAY)"
+  TEST_DB_VALUE="$(read_env_key "$ENV_FILE" ASF_TEST_DB)"
 
   TMP_ENV="$(mktemp)"
   cp "$EXAMPLE" "$TMP_ENV"
@@ -311,6 +314,8 @@ else
   set_env_key "$TMP_ENV" POSTGRES_PASSWORD "$POSTGRES_PASSWORD_VALUE"
   set_env_key "$TMP_ENV" ASF_SECRET_KEY "$SECRET_KEY_VALUE"
   [ -z "$SECRET_KEY_PREVIOUS_VALUE" ] || set_env_key "$TMP_ENV" ASF_SECRET_KEY_PREVIOUS "$SECRET_KEY_PREVIOUS_VALUE"
+  [ -z "$HOST_GATEWAY_VALUE" ] || set_env_key "$TMP_ENV" ASF_HOST_GATEWAY "$HOST_GATEWAY_VALUE"
+  [ -z "$TEST_DB_VALUE" ] || set_env_key "$TMP_ENV" ASF_TEST_DB "$TEST_DB_VALUE"
   set_env_key "$TMP_ENV" ASF_PORT "$ASF_PORT_VALUE"
   # The day-2 CLI (scripts/asf) reads the mode from .env to decide, e.g., whether
   # `up` also starts a host worker (mode 2).
@@ -512,6 +517,18 @@ if [ "$MODE" != "3" ]; then
     COMPOSE+=(-f docker-compose.host-gateway.yml)
     COMPOSE_ARG="$COMPOSE_ARG -f docker-compose.host-gateway.yml"
   fi
+fi
+
+# A scratch Postgres for the agents' tests (#40): ASF_TEST_DB=1 in .env layers it.
+# Same rule as test_db_on in scripts/lib/common.sh: the container worker only (not
+# mode 2, whose worker can't reach it, nor mode 3, which uses docker-compose.yml).
+if [ "$MODE" = "1" ]; then
+  tdb="$(read_env_key "$ENV_FILE" ASF_TEST_DB 2>/dev/null | tr -d '\r"'"'"'' | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' || true)"
+  case "$tdb" in
+    1|on|true|yes)
+      COMPOSE+=(-f docker-compose.testdb.yml)
+      COMPOSE_ARG="$COMPOSE_ARG -f docker-compose.testdb.yml" ;;
+  esac
 fi
 
 # Bring the stack up: --pull grabs the prebuilt images (fast, ~3 min) then `up -d`;

@@ -105,7 +105,8 @@ export async function getSplitFamily(sql: Db, runId: string): Promise<SplitFamil
   };
 }
 
-interface Part { id: string; key: string; title: string; dependsOnIds: string[]; dependsOnKeys: string[] }
+/** `repo` set = the part goes into that repository instead of the parent's. */
+interface Part { id: string; key: string; title: string; dependsOnIds: string[]; dependsOnKeys: string[]; repo?: string }
 
 async function createParts(tx: Db, runId: string, parent: { key: string; title: string }, subtasks: SplitSubtask[], by: string | null): Promise<Part[]> {
   // Ids first, so each body can name the keys it waits on.
@@ -120,19 +121,22 @@ async function createParts(tx: Db, runId: string, parent: { key: string; title: 
     const body = subtaskBody(s, i + 1, subtasks.length, parent, deps.map((d) => d.key));
     await tx`INSERT INTO adhoc_task (id, key, title, body, created_by, parent_run_id, part)
       VALUES (${ids[i].id}, ${ids[i].key}, ${title}, ${body}, ${by ?? 'planner'}, ${runId}, ${i + 1})`;
-    parts.push({ ...ids[i], title, dependsOnIds: deps.map((d) => d.id), dependsOnKeys: deps.map((d) => d.key) });
+    parts.push({ ...ids[i], title, dependsOnIds: deps.map((d) => d.id), dependsOnKeys: deps.map((d) => d.key), repo: s.repo });
   }
   return parts;
 }
 
-/** One batch, parallel mode: independents start together, depends_on holds the rest until merged. */
-async function queueParts(tx: Db, parts: Part[], repoId: string | null, by: string | null): Promise<void> {
+/**
+ * One batch, parallel mode: independents start together, depends_on holds the rest until merged.
+ * A part naming another repository is queued for it; the queue refuses one it can't reach at dispatch.
+ */
+async function queueParts(tx: Db, parts: Part[], parentRepoId: string | null, by: string | null): Promise<void> {
   const batchId = newId('batch');
   const [{ tail }] = await tx`SELECT coalesce(max(position), 0) AS tail FROM work_queue WHERE state = 'queued'`;
   let pos = Number(tail);
   for (const p of parts) {
     pos += 1;
     await tx`INSERT INTO work_queue (ticket_id, ticket_provider, ticket_key, repo_id, team_name, max_cost_usd, mode, position, batch_id, added_by, depends_on)
-      VALUES (${p.id}, 'adhoc', ${p.key}, ${repoId}, ${null}, ${null}, 'parallel', ${pos}, ${batchId}, ${by ?? 'planner'}, ${tx.json(p.dependsOnIds)})`;
+      VALUES (${p.id}, 'adhoc', ${p.key}, ${p.repo ?? parentRepoId}, ${null}, ${null}, 'parallel', ${pos}, ${batchId}, ${by ?? 'planner'}, ${tx.json(p.dependsOnIds)})`;
   }
 }

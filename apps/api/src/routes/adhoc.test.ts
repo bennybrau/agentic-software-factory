@@ -58,7 +58,7 @@ const file = (name: string, mime: string, bytes: Buffer) => ({ name, mime, conte
 
 test('POST /api/adhoc stores the task and returns its adhoc: id', async () => {
   const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x));
+  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
   const res = await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'Fix the login page', body: 'It **breaks**.', files: [file('../../etc/shot.png', 'image/png', BYTES), file('shot.png', 'image/png', BYTES)] } });
   assert.equal(res.statusCode, 201);
   assert.equal(res.json().task.id, TASK.id);
@@ -69,11 +69,30 @@ test('POST /api/adhoc stores the task and returns its adhoc: id', async () => {
   await a.close();
 });
 
+test('POST /api/adhoc from the chat appends the connected repositories; without chat the body is unchanged', async () => {
+  const calls = stubRegistry();
+  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const sentBody = () => (calls.filter((c) => c.op === 'createAdhoc').pop()!.input as { body: string }).body;
+
+  assert.equal((await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: 'Do it.', chat: true } })).statusCode, 201);
+  assert.equal(sentBody(), 'Do it.\n\nRepositories connected:\n- example/app');
+
+  await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: 'Do it.' } });
+  assert.equal(sentBody(), 'Do it.');
+  await a.close();
+
+  // No repository reachable: the task is still created, just without the list.
+  const b = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider('') }));
+  assert.equal((await b.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: 'Do it.', chat: true } })).statusCode, 201);
+  assert.equal(sentBody(), 'Do it.');
+  await b.close();
+});
+
 test('POST /api/adhoc refuses a missing title, a disallowed type, too many files and an oversized file', async () => {
   process.env.ADHOC_MAX_ATTACHMENTS = '2';
   process.env.ADHOC_MAX_ATTACHMENT_MB = '1';
   const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x));
+  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
   const post = (payload: unknown) => a.inject({ method: 'POST', url: '/api/adhoc', payload: payload as object });
 
   assert.equal((await post({ title: '  ', body: 'x' })).statusCode, 400);
@@ -97,7 +116,7 @@ test('POST /api/adhoc refuses a missing title, a disallowed type, too many files
 
 test('GET /api/adhoc lists stored tasks; DELETE removes one then 404s', async () => {
   const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x));
+  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
 
   const list = await a.inject({ method: 'GET', url: '/api/adhoc' });
   assert.equal(list.statusCode, 200);
@@ -114,7 +133,7 @@ test('GET /api/adhoc lists stored tasks; DELETE removes one then 404s', async ()
 
 test('POST /api/adhoc accepts a body above the default 1 MiB limit (route-level bodyLimit)', async () => {
   stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x));
+  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
   const res = await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', files: [file('a.png', 'image/png', Buffer.alloc(3 * 1024 * 1024, 7))] } });
   assert.equal(res.statusCode, 201);
   await a.close();
@@ -122,7 +141,7 @@ test('POST /api/adhoc accepts a body above the default 1 MiB limit (route-level 
 
 test('GET /api/runs/:id/attachments/:name needs X-Run-Secret and returns the raw bytes', async () => {
   stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x));
+  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
   const noSecret = await a.inject({ method: 'GET', url: '/api/runs/run_a/attachments/shot.png' });
   assert.equal(noSecret.statusCode, 401);
 

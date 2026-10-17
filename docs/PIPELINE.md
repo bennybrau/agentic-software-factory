@@ -48,6 +48,12 @@ When the MR/PR is **ready for review** (merge off) or the run waits at the **Mer
 
 If the worker's checkout is gone, it is rebuilt from the pushed run branch. The request is refused, with the reason, when the MR/PR is already merged or closed, when the run is still working, when it has no MR/PR, or when another run for the same ticket is live. The run's cost ceiling is not reset: the second round spends from the same budget. SCM review comments are not imported. Put what you want changed in the box.
 
+## Splits and hand-offs
+
+A planner can end its plan with an `asf-split` block: 2–8 parts, each a `title`, a `body` and the earlier parts it waits on (`dependsOn`). When you approve the plan, each part becomes its own ad-hoc task in Up next, and the parent run finishes as *split*.
+
+A part may also set `repo` to the path of another connected repository. That part is queued for that repository; a part without `repo` goes into the parent run's repository. A single part is allowed only when it sets `repo`, which hands the work off to another repository. The repository is not checked when you approve: if the queue can't reach it, the entry fails with the reason when it is dispatched. A task created from the chat lists the connected repositories at the end of its body, so the planner knows which paths it can use. A part of a split can't be split or handed off again.
+
 ## Invariants (the server enforces these; the UI mirrors them)
 
 - **`before_merge` (the Merge gate) can only be relaxed from "Human approves" at the org tier** — here in Settings (the Merge step's choice), never from a per-dispatch request. Landing on the default branch without a person is a project policy, not a per-run choice.

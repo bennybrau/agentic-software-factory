@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { ADHOC_ALLOWED_MIME, adhocBodyLimitBytes, attachmentProblem, createAdhocRequestSchema, isAdhocId, safeAttachmentName } from '@asf/shared';
-import type { AdhocFileInput, AdhocLimits } from '@asf/shared';
+import type { AdhocFileInput, AdhocLimits, ScmProvider } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { cfg } from '../settings.js';
 import { resolveIdentity } from '../identity.js';
+import { startReadiness } from '../start-readiness.js';
 
 export function adhocLimits(): AdhocLimits {
   return { maxFiles: cfg('ADHOC_MAX_ATTACHMENTS'), maxFileMb: cfg('ADHOC_MAX_ATTACHMENT_MB') };
@@ -30,7 +31,7 @@ function uniqueNames(files: AdhocFileInput[]): AdhocFileInput[] {
  * ordinary /dispatch screen then starts. The worker fetches the files back
  * through the secret-guarded attachments route.
  */
-export function registerAdhocRoutes(app: FastifyInstance): void {
+export function registerAdhocRoutes(app: FastifyInstance, deps: { scm: ScmProvider }): void {
   const limits = adhocLimits();
 
   app.addHook('onRequest', async (req, reply) => {
@@ -46,11 +47,18 @@ export function registerAdhocRoutes(app: FastifyInstance): void {
   app.post('/api/adhoc', { bodyLimit: adhocBodyLimitBytes(limits) }, async (req, reply) => {
     const parsed = createAdhocRequestSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'bad_request', reason: parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ') });
-    const { title, body } = parsed.data;
+    const { title, chat } = parsed.data;
+    let { body } = parsed.data;
     const files = uniqueNames(parsed.data.files);
     // The declared size is the decoded size, so a lying client cannot slip a big file past the check.
     const problem = attachmentProblem(files.map((f) => ({ name: f.name, mime: f.mime, size: Buffer.byteLength(f.contentBase64, 'base64') })), limits);
     if (problem) return reply.code(400).send({ error: 'bad_attachment', reason: problem });
+    // From the chat: list the connected repositories so the planner can hand a part off to one.
+    // If the lookup fails the task is still created, just without the list.
+    if (chat) {
+      const ready = await startReadiness(deps.scm);
+      if (ready.ok) body = `${body}\n\nRepositories connected:\n${ready.repos.map((r) => `- ${r.path}`).join('\n')}`;
+    }
     const { task } = await registry.createAdhoc({ title, body, createdBy: resolveIdentity(req).user || null, attachments: files });
     return reply.code(201).send({ task });
   });

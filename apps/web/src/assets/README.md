@@ -19,10 +19,10 @@ regenerate the subset below.
 
 The icon names in use live in `../components/Sidebar.tsx` (the `LINKS` array,
 `icon:` field) and any inline `material-symbols-outlined` spans (e.g.
-`NotificationBell.tsx` → `notifications`, `NewTask.tsx` → attachment icons).
+`NotificationBell.tsx` → `notifications`, `Attachments.tsx` → attachment icons).
 Current set:
 
-    add_task  checklist  dashboard  description  event_repeat
+    add_task  chat  checklist  dashboard  description  event_repeat
     history  notifications  picture_as_pdf  settings  tune
 
 ## Regenerating (when you add/remove an icon)
@@ -31,7 +31,7 @@ Update the comma list below to match the icons in use, then fetch the subset
 from Google Fonts with a **desktop UA** (so it serves `woff2`) and the variable
 weight range the CSS expects (`font-weight: 100 700`):
 
-    ICONS="add_task,checklist,dashboard,description,event_repeat,history,notifications,picture_as_pdf,settings,tune"
+    ICONS="add_task,chat,dashboard,description,event_repeat,history,notifications,picture_as_pdf,settings,tune"
     UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
     CSS="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=${ICONS}&display=block"
     URL=$(curl -sL -A "$UA" "$CSS" | grep -oE 'url\([^)]+\)' | head -1 | sed -E 's/^url\(//;s/\)$//')

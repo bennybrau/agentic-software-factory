@@ -6,14 +6,18 @@ import { parseSplit, isNotNeeded, notNeededReason } from '@asf/shared/ui';
 import { NotNeededActions } from './NotNeededActions';
 import { api } from '../api';
 import { useMe } from '../useMe';
+import { chatTitle } from '../new-task';
 
 /**
  * The plan stage as a conversation. The planner either asks what blocks it or
  * proposes a plan; you reply in plain words until it's right, then approve and
  * the rest of the team (build, test, review) just goes. Replaces the plan-gate
  * approve/reject form and the planner's needs-human card.
+ *
+ * `variant="page"` is the Orchestrator chat (/chat/:runId): a tall thread with the
+ * composer stuck to the bottom, and the plan shown as the tasks it would queue.
  */
-export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTask, onDone }: {
+export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTask, onDone, who = 'Planner', variant = 'card', repo = null }: {
   runId: string;
   ticketId: string;
   ticketKey: string;
@@ -21,6 +25,9 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
   gate: GateWire | null;            // the open after_plan gate, if the plan is waiting on you
   plannerTask: RunTask | null;      // the latest planner task (running / needs_human / done)
   onDone: () => void;
+  who?: string;                     // who the agent's messages are from
+  variant?: 'card' | 'page';
+  repo?: string | null;             // the run's repository, for parts that don't name one (page variant)
 }) {
   const me = useMe();
   const [text, setText] = useState('');
@@ -69,6 +76,76 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
     onDone();
   };
 
+  const threadView = (
+    <div className="chat-thread">
+      {thread.map((m) => (
+        <div key={m.id} className={`chat-msg ${m.author}`}>
+          <div className="chat-who">{m.author === 'agent' ? (isNotNeeded(m.body) ? `${who}: not needed` : m.kind === 'question' ? `${who} asks` : who) : (m.by || 'You')}</div>
+          {m.author === 'agent'
+            ? <div className="chat-body ticket-desc chat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{isNotNeeded(m.body) ? notNeededReason(m.body) : m.body}</ReactMarkdown></div>
+            : <div className="chat-body">{isNotNeeded(m.body) ? notNeededReason(m.body) : m.body}</div>}
+        </div>
+      ))}
+      {thinking && <div className="chat-msg agent"><div className="chat-who">{who}</div><div className="chat-body muted">Thinking…</div></div>}
+      <div ref={endRef} />
+    </div>
+  );
+
+  if (variant === 'page') {
+    // One proposed task per split part, or the whole plan as one.
+    const proposed = split.kind === 'ok'
+      ? split.subtasks.map((s) => ({ title: s.title, repo: s.repo ?? repo, after: s.dependsOn }))
+      : [{ title: chatTitle(planText ?? '').replace(/^Plan:\s*/i, ''), repo, after: [] as number[] }];
+    return (
+      <div className="chat-page">
+        {threadView}
+
+        {gate && split.kind !== 'invalid' && (
+          <div className="card chat-proposed">
+            <b>Proposed tasks</b>
+            <ol>
+              {proposed.map((p, i) => (
+                <li key={i}>
+                  <span>{p.title}</span>
+                  <span className="muted small">
+                    {p.repo && <span className="mono">{p.repo}</span>}
+                    {p.after.length > 0 && <span>after {p.after.map((d) => `#${d}`).join(', ')}</span>}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <details className="chat-plan">
+              <summary className="muted small">The full plan</summary>
+              <pre className="artifact">{gate.artifact}</pre>
+            </details>
+            <button className="btn good" onClick={approve} disabled={busy}>
+              {split.kind === 'ok' ? `Queue these ${split.subtasks.length} tasks` : 'Queue this task'}
+            </button>
+          </div>
+        )}
+        {gate && split.kind === 'invalid' && (
+          <div style={{ color: 'var(--bad)' }}>The proposed tasks can't be used: {split.reason}. Ask the {who.toLowerCase()} to fix them.</div>
+        )}
+
+        {notNeeded && <NotNeededActions runId={runId} ticketId={ticketId} ticketKey={ticketKey} onDone={onDone} />}
+
+        {canReply && (
+          <div className="chat-composer">
+            {err && <div style={{ color: 'var(--bad)' }}>{err}</div>}
+            <div className="row">
+              <textarea rows={2} disabled={busy} value={text} aria-label={`Message the ${who.toLowerCase()}`}
+                placeholder={asking ? `Answer the ${who.toLowerCase()}…` : 'Ask a question or ask for a change…'}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} />
+              <button className="btn" onClick={send} disabled={busy || !text.trim()}>Send</button>
+              {asking && !gate && !notNeeded && <button className="btn ghost" onClick={skip} disabled={busy} title="Go on without a plan">Skip planning</button>}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="card chat" style={canReply ? { borderColor: 'var(--warn)' } : undefined}>
       <div className="row between">
@@ -80,18 +157,7 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
         Talk it through until the plan is right. Once you approve it, the team builds, tests and reviews it on its own.
       </div>
 
-      <div className="chat-thread">
-        {thread.map((m) => (
-          <div key={m.id} className={`chat-msg ${m.author}`}>
-            <div className="chat-who">{m.author === 'agent' ? (isNotNeeded(m.body) ? 'Planner: not needed' : m.kind === 'question' ? 'Planner asks' : 'Planner') : (m.by || 'You')}</div>
-            {m.author === 'agent'
-              ? <div className="chat-body ticket-desc chat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{isNotNeeded(m.body) ? notNeededReason(m.body) : m.body}</ReactMarkdown></div>
-              : <div className="chat-body">{isNotNeeded(m.body) ? notNeededReason(m.body) : m.body}</div>}
-          </div>
-        ))}
-        {thinking && <div className="chat-msg agent"><div className="chat-who">Planner</div><div className="chat-body muted">Thinking…</div></div>}
-        <div ref={endRef} />
-      </div>
+      {threadView}
 
       {gate?.artifact != null && (
         <details open className="chat-plan">

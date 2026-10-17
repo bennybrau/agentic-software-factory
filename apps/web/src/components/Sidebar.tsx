@@ -9,7 +9,7 @@ import { PAGE } from '../words';
 
 /** One source of truth for the primary nav: route, label, short tab-bar label, and Material Symbols icon. */
 export const LINKS = [
-  { to: '/', label: 'New task', short: 'New', icon: 'add_task', end: true },
+  { to: '/', label: 'New chat', short: 'Chat', icon: 'chat', end: true },
   { to: '/backlog', label: PAGE.todo, short: 'Planned', icon: 'checklist' },
   { to: '/recurring', label: 'Recurring tasks', short: 'Recurring', icon: 'event_repeat' },
   { to: '/runs', label: PAGE.history, short: 'History', icon: 'history' },

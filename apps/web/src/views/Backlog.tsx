@@ -232,7 +232,7 @@ export function Backlog() {
             {BUCKETS.map((b) => <option key={b} value={b}>{bucketLabel(b)}</option>)}
           </select>
           <input placeholder="Ticket number or title…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', maxWidth: 220 }} />
-          <button className="btn" onClick={() => navigate('/')} title="Describe work that has no ticket in your tracker">New task</button>
+          <button className="btn" onClick={() => navigate('/')} title="Describe work that has no ticket in your tracker">New chat</button>
         </span>
       </div>
       {blocked && <NoRepo reason={blocked.reason} link={blocked.link} />}

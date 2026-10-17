@@ -346,6 +346,8 @@ function TaskPanel({ task, versions, events }: { task: RunTask; versions: Versio
   const result = evForTask('segment:result')?.payload as Record<string, unknown> | undefined;
   const diff = evForTask('segment:diff')?.payload as Record<string, unknown> | undefined;
   const started = evForTask('segment:started')?.payload as Record<string, unknown> | undefined;
+  // #41: the role didn't write its file, so its reply was saved as the artifact.
+  const fromReply = evForTask('artifact:from_reply')?.payload as Record<string, unknown> | undefined;
   const usage = (result?.usage ?? null) as { inputTokens?: number; outputTokens?: number } | null;
   const files = (diff?.files ?? []) as Array<{ path: string; insertions: number; deletions: number }>;
 
@@ -360,6 +362,7 @@ function TaskPanel({ task, versions, events }: { task: RunTask; versions: Versio
       {tab === 'asked' && (prompt
         ? <pre className="artifact">{prompt}</pre>
         : <div className="muted">No prompt recorded for this attempt (older run, or the task hasn't started).</div>)}
+      {tab === 'said' && fromReply && <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>This role didn't write <span className="mono">{String(fromReply.name)}</span>, so its reply below was saved as it.</div>}
       {tab === 'said' && (result
         ? <pre className="artifact">{String(result.text || '(no result text)')}{result.terminalReason ? `\n\n[stopped: ${result.terminalReason}]` : ''}</pre>
         : <div className="muted">No result recorded yet.</div>)}

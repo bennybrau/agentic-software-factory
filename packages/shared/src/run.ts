@@ -93,4 +93,5 @@ export const RUN_EVENT_KINDS = [
   'run:stale', 'run:cancelled', 'run:failed', 'run:succeeded', 'run:split', 'run:time_limit',
   'publish:conflict', 'conflict:merging', 'conflict:resolved',
   'auth:expired',
+  'artifact:from_reply', 'artifact:missing',
 ] as const;

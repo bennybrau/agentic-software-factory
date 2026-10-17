@@ -373,11 +373,23 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
   // Mirror the artifact to the registry so the UI and the gate can read it without touching this disk.
   // The agent may have written it to the run dir or, using a relative path, into the worktree — look in both.
   if (outputRef && outcome.outcome === 'done') {
-    const body = await readArtifact(runDir, outputRef, ws?.worktreePath);
-    if (body !== null) {
+    const art = await resolveOutputArtifact(runDir, outputRef, ws?.worktreePath, outcome.text);
+    if (art.source === 'missing') {
+      // #41: never finish `done` with no artifact — the gate would open on nothing and
+      // the next role would get no plan/report/review.
+      const reason = `${task.role} finished without writing ${outputRef}, and its reply was empty, so there is nothing to use instead. Retry the role.`;
+      await api.event(run.id, 'artifact:missing', { role: task.role, name: outputRef, reason }, task.id);
+      outcome = { ...outcome, outcome: 'failed' as const, text: reason };
+    } else {
+      if (art.source === 'reply') {
+        // #41: some models (seen with Ollama Cloud gpt-oss:120b as planner) put the
+        // artifact in their reply instead of the file. Use the reply, and say so.
+        log(`${task.role} wrote no ${outputRef}; using its final reply (${art.body.length} chars) instead`);
+        await api.event(run.id, 'artifact:from_reply', { role: task.role, name: outputRef, chars: art.body.length }, task.id);
+      }
       // Land it in the run dir so later roles' loadPriorArtifacts finds it there.
-      if (ws?.worktreePath) await writeFile(join(runDir, outputRef), body, 'utf8').catch(() => {});
-      await api.saveArtifact(run.id, outputRef, body, { taskId: task.id });
+      if (ws?.worktreePath || art.source === 'reply') await writeFile(join(runDir, outputRef), art.body, 'utf8').catch(() => {});
+      await api.saveArtifact(run.id, outputRef, art.body, { taskId: task.id });
     }
   }
   // The planner's side of the chat: its questions, or (with the plan written) its
@@ -400,6 +412,22 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
     branchName: ws?.branchName ?? null,
     ...(googleLoginFailed ? { googleLoginFailed } : {}),
   };
+}
+
+/**
+ * The artifact a role that finished `done` was asked to write (#41): the file from the
+ * run dir or worktree; failing that, the role's final reply (a model that "answered"
+ * with its plan instead of saving it); failing that, missing. Whitespace-only counts
+ * as absent for both.
+ */
+export async function resolveOutputArtifact(
+  runDir: string, name: string, worktree: string | undefined, reply: string | null | undefined,
+): Promise<{ source: 'file' | 'reply'; body: string } | { source: 'missing' }> {
+  const file = await readArtifact(runDir, name, worktree);
+  if (file !== null && file.trim()) return { source: 'file', body: file };
+  const text = (reply ?? '').trim();
+  if (text) return { source: 'reply', body: text + '\n' };
+  return { source: 'missing' };
 }
 
 /**

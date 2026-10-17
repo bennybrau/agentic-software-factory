@@ -58,6 +58,43 @@ test('under the limit: nothing happens; over it with a task running: cancel requ
   assert.ok(n.some((x) => /time limit/.test(String(x.title))));
 });
 
+// New test: over the limit with a task running: a second sweep before the task finishes changes nothing
+test('over the limit with a task running: a second sweep before the task finishes changes nothing', { skip }, async () => {
+  await drain(db.sql);
+  await putOrgSetting(db.sql, 'RUN_MAX_MINUTES', 180, 'test');
+  const { runId, taskId } = await startPlanner('tl5');
+
+  // First enforcement should trip the limit.
+  await aged(taskId, 200);
+  assert.deepEqual(await enforceTimeLimit(db.sql), [runId]);
+
+  // Snapshot reason, cancelRequestedAt, event and notification counts.
+  const [{ reason: preReason, cancelRequestedAt: preCancel }] = await db.sql`SELECT reason, cancel_requested_at FROM agent_run WHERE id = ${runId}`;
+  const [{ n: preEventCount }] = await db.sql`SELECT count(*)::int AS n FROM run_events WHERE run_id = ${runId} AND kind = 'run:time_limit'`;
+  const [{ n: preNotifCount }] = await db.sql`SELECT count(*)::int AS n FROM notification WHERE run_id = ${runId}`;
+
+  // Age further; if re‑evaluated it would change reason text.
+  await aged(taskId, 260);
+
+  // Second enforcement should not change anything.
+  assert.deepEqual(await enforceTimeLimit(db.sql), [], 'second sweep does nothing');
+
+  // Re‑read values.
+  const [{ reason: postReason, cancelRequestedAt: postCancel }] = await db.sql`SELECT reason, cancel_requested_at FROM agent_run WHERE id = ${runId}`;
+  const [{ n: postEventCount }] = await db.sql`SELECT count(*)::int AS n FROM run_events WHERE run_id = ${runId} AND kind = 'run:time_limit'`;
+  const [{ n: postNotifCount }] = await db.sql`SELECT count(*)::int AS n FROM notification WHERE run_id = ${runId}`;
+  const [{ state }] = await db.sql`SELECT state FROM agent_run WHERE id = ${runId}`;
+
+  // Verify unchanged.
+  assert.equal(postReason, preReason);
+  assert.deepEqual(postCancel, preCancel);
+  assert.equal(postEventCount, preEventCount);
+  assert.equal(postNotifCount, preNotifCount);
+  assert.notEqual(state, 'cancelled');
+
+  await deleteOrgSetting(db.sql, 'RUN_MAX_MINUTES');
+});
+
 test('waiting at a gate does not count; a run already over the limit there settles at once', { skip }, async () => {
   await drain(db.sql);
   await putOrgSetting(db.sql, 'RUN_MAX_MINUTES', 60, 'test');

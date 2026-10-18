@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { GateWire, RunMessageWire } from '@asf/shared';
+import { MemoryRouter } from 'react-router-dom';
+import type { GateWire, RunMessageWire, RunTask } from '@asf/shared';
 import { PlanChat } from './PlanChat';
 
 const noop = () => {};
@@ -61,6 +62,33 @@ test('a single plan proposes one task', () => {
   const html = page(gate('# Plan: Fix the login page\n\nSmall change.'));
   assert.match(html, /Queue this task/);
   assert.match(html, /Fix the login page/);
+});
+
+const status = { tone: 'working', text: 'The team is on it: Write code (step 2 of 4).' } as const;
+const working = { id: 't_1', role: 'planner', state: 'running' } as unknown as RunTask;
+const withStatus = (variant: 'card' | 'page') => renderToStaticMarkup(
+  <MemoryRouter>
+    <QueryClientProvider client={new QueryClient()}>
+      <PlanChat runId="run_1" ticketId="adhoc:abc" ticketKey="ADHOC-ABC" gate={null} plannerTask={working} onDone={noop}
+        messages={[msg('agent', 'What should change?'), msg('human', 'The login page')]} who="Orchestrator" variant={variant} status={status} />
+    </QueryClientProvider>
+  </MemoryRouter>);
+
+test('the page shows the run\'s status as the last message, in place of Thinking…', () => {
+  const html = withStatus('page');
+  assert.match(html, /chat-msg agent chat-status working/);
+  assert.match(html, /The team is on it: Write code \(step 2 of 4\)\./);
+  assert.match(html, /href="\/run\/run_1"[^>]*>Open the run/);
+  assert.match(html, />Activity</);
+  assert.doesNotMatch(html, /Thinking…/);
+  const thread = html.slice(html.indexOf('chat-thread'));
+  assert.ok(thread.indexOf('chat-status') > thread.indexOf('The login page'), 'status comes after the messages');
+});
+
+test('the card variant ignores the status', () => {
+  const html = withStatus('card');
+  assert.doesNotMatch(html, /chat-status/);
+  assert.match(html, /Thinking…/);
 });
 
 test('the default card still says Planner', () => {

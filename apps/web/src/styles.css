@@ -394,6 +394,17 @@ table.mini { max-width: 720px; margin-top: 4px; } table.mini td { border-bottom:
 .chat-proposed li { margin: 6px 0; }
 .chat-proposed li > span { display: block; }
 .chat-proposed li .muted span + span::before { content: ' · '; }
+/* The run's live status: the thread's last Orchestrator message, a dot by its name */
+.chat-status { --tone: var(--accent); border-left: 3px solid var(--tone); }
+.chat-status.waiting { --tone: var(--warn); }
+.chat-status.done { --tone: var(--good); }
+.chat-status.bad { --tone: var(--bad); }
+.chat-status .chat-who { display: flex; align-items: center; gap: 6px; }
+.chat-status .chat-who::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--tone); flex: none; }
+.chat-status.working .chat-who::before { animation: chat-status-pulse 1.6s ease-out infinite; }
+@keyframes chat-status-pulse { 0% { box-shadow: 0 0 0 0 var(--tone); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .chat-status.working .chat-who::before { animation: none; } }
+.chat-status-links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; white-space: normal; }
 @media (max-width: 639px) {
   .chat-empty { margin-top: 2vh; }
   .chat-empty h2 { font-size: 21px; }

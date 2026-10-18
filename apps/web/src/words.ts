@@ -3,12 +3,12 @@
  * view says the same thing. The data keeps its engineering names (run states,
  * buckets, gates); only what a person reads goes through here.
  *
- *   backlog → "Planned tasks"   runs → "History"   dispatch → "Start"
+ *   backlog → "Planned tasks"   runs → "Activity"  dispatch → "Start"
  *   queue   → "Up next"        gate → a check-in that waits for you
  */
 export const PAGE = {
   todo: 'Planned tasks',
-  history: 'History',
+  activity: 'Activity',
   upNext: 'Up next',
 } as const;
 

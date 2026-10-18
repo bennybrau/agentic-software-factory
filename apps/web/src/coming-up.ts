@@ -1,7 +1,7 @@
 import type { TodayWire } from '@asf/shared';
 
 /**
- * The History page's one-line "Coming up:" summary of recurring tasks due in the
+ * The Activity page's one-line "Coming up:" summary of recurring tasks due in the
  * next 24h (#188). Pure, so it is unit-tested without a DOM. Same local day →
  * "at 9:00 AM", the next day → "tomorrow 9:00 AM", already due → "any moment".
  * `timeZone` defaults to the browser's own.

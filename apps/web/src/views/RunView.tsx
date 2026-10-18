@@ -88,7 +88,7 @@ export function RunView() {
   return (
     <div>
       <div className="row between">
-        <div><Link to="/runs">← {PAGE.history}</Link>
+        <div><Link to="/runs">← {PAGE.activity}</Link>
           <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{wasSplit ? outcomeLabel('split') : runStateLabel(run.state)}</span></h2>
           {detail.recurring && (
             <div className="muted" style={{ fontSize: 13 }}>
@@ -132,7 +132,7 @@ export function RunView() {
 
       {split && <SplitCard family={split} runId={runId} />}
       {wasSplit && !split && (
-        <div className="card"><b>{outcomeLabel('split')}</b><div className="muted" style={{ fontSize: 13, marginTop: 4 }}>The planner divided this job into smaller tasks. Find them in Up next or History.</div></div>
+        <div className="card"><b>{outcomeLabel('split')}</b><div className="muted" style={{ fontSize: 13, marginTop: 4 }}>The planner divided this job into smaller tasks. Find them on the Activity page.</div></div>
       )}
 
       {showChat && !wasSplit && <PlanChat runId={runId} ticketId={run.ticketId} ticketKey={run.ticketKey} messages={messages} gate={planGate} plannerTask={plannerTask} onDone={load} />}

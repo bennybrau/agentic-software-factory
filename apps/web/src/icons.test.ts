@@ -145,7 +145,7 @@ test('the source uses the icons we expect to find (scanner sanity check)', () =>
   }
 });
 
-test('Recurring tasks has its own nav icon, distinct from work history', () => {
+test('Recurring tasks has its own nav icon, distinct from Activity', () => {
   const src = readFileSync(path.join(SRC, 'components', 'Sidebar.tsx'), 'utf8');
   const iconFor = (route: string) => {
     const m = src.match(new RegExp(`to:\\s*'${route}'[^}]*icon:\\s*'([a-z0-9_]+)'`));
@@ -153,6 +153,7 @@ test('Recurring tasks has its own nav icon, distinct from work history', () => {
     return m![1];
   };
   assert.equal(iconFor('/recurring'), 'event_repeat');
+  assert.equal(iconFor('/runs'), 'dashboard');
   assert.notEqual(iconFor('/recurring'), iconFor('/runs'));
 });
 

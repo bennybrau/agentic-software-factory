@@ -12,7 +12,7 @@ export const LINKS = [
   { to: '/', label: 'New chat', short: 'Chat', icon: 'chat', end: true },
   { to: '/backlog', label: PAGE.todo, short: 'Planned', icon: 'checklist' },
   { to: '/recurring', label: 'Recurring tasks', short: 'Recurring', icon: 'event_repeat' },
-  { to: '/runs', label: PAGE.activity, short: 'Activity', icon: 'history' },
+  { to: '/runs', label: PAGE.activity, short: 'Activity', icon: 'dashboard' },
   { to: '/settings', label: 'Settings', short: 'Settings', icon: 'settings' },
 ];
 

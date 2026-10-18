@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GateWire, RunMessageWire, RunTask } from '@asf/shared';
@@ -7,6 +8,8 @@ import { NotNeededActions } from './NotNeededActions';
 import { api } from '../api';
 import { useMe } from '../useMe';
 import { chatTitle } from '../new-task';
+import { PAGE } from '../words';
+import type { ChatStatus } from '../chat-status';
 
 /**
  * The plan stage as a conversation. The planner either asks what blocks it or
@@ -17,7 +20,7 @@ import { chatTitle } from '../new-task';
  * `variant="page"` is the Orchestrator chat (/chat/:runId): a tall thread with the
  * composer stuck to the bottom, and the plan shown as the tasks it would queue.
  */
-export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTask, onDone, who = 'Planner', variant = 'card', repo = null }: {
+export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTask, onDone, who = 'Planner', variant = 'card', repo = null, status = null }: {
   runId: string;
   ticketId: string;
   ticketKey: string;
@@ -28,6 +31,7 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
   who?: string;                     // who the agent's messages are from
   variant?: 'card' | 'page';
   repo?: string | null;             // the run's repository, for parts that don't name one (page variant)
+  status?: ChatStatus | null;       // what the run is doing now, as the thread's last message (page variant)
 }) {
   const me = useMe();
   const [text, setText] = useState('');
@@ -51,7 +55,9 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
     ? messages
     : asking && plannerTask?.reason ? [{ id: 'legacy', author: 'agent', kind: 'question', body: plannerTask.reason, by: null }] : [];
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [thread.length, thinking]);
+  // The page shows the run's status as the last message, in place of "Thinking…".
+  const liveStatus = variant === 'page' ? status : null;
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [thread.length, thinking, liveStatus?.text]);
 
   const send = async () => {
     if (!text.trim()) return;
@@ -86,7 +92,17 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
             : <div className="chat-body">{isNotNeeded(m.body) ? notNeededReason(m.body) : m.body}</div>}
         </div>
       ))}
-      {thinking && <div className="chat-msg agent"><div className="chat-who">{who}</div><div className="chat-body muted">Thinking…</div></div>}
+      {liveStatus ? (
+        <div className={`chat-msg agent chat-status ${liveStatus.tone}`} role="status">
+          <div className="chat-who">{who}</div>
+          <div className="chat-body ticket-desc chat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{liveStatus.text}</ReactMarkdown></div>
+          <div className="chat-status-links small">
+            {liveStatus.prUrl && <a href={liveStatus.prUrl} target="_blank" rel="noreferrer">Pull request ↗</a>}
+            <Link to={`/run/${runId}`}>Open the run</Link>
+            <Link to="/runs">{PAGE.activity}</Link>
+          </div>
+        </div>
+      ) : thinking && <div className="chat-msg agent"><div className="chat-who">{who}</div><div className="chat-body muted">Thinking…</div></div>}
       <div ref={endRef} />
     </div>
   );

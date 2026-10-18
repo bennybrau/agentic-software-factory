@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ADHOC_DEFAULT_LIMITS, type AdhocLimits } from '@asf/shared/ui';
 import { api, subscribeEvents, type RunDetail } from '../api';
 import { chatProblem, chatTitle, pickChatRepo } from '../new-task';
+import { chatStatus } from '../chat-status';
 import { PAGE } from '../words';
 import { useMe } from '../useMe';
 import { SetupNotice } from '../components/q/SetupNotice';
@@ -120,8 +121,6 @@ export function ChatRun() {
   const { run, tasks, gates } = detail;
   const planGate = gates.find((g) => g.state === 'open' && g.gateName === 'after_plan') ?? null;
   const plannerTask = [...tasks].filter((t) => String(t.role) === 'planner').sort((a, b) => b.seq - a.seq)[0] ?? null;
-  const queued = run.deliveryOutcome === 'split'
-    || gates.some((g) => g.gateName === 'after_plan' && (g.state === 'approved' || g.state === 'auto'));
   const repo = repos.find((r) => r.id === run.repoId)?.path ?? run.repoId;
 
   return (
@@ -129,21 +128,8 @@ export function ChatRun() {
       <Link to="/">← New chat</Link>
       <h2 style={{ margin: '6px 0 12px' }}><span className="mono">{run.ticketKey}</span></h2>
       <PlanChat runId={runId} ticketId={run.ticketId} ticketKey={run.ticketKey} messages={detail.messages ?? []}
-        gate={planGate} plannerTask={plannerTask} onDone={load} who="Orchestrator" variant="page" repo={repo} />
-      {queued && (
-        <div className="card chat-proposed">
-          <b>{run.deliveryOutcome === 'split' ? 'Queued' : 'The team is on it'}</b>
-          <div className="muted" style={{ margin: '4px 0 8px' }}>
-            {run.deliveryOutcome === 'split'
-              ? 'Each task gets its own plan and pull request, and starts once the tasks it depends on are merged.'
-              : 'It builds, tests and reviews the plan on its own.'}
-          </div>
-          <span className="row">
-            <Link className="btn ghost" to="/runs">Up next</Link>
-            <Link className="btn ghost" to={`/run/${runId}`}>Open the run</Link>
-          </span>
-        </div>
-      )}
+        gate={planGate} plannerTask={plannerTask} onDone={load} who="Orchestrator" variant="page" repo={repo}
+        status={chatStatus(detail, repo)} />
     </div>
   );
 }

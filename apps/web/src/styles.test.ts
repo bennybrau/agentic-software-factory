@@ -181,3 +181,53 @@ test('the Orchestrator chat classes exist, each with a phone rule', () => {
     assert.ok(phone.includes(cls), `${cls} needs a max-width: 639px rule`);
   }
 });
+
+const touchStart = css.indexOf('/* Touch tap targets: phones and touch tablets');
+const touchBlock = css.slice(touchStart);
+
+test('a touch block covers phones and coarse-pointer tablets', () => {
+  assert.ok(touchStart >= 0, 'expected the touch tap targets block');
+  const query = touchBlock.match(/@media\s*([^{]*)\{/);
+  assert.ok(query, 'expected a media query in the touch block');
+  assert.match(query[1], /max-width:\s*639px/);
+  assert.match(query[1], /pointer:\s*coarse/);
+});
+
+test('the touch block gives buttons, segments and nav items a 44px minimum', () => {
+  const body = touchBlock.slice(touchBlock.indexOf('{') + 1).replace(/\/\*[\s\S]*?\*\//g, '');
+  const ruleFor = (sel: string) => body.match(/(^|\n)\s*([^{}]+)\{([^}]*)\}/g)
+    ?.find((r) => r.slice(0, r.indexOf('{')).split(',').map((s) => s.trim()).includes(sel));
+  for (const sel of ['.btn', '.seg button', '.nav-item']) {
+    assert.match(ruleFor(sel) ?? '', /min-height:\s*44px/, sel);
+  }
+  for (const sel of ['.update-dismiss', '.attachment-remove']) {
+    const rule = ruleFor(sel) ?? '';
+    assert.match(rule, /width:\s*44px/, sel);
+    assert.match(rule, /height:\s*44px/, sel);
+  }
+  for (const sel of ['.topbar .btn.ghost', '.sidebar-foot .btn.ghost']) {
+    const rule = ruleFor(sel) ?? '';
+    assert.match(rule, /min-width:\s*44px/, sel);
+    assert.match(rule, /min-height:\s*44px/, sel);
+  }
+});
+
+test('tiny controls get an invisible hit area instead of growing', () => {
+  for (const sel of ['.switch', '.tip > button', '.state-pic .link-btn', '.status-chip']) {
+    const escaped = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(touchBlock, new RegExp(`${escaped}::after[^{]*\\{[^}]*inset:\\s*-\\d+px`), sel);
+  }
+});
+
+test('the touch block widens .btn.sm padding without changing its font size', () => {
+  const body = touchBlock.slice(touchBlock.indexOf('{') + 1).replace(/\/\*[\s\S]*?\*\//g, '');
+  const rule = body.match(/(^|\n)\s*([^{}]+)\{([^}]*)\}/g)
+    ?.find((r) => r.slice(0, r.indexOf('{')).split(',').map((s) => s.trim()).includes('.btn.sm'));
+  assert.match(rule ?? '', /padding-inline:\s*14px/, '.btn.sm');
+  assert.ok(!/font-size/.test(rule ?? ''), '.btn.sm should not change font size in the touch block');
+});
+
+test('the touch block comes after the base .btn.sm rule', () => {
+  const baseSm = css.search(/(^|\n)\.btn\.sm\s*\{/);
+  assert.ok(baseSm >= 0 && touchStart > baseSm);
+});

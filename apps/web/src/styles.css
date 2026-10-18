@@ -492,3 +492,18 @@ table.mini { max-width: 720px; margin-top: 4px; } table.mini td { border-bottom:
 .mini-member.st-done:not(.on) { filter: grayscale(.8); opacity: .5; }
 .mini-member.st-pending:not(.on), .mini-member.st-skipped:not(.on) { opacity: .4; }
 .mini-member.own-states:not(.st-done) { filter: none !important; opacity: 1 !important; }
+
+/* Touch tap targets: phones and touch tablets. Every control is at least 44px to a finger
+   (WCAG 2.5.5 / Apple HIG); desktop mouse users are unchanged. Last in the file so it wins. */
+@media (max-width: 639px), (pointer: coarse) {
+  .btn, .seg button, .linkish { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .choice { min-height: 44px; }
+  .btn.sm { padding-inline: 14px; }
+  .topbar .btn.ghost, .sidebar-foot .btn.ghost { min-width: 44px; min-height: 44px; }
+  .update-dismiss, .attachment-remove { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .nav-item { min-height: 44px; }
+  /* tiny round controls keep their look; an invisible ::after widens what a finger can hit */
+  .tip > button, .switch, .status-chip { position: relative; }
+  .tip > button::after, .state-pic .link-btn::after, .switch::after, .status-chip::after {
+    content: ''; position: absolute; inset: -14px; background: transparent; }
+}

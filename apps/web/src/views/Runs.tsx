@@ -57,7 +57,8 @@ export function Runs() {
 
   return (
     <div>
-      <h2>{TITLES.history}</h2>
+      <h2>{TITLES.activity}</h2>
+      <div className="muted" style={{ marginBottom: 12 }}>What the factory is doing now, what's up next, and what it has finished.</div>
       <ActiveWork />
 
       <div className="row between" style={{ marginBottom: 12 }}>

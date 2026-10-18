@@ -8,10 +8,10 @@ import { comingUpText } from '../coming-up';
 import { MiniHive } from './MiniHive';
 
 /**
- * The "Active" block at the top of History (it was the Today page). Its buckets
+ * The "Now and next" block at the top of Activity (it was the Today page). Its buckets
  * answer "what needs me, what is the factory doing, and what will it do next":
  *   Waiting on you · Working on now · Up next (+ Coming up).
- * What got done is the History list below it. It refreshes on every run event
+ * What got done is the "All work" list below it. It refreshes on every run event
  * so a gate that opens or a run that finishes moves buckets without a reload.
  */
 export function ActiveWork() {
@@ -33,7 +33,7 @@ export function ActiveWork() {
 
   return (
     <div>
-      <h3>Active</h3>
+      <h3>Now and next</h3>
       <Section title="Waiting on you" count={waitingOnYou.length} accent>
         {waitingOnYou.length === 0 && <Empty>Nothing needs you right now.</Empty>}
         {waitingOnYou.map((w) => <WaitingRow key={w.run.id} w={w} onDecide={decide} />)}

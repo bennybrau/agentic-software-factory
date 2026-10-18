@@ -237,7 +237,7 @@ export function Backlog() {
       </div>
       {blocked && <NoRepo reason={blocked.reason} link={blocked.link} />}
       {err && <div className="card" style={{ color: 'var(--bad)' }}>{err}</div>}
-      {msg && <div className="card" style={{ color: 'var(--good, #2a7)' }}>{msg} <button className="btn ghost" onClick={() => navigate('/runs')}>See {TITLES.history} →</button></div>}
+      {msg && <div className="card" style={{ color: 'var(--good, #2a7)' }}>{msg} <button className="btn ghost" onClick={() => navigate('/runs')}>See {TITLES.activity} →</button></div>}
 
       {selected.size > 0 && (
         <div className="card row between" style={{ marginBottom: 12, alignItems: 'center' }}>

@@ -422,64 +422,62 @@ table.mini { max-width: 720px; margin-top: 4px; } table.mini td { border-bottom:
   background: var(--panel); color: var(--text); cursor: pointer; line-height: 18px; padding: 0; font-size: 15px; }
 .attachment-remove:hover { color: var(--bad); border-color: var(--bad); }
 
-/* The Hive stage (M12 WP4): coordinator centre, members in an arc, spotlight on whoever is working. */
+/* The Hive stage (M12 WP4): the member in the spotlight, large, saying what it is up to in a speech bubble. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .hive-quiet { display: flex; align-items: center; gap: 2px; font-size: 13px; color: var(--muted); padding: 4px 0 8px; }
-.hive-stage { position: relative; padding: 8px 0 4px; margin: 4px 0 10px; border-bottom: 1px solid var(--border); }
-.hive-row { display: flex; justify-content: center; align-items: flex-end; gap: clamp(8px, 3vw, 28px); }
-.hive-member { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 84px; transition: opacity .3s, filter .3s; }
-/* the arc: the outer members sit lowest, the inner ones a little lower than the coordinator */
-.hive-member[data-slot="planner"], .hive-member[data-slot="reviewer"] { transform: translateY(18px); }
-.hive-member[data-slot="implementer"], .hive-member[data-slot="tester"] { transform: translateY(6px); }
-.hive-member.lead { width: 112px; }
-.hive-pic { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; transition: transform .35s ease, box-shadow .35s ease; }
-.hive-member.lead .hive-pic { width: 96px; height: 96px; }
+.hive-stage { position: relative; display: grid; grid-template-columns: 128px minmax(0, 46ch); justify-content: center; align-items: center;
+  gap: 22px; padding: 12px 0 14px; margin: 4px 0 10px; border-bottom: 1px solid var(--border); }
+.hive-member { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; min-width: 0; transition: opacity .3s, filter .3s; }
+.hive-pic { position: relative; display: grid; place-items: center; width: 128px; height: 128px; border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--accent), 0 0 18px 2px color-mix(in srgb, var(--accent) 45%, transparent); animation: hive-pop .45s cubic-bezier(.3, 1.5, .5, 1) both; }
 .hive-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--panel2); image-rendering: pixelated; }
-.hive-initial { display: grid; place-items: center; font: 600 22px/1 Georgia, serif; color: var(--muted); border: 1px dashed var(--border); }
-.hive-member.lead .hive-initial { font-size: 32px; }
-.hive-name { font-size: 12px; color: var(--muted); white-space: nowrap; }
-.hive-member.on .hive-pic { transform: scale(1.15); box-shadow: 0 0 0 3px var(--accent), 0 0 18px 2px color-mix(in srgb, var(--accent) 55%, transparent); }
-.hive-member.on .hive-name { color: var(--text); font-weight: 600; }
+.hive-initial { display: grid; place-items: center; font: 600 44px/1 Georgia, serif; color: var(--muted); border: 1px dashed var(--border); }
+.hive-name { margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hive-step { font-size: 12px; color: var(--muted); }
 .hive-member.st-done:not(.on) { filter: grayscale(.8); opacity: .5; }
-.hive-member.st-pending:not(.on), .hive-member.st-skipped:not(.on) { opacity: .45; }
 /* M13: a member with its own idle / working / done pictures shows its state in the picture itself, so no grey or fade —
    except when done: its done picture is still muted like any other finished member, so done never looks active.
    Those pictures are shown whole (not cropped) on white, the way they were drawn. */
 .hive-member.own-states:not(.st-done) { filter: none !important; opacity: 1 !important; }
 .hive-img.whole, .mini-img.whole { object-fit: contain; background: #fff; image-rendering: auto; }
-.hive-stage.mood-failed .hive-member.on .hive-pic { box-shadow: 0 0 0 3px var(--bad); }
-.hive-stage.mood-gate .hive-member.on .hive-pic, .hive-stage.mood-question .hive-member.on .hive-pic { animation: hive-pulse 2s ease-in-out infinite; }
+.hive-bubble { position: relative; justify-self: start; max-width: 46ch; padding: 12px 16px; border-radius: 14px; background: var(--panel2);
+  border: 1px solid var(--border); color: var(--text); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere;
+  animation: hive-rise .35s ease-out .08s both; }
+/* the tail: a border-coloured triangle with a panel-coloured one 1px inside it, pointing at the picture */
+.hive-bubble::before, .hive-bubble::after { content: ''; position: absolute; top: 50%; border-style: solid; border-color: transparent; }
+.hive-bubble::before { left: -10px; margin-top: -10px; border-width: 10px 10px 10px 0; border-right-color: var(--border); }
+.hive-bubble::after { left: -8px; margin-top: -9px; border-width: 9px 9px 9px 0; border-right-color: var(--panel2); }
+.hive-stage.mood-failed .hive-pic { box-shadow: 0 0 0 3px var(--bad); }
+.hive-stage.mood-failed .hive-bubble { color: var(--muted); background: var(--panel); }
+.hive-stage.mood-failed .hive-bubble::after { border-right-color: var(--panel); }
+.hive-stage.mood-gate .hive-pic, .hive-stage.mood-question .hive-pic { animation: hive-pop .45s cubic-bezier(.3, 1.5, .5, 1) both, hive-pulse 2s ease-in-out .45s infinite; }
 @keyframes hive-pulse { 50% { box-shadow: 0 0 0 3px var(--accent), 0 0 26px 6px color-mix(in srgb, var(--accent) 70%, transparent); } }
-.hive-caption { text-align: center; margin-top: 24px; font-size: 14px; color: var(--text); min-height: 20px; }
-.hive-stage.mood-failed .hive-caption { color: var(--muted); }
-.hive-glyph { position: absolute; left: 50%; top: 56px; font-size: 22px; line-height: 1; pointer-events: none; transform: translate(-50%, -50%); }
+@keyframes hive-pop { from { transform: scale(.6); opacity: 0; } }
+@keyframes hive-rise { from { transform: translateY(8px); opacity: 0; } }
+.hive-glyph { position: absolute; left: 50%; top: 50%; font-size: 22px; line-height: 1; pointer-events: none; transform: translate(-50%, -50%); }
 .hive-glyph.dot-glyph { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
-.hive-glyph:not(.burst) { animation: hive-fly .75s cubic-bezier(.3, .7, .4, 1) forwards; }
-@keyframes hive-fly {
-  0% { transform: translate(-50%, -50%) scale(.6); opacity: 0; }
-  15% { opacity: 1; }
-  50% { transform: translate(calc(-50% + var(--dx) / 2), calc(-50% + var(--dy) / 2 - 30px)) scale(1.1); }
-  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.8); opacity: 0; }
-}
 .hive-glyph.burst { animation: hive-burst 1.4s ease-out forwards; }
 @keyframes hive-burst {
   0% { transform: translate(-50%, -50%) rotate(var(--a)) translateY(0) rotate(calc(-1 * var(--a))) scale(.4); opacity: 0; }
   20% { opacity: 1; }
-  100% { transform: translate(-50%, -50%) rotate(var(--a)) translateY(-90px) rotate(calc(-1 * var(--a))) scale(1); opacity: 0; }
+  100% { transform: translate(-50%, -50%) rotate(var(--a)) translateY(-110px) rotate(calc(-1 * var(--a))) scale(1); opacity: 0; }
 }
 @media (max-width: 639px) {
-  .hive-row { flex-wrap: wrap; row-gap: 10px; }
-  .hive-member.lead { order: -1; flex-basis: 100%; }
-  .hive-member { width: 68px; transform: none !important; }
-  .hive-pic { width: 52px; height: 52px; }
-  .hive-caption { margin-top: 10px; }
+  .hive-stage { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 16px; }
+  .hive-pic { width: 88px; height: 88px; }
+  .hive-initial { font-size: 32px; }
+  .hive-bubble { justify-self: center; }
+  /* stacked: the tail points up at the picture */
+  .hive-bubble::before { top: -10px; left: 50%; margin: 0 0 0 -10px; border-width: 0 10px 10px; border-color: transparent transparent var(--border); }
+  .hive-bubble::after { top: -8px; left: 50%; margin: 0 0 0 -9px; border-width: 0 9px 9px; border-color: transparent transparent var(--panel2); }
+  .hive-stage.mood-failed .hive-bubble::after { border-color: transparent transparent var(--panel); }
 }
-/* less motion: nothing moves or grows, the ring alone says who it is */
-.hive-stage.still .hive-pic, .hive-stage.still .hive-member { transition: none; }
-.hive-stage.still .hive-member.on .hive-pic { transform: none; animation: none; }
+/* less motion: nothing pops, rises or pulses, the ring alone says who it is */
+.hive-stage.still .hive-member { transition: none; }
+.hive-stage.still .hive-pic, .hive-stage.still .hive-bubble { animation: none !important; }
 .hive-stage.still .hive-glyph { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .hive-member.on .hive-pic { transform: none; animation: none !important; }
+  .hive-pic, .hive-bubble { animation: none !important; }
   .hive-glyph { display: none; }
 }
 

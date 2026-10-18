@@ -1,14 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { THEME_ROLE_SLOTS, type ThemeManifest, type ThemeMood, type ThemeSlot } from '@asf/shared/ui';
 import { useTheme } from '../useTheme';
 import { hiveFocus, memberStates, pictureState, type FocusEvent, type FocusGate, type FocusRun, type FocusTask } from '../hive-focus';
 import { memberName, moodLine, quipFor } from '../theme-view';
+import { stageLabel } from '../words';
 import { StillImage, usePrefersReducedMotion } from './StillImage';
 
 const QUIP_EVERY_MS = 6000;
-/** Arc order around the coordinator: two members either side. */
-const LEFT: ThemeSlot[] = ['planner', 'implementer'];
-const RIGHT: ThemeSlot[] = ['tester', 'reviewer'];
 const BURST = 8;
 /** A run that finished this recently still gets the delivery burst when its page is opened. */
 const FRESH_DELIVERY_MS = 60_000;
@@ -24,12 +22,12 @@ export interface HiveStageProps {
 }
 
 /**
- * The Hive stage (M12 WP4): the coordinator in the middle, the four members in
- * an arc, and a caption saying what is going on. The member in the spotlight
- * grows, gets the accent ring and moves; everyone else is a still frame. When
- * the spotlight moves to a member, the theme's handoff glyph flies there from
- * the coordinator. A theme with no pictures at all (classic, out of the box)
- * renders as just the quiet caption line.
+ * The Hive stage (M12 WP4): only the member in the spotlight (whoever hiveFocus
+ * picks: the working role, or the coordinator at a gate, while idle, delivering
+ * or done), shown large, with what it is saying in a speech bubble beside it.
+ * The picture is keyed on the member and the bubble on its text, so each change
+ * replays a short entrance. A theme with no pictures at all (classic, out of the
+ * box) renders as just the quiet caption line.
  */
 export function HiveStage(props: HiveStageProps) {
   const { theme, pictureFor, hasStatePictures } = useTheme();
@@ -45,8 +43,6 @@ export function HiveStage(props: HiveStageProps) {
   const caption = stageCaption(theme, f.mood, f.member, since / QUIP_EVERY_MS);
   const announcement = stageCaption(theme, f.mood, f.member, 0);
 
-  const stage = useRef<HTMLDivElement>(null);
-  const flight = useHandoffFlight(stage, f.focus, reduced || !hasPictures);
   const burst = useDeliveryBurst(f.mood, props.run.finishedAt ?? null, reduced || !hasPictures);
   const glyph = theme.handoffGlyph ?? null;
 
@@ -61,49 +57,34 @@ export function HiveStage(props: HiveStageProps) {
     );
   }
 
-  const member = (slot: ThemeSlot) => {
-    const name = memberName(theme, slot) ?? slot;
-    const state = slot === 'orchestrator' ? null : states[slot] ?? 'pending';
-    const pic = pictureState(slot, f, state ?? undefined);
-    const url = pictureFor(slot, pic);
-    const own = hasStatePictures(slot);
-    const on = f.focus === slot;
-    // A member with its own idle / working / done loops always plays the one it is in (M13). Otherwise only the
-    // spotlit member moves (and the coordinator while handing over). A stopped job keeps everyone still.
-    const animate = !reduced && f.mood !== 'failed' && (own || on || (slot === 'orchestrator' && f.mood === 'handoff'));
-    const cls = ['hive-member', slot === 'orchestrator' ? 'lead' : '', on ? 'on' : '', state ? `st-${state}` : '', own ? 'own-states' : ''].filter(Boolean).join(' ');
-    return (
+  const slot = f.focus;
+  const name = memberName(theme, slot) ?? slot;
+  const state = slot === 'orchestrator' ? null : states[slot] ?? 'pending';
+  const pic = pictureState(slot, f, state ?? undefined);
+  const url = pictureFor(slot, pic);
+  const own = hasStatePictures(slot);
+  // The one on stage moves; a stopped job keeps it still.
+  const animate = !reduced && f.mood !== 'failed';
+  const cls = ['hive-member', 'on', state ? `st-${state}` : '', own ? 'own-states' : ''].filter(Boolean).join(' ');
+
+  return (
+    <div className={`hive-stage mood-${f.mood}${reduced ? ' still' : ''}`}>
       <div className={cls} key={slot} data-slot={slot} data-picture={pic}>
         <span className="hive-pic">
           {url
             ? <StillImage src={url} animate={animate} className={`hive-img${own ? ' whole' : ''}`} />
             : <span className="hive-img hive-initial" aria-hidden="true">{initialOf(name)}</span>}
+          {burst !== null && Array.from({ length: BURST }, (_, i) => (
+            <span key={`${burst}-${i}`} className={`hive-glyph burst${glyph ? '' : ' dot-glyph'}`} aria-hidden="true"
+              style={{ ['--a' as string]: `${(360 / BURST) * i}deg` }}>
+              {glyph}
+            </span>
+          ))}
         </span>
         <span className="hive-name">{name}</span>
+        {slot !== 'orchestrator' && <span className="hive-step">{stageLabel(slot)}</span>}
       </div>
-    );
-  };
-
-  return (
-    <div className={`hive-stage mood-${f.mood}${reduced ? ' still' : ''}`} ref={stage}>
-      <div className="hive-row">
-        {LEFT.map(member)}
-        {member('orchestrator')}
-        {RIGHT.map(member)}
-      </div>
-      {flight && (
-        <span key={flight.key} className={`hive-glyph${glyph ? '' : ' dot-glyph'}`} aria-hidden="true"
-          style={{ left: flight.x0, top: flight.y0, ['--dx' as string]: `${flight.dx}px`, ['--dy' as string]: `${flight.dy}px` }}>
-          {glyph}
-        </span>
-      )}
-      {burst !== null && Array.from({ length: BURST }, (_, i) => (
-        <span key={`${burst}-${i}`} className={`hive-glyph burst${glyph ? '' : ' dot-glyph'}`} aria-hidden="true"
-          style={{ ['--a' as string]: `${(360 / BURST) * i}deg` }}>
-          {glyph}
-        </span>
-      ))}
-      <div className="hive-caption" aria-hidden="true">{caption}</div>
+      <div className="hive-bubble" key={caption} aria-hidden="true">{caption}</div>
       {live}
     </div>
   );
@@ -124,35 +105,6 @@ function useNow(everyMs: number | null): number {
     return () => clearInterval(id);
   }, [everyMs]);
   return now;
-}
-
-interface Flight { key: number; x0: number; y0: number; dx: number; dy: number }
-
-/**
- * When the spotlight moves from the coordinator (or another member) to a member,
- * one glyph flies from the coordinator's picture to theirs. Measured from the
- * DOM after layout, so it follows whatever arrangement the CSS chose (arc or the
- * stacked mobile row). Not on first render: opening a page is not a handoff.
- */
-function useHandoffFlight(stage: React.RefObject<HTMLDivElement | null>, focus: ThemeSlot, off: boolean): Flight | null {
-  const prev = useRef<ThemeSlot | null>(null);
-  const [flight, setFlight] = useState<Flight | null>(null);
-  useLayoutEffect(() => {
-    const was = prev.current;
-    prev.current = focus;
-    if (off || was === null || was === focus || focus === 'orchestrator' || !stage.current) return;
-    const root = stage.current.getBoundingClientRect();
-    const pic = (slot: string) => stage.current?.querySelector(`[data-slot="${slot}"] .hive-pic`)?.getBoundingClientRect();
-    const from = pic('orchestrator');
-    const to = pic(focus);
-    if (!from || !to) return;
-    const c = (r: DOMRect) => ({ x: r.left + r.width / 2 - root.left, y: r.top + r.height / 2 - root.top });
-    const a = c(from), b = c(to);
-    setFlight({ key: Date.now(), x0: a.x, y0: a.y, dx: b.x - a.x, dy: b.y - a.y });
-    const id = setTimeout(() => setFlight(null), 900);
-    return () => clearTimeout(id);
-  }, [focus, off, stage]);
-  return flight;
 }
 
 /** One burst of glyphs when the job is delivered: on the transition, or on opening a just-finished run. */

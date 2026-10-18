@@ -34,23 +34,21 @@ const working: HiveStageProps = {
   ],
 };
 
-test('the Hive: the Queen in the middle of the arc, the Builder in the spotlight, the Scout greyed', () => {
-  const html = render(hive(), working);
-  const order = [...html.matchAll(/data-slot="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['planner', 'implementer', 'orchestrator', 'tester', 'reviewer']);
-  assert.match(html, /class="hive-member on st-running" data-slot="implementer"/);
-  assert.match(html, /class="hive-member st-done" data-slot="planner"/);
-  assert.match(html, /class="hive-member st-pending" data-slot="tester"/);
-  assert.match(html, /class="hive-member lead" data-slot="orchestrator"/);
-  for (const n of ['The Queen', 'Scout', 'Builder', 'Guard', 'Inspector']) assert.ok(html.includes(`>${n}<`), n);
-  assert.match(html, /class="hive-stage mood-working"/);
-});
+const slots = (html: string) => [...html.matchAll(/data-slot="([a-z]+)"/g)].map((m) => m[1]);
+/** The bubble's text, entities decoded (a quip like "the Scout's dance" renders its apostrophe as &#x27;). */
+const bubble = (html: string) => html.match(/<div class="hive-bubble" aria-hidden="true">([^<]*)<\/div>/)?.[1]
+  ?.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 
-test('only the member in the spotlight is a live <img>; the rest are still canvases', () => {
+test('the Hive while working: only the Builder on stage, large, its quip in the bubble', () => {
   const html = render(hive(), working);
-  const imgs = [...html.matchAll(/<img[^>]*src="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(imgs, ['/api/themes/hive/images/implementer?v=1']);
-  assert.equal((html.match(/<canvas/g) ?? []).length, 4);
+  assert.deepEqual(slots(html), ['implementer']);
+  assert.match(html, /class="hive-member on st-running" data-slot="implementer" data-picture="working"/);
+  assert.match(html, /<span class="hive-name">Builder<\/span><span class="hive-step">Write code<\/span>/);
+  assert.ok(HIVE_THEME.quips!.implementer!.map((q) => `${q}…`).includes(bubble(html)!), bubble(html));
+  for (const n of ['The Queen', 'Scout', 'Guard', 'Inspector']) assert.ok(!html.includes(`>${n}<`), n);
+  assert.match(html, /class="hive-stage mood-working"/);
+  assert.deepEqual([...html.matchAll(/<img[^>]*src="([^"]+)"/g)].map((m) => m[1]), ['/api/themes/hive/images/implementer?v=1']);
+  assert.doesNotMatch(html, /<canvas/);
 });
 
 test('a member with no picture shows its initial', () => {
@@ -60,14 +58,12 @@ test('a member with no picture shows its initial', () => {
   assert.equal(initialOf('inspector'), 'I');
 });
 
-test('classic with no uploads shows the full stage with its built-in placeholders', () => {
+test('classic with no uploads shows the stage with its built-in placeholder', () => {
   const html = render(classic, working);
   assert.match(html, /class="hive-stage mood-working"/);
-  const order = [...html.matchAll(/data-slot="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['planner', 'implementer', 'orchestrator', 'tester', 'reviewer']);
+  assert.deepEqual(slots(html), ['implementer']);
   assert.deepEqual([...html.matchAll(/<img[^>]*src="([^"]+)"/g)].map((m) => m[1]), ['/themes/classic/implementer.svg']);
-  assert.equal((html.match(/<canvas/g) ?? []).length, 4);
-  assert.match(html, new RegExp(CLASSIC_THEME.quips!.implementer![0]));
+  assert.ok(CLASSIC_THEME.quips!.implementer!.map((q) => `${q}…`).includes(bubble(html)!), bubble(html));
 });
 
 test('classic: an uploaded picture beats the placeholder', () => {
@@ -78,21 +74,32 @@ test('classic: an uploaded picture beats the placeholder', () => {
 test('the Hive with no pictures is a quiet caption line', () => {
   const html = render(hive([]), working);
   assert.match(html, /^<div class="hive-quiet mood-working">/);
-  assert.doesNotMatch(html, /hive-member|<img|<canvas/);
+  assert.doesNotMatch(html, /hive-member|hive-bubble|<img|<canvas/);
   assert.match(html, new RegExp(HIVE_THEME.quips!.implementer![0]));
 });
 
-test('the gate puts the Queen in the spotlight with her line, announced politely', () => {
+test('the gate puts the Queen alone on stage with her line in the bubble, announced politely', () => {
   const html = render(hive(), { ...working, run: { state: 'awaiting_checkpoint' }, gates: [{ state: 'open' }] });
-  assert.match(html, /class="hive-member lead on" data-slot="orchestrator"/);
+  assert.deepEqual(slots(html), ['orchestrator']);
+  assert.match(html, /class="hive-member on" data-slot="orchestrator"/);
+  assert.doesNotMatch(html, /hive-step/);
+  assert.equal(bubble(html), 'The Queen awaits your word');
   assert.match(html, /<span class="sr-only" aria-live="polite">The Queen awaits your word<\/span>/);
 });
 
-test('a stopped job keeps everyone still, the Queen included', () => {
+test('once delivered the Queen is on stage with the delivered line', () => {
+  const html = render(hive(), { run: { state: 'succeeded' }, tasks: working.tasks.map((t) => ({ ...t, state: 'done' })) });
+  assert.deepEqual(slots(html), ['orchestrator']);
+  assert.equal(bubble(html), stageCaption(HIVE_THEME, 'delivered', null, 0));
+});
+
+test('a stopped job keeps the Queen still, her bubble muted', () => {
   const html = render(hive(), { ...working, run: { state: 'failed' } });
+  assert.deepEqual(slots(html), ['orchestrator']);
   assert.doesNotMatch(html, /<img/);
-  assert.match(html, /mood-failed/);
-  assert.match(html, /The Queen has called the hive home/);
+  assert.match(html, /<canvas/);
+  assert.match(html, /class="hive-stage mood-failed"/);
+  assert.equal(bubble(html), 'The Queen has called the hive home');
 });
 
 test('captions: quips while working, mood lines otherwise, all text (no markup)', () => {
@@ -107,34 +114,21 @@ test('captions: quips while working, mood lines otherwise, all text (no markup)'
 
 // --- M13: state pictures ---
 
-test('M13: with state loops each member shows its state and every one plays: Scout done, Builder working, the rest idle', () => {
+test('M13: with state loops the Builder plays its working loop, shown whole', () => {
   const html = render(loops, working);
-  assert.deepEqual(['planner', 'implementer', 'orchestrator', 'tester', 'reviewer'].map((s) => picOf(html, s)), ['done', 'working', 'idle', 'idle', 'idle']);
-  const imgs = [...html.matchAll(/<img[^>]*src="([^"]+)"/g)].map((m) => m[1]).sort();
-  assert.deepEqual(imgs, [
-    '/api/themes/hive/images/implementer/working?v=1', '/api/themes/hive/images/orchestrator/idle?v=1',
-    '/api/themes/hive/images/planner/done?v=1', '/api/themes/hive/images/reviewer/idle?v=1', '/api/themes/hive/images/tester/idle?v=1',
-  ]);
-  assert.doesNotMatch(html, /<canvas/);
-  // The state is in the picture, so no grey or fade; shown whole on white.
-  assert.match(html, /class="hive-member st-done own-states" data-slot="planner"/);
-  assert.equal((html.match(/class="hive-img whole"/g) ?? []).length, 5);
+  assert.deepEqual(slots(html), ['implementer']);
+  assert.equal(picOf(html, 'implementer'), 'working');
+  assert.deepEqual([...html.matchAll(/<img[^>]*src="([^"]+)"/g)].map((m) => m[1]), ['/api/themes/hive/images/implementer/working?v=1']);
+  assert.match(html, /class="hive-member on st-running own-states" data-slot="implementer"/);
+  assert.equal((html.match(/class="hive-img whole"/g) ?? []).length, 1);
 });
 
-test('M13: at a check-in the Queen works; delivered she is done; a stopped job is still and nobody works', () => {
+test('M13: at a check-in the Queen works; delivered she is done; a stopped job is still', () => {
   const gate = render(loops, { ...working, run: { state: 'awaiting_checkpoint' }, gates: [{ state: 'open' }] });
   assert.equal(picOf(gate, 'orchestrator'), 'working');
   const delivered = render(loops, { run: { state: 'succeeded' }, tasks: working.tasks.map((t) => ({ ...t, state: 'done' })) });
-  assert.deepEqual(['orchestrator', 'planner', 'reviewer'].map((s) => picOf(delivered, s)), ['done', 'done', 'done']);
+  assert.equal(picOf(delivered, 'orchestrator'), 'done');
   const stopped = render(loops, { ...working, run: { state: 'failed' } });
-  assert.equal(picOf(stopped, 'implementer'), 'idle');
-  assert.equal(picOf(stopped, 'planner'), 'done');
-  assert.doesNotMatch(stopped, /<img/, 'a stopped job keeps everyone still');
-});
-
-test('M13: a member with only a plain picture keeps the M12 behaviour beside members with loops', () => {
-  const mixed: ActiveThemeWire = { ...loops, stateImages: { ...loops.stateImages, tester: { any: { url: '/api/themes/hive/images/tester?v=1', version: '1' } } } };
-  const html = render(mixed, working);
-  assert.match(html, /class="hive-member st-pending" data-slot="tester"/, 'faded, no own-states');
-  assert.equal((html.match(/<canvas/g) ?? []).length, 1, 'the plain-picture member is still');
+  assert.equal(picOf(stopped, 'orchestrator'), 'idle');
+  assert.doesNotMatch(stopped, /<img/, 'a stopped job keeps the picture still');
 });

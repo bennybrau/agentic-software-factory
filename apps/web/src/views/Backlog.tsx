@@ -5,30 +5,23 @@ import { keyPrefixes, looksLikeTicketRef, ticketMatches } from '@asf/shared/ui';
 import { api, encodeTicketId, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
 import { removeAdhoc } from '../new-task';
+import { BUCKETS, loadBacklogFilters, restoreScope, saveBacklogFilters } from '../backlog-filters';
 import { NoRepo } from './Dispatch';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
 
-// Done is excluded from the default load; the bucket sub-filter is over active work only.
-const BUCKETS = ['backlog', 'inflight', 'review'];
+// Done is excluded from the default load; the bucket sub-filter (BUCKETS) is over active work only.
 const PAGE = 10;
 const DONE_WINDOW_DAYS = 7;
-
-// The user's scope selection persists between sessions so a team's default sticks.
-const LS_KEY = 'asf.backlog.filters';
-type Filters = { team: string; scope: string; sprint: string; status: string[] };
-function loadFilters(): Filters {
-  try {
-    const v = JSON.parse(localStorage.getItem(LS_KEY) ?? '') as Partial<Filters>;
-    return { team: v.team ?? '', scope: v.scope ?? '', sprint: v.sprint ?? '', status: Array.isArray(v.status) ? v.status : [] };
-  } catch { return { team: '', scope: '', sprint: '', status: [] }; }
-}
 
 export function Backlog() {
   const navigate = useNavigate();
   const [tickets, setTickets] = useState<TicketRow[]>([]);   // active only (done excluded server-side)
   const [loading, setLoading] = useState(true);              // active load in flight (starts true: we fetch on mount)
+  // The filters are kept between visits (backlog-filters.ts). Team/board/sprint wait
+  // for the tracker's boards to be checked; the rest apply straight away.
+  const [saved] = useState(() => loadBacklogFilters());
   const [search, setSearch] = useState('');
-  const [bucket, setBucket] = useState(''); // '' = all active buckets
+  const [bucket, setBucket] = useState(saved.bucket); // '' = all active buckets
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Nothing can start until there is a repository to put the work in (the api refuses too).
@@ -43,7 +36,7 @@ export function Backlog() {
   useEffect(() => { loadAdhoc(); }, []);
 
   // Done is fetched lazily and only for the recent window, on demand.
-  const [showDone, setShowDone] = useState(false);
+  const [showDone, setShowDone] = useState(saved.showDone);
   const [done, setDone] = useState<TicketRow[]>([]);
   const [doneLoading, setDoneLoading] = useState(false);
 
@@ -54,7 +47,10 @@ export function Backlog() {
   const [team, setTeam] = useState('');
   const [scope, setScope] = useState('');       // selected board/project id ('' = all in team/scope)
   const [sprint, setSprint] = useState('');      // '' = all board issues, 'active', 'backlog', or a sprint id
-  const [statusSel, setStatusSel] = useState<Set<string>>(new Set());
+  const [statusSel, setStatusSel] = useState<Set<string>>(() => new Set(saved.status));
+  // False until the saved team/board/sprint are applied: saving before then would
+  // overwrite them with the blank starting values.
+  const [scopeRestored, setScopeRestored] = useState(false);
 
   const selectedScope = useMemo(() => scopes.find((s) => s.id === scope), [scopes, scope]);
   const isScrum = selectedScope?.kind === 'board' && selectedScope.boardType === 'scrum';
@@ -72,13 +68,11 @@ export function Backlog() {
     void api.ticketStatuses().then(setStatuses).catch(() => setStatuses([]));
     void api.ticketScopes().then((sc) => {
       setScopes(sc);
-      const f = loadFilters();
-      const validScope = sc.some((s) => s.id === f.scope) ? f.scope : '';
-      setScope(validScope);
-      setTeam(validScope ? (sc.find((s) => s.id === validScope)?.team ?? '') : (f.team && sc.some((s) => s.team === f.team) ? f.team : ''));
-      setSprint(f.sprint);
-      setStatusSel(new Set(f.status));
-    }).catch(() => setScopes([]));
+      const r = restoreScope(saved, sc);
+      setTeam(r.team); setScope(r.scope); setSprint(r.sprint);
+      setScopeRestored(true);
+    }).catch(() => setScopes([])); // the tracker didn't answer: keep the saved board for next time
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load the sprint list for a Scrum board; drop a persisted sprint id that no longer exists back to 'active'.
@@ -93,10 +87,11 @@ export function Backlog() {
     return () => { alive = false; };
   }, [scope, isScrum]);
 
-  // Persist the selection whenever it changes.
+  // Save the filters whenever they change.
   useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify({ team, scope, sprint, status: [...statusSel] } satisfies Filters));
-  }, [team, scope, sprint, statusSel]);
+    const where = scopeRestored ? { team, scope, sprint } : { team: saved.team, scope: saved.scope, sprint: saved.sprint };
+    saveBacklogFilters({ ...where, status: [...statusSel], bucket, showDone });
+  }, [scopeRestored, team, scope, sprint, statusSel, bucket, showDone, saved]);
 
   const statusKey = useMemo(() => [...statusSel].sort().join(','), [statusSel]);
   const scopeQuery = useMemo(() => ({

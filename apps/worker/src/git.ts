@@ -93,9 +93,14 @@ export function branchFor(run: Run): string {
  * per run branched from the repo's default branch. Refuses a forbidden branch
  * before creating anything. Reuses an existing worktree on resume so an
  * interrupted run continues from its own commits.
+ *
+ * A review-only run (team.reviewTarget) branches from the PR head instead, and its
+ * base is the PR's base. Its branch is never pushed.
  */
 export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredential, log: (m: string) => void): Promise<Workspace> {
   const branchName = branchFor(run);
+  const review = run.team.reviewTarget ?? null;
+  const baseBranch = review?.baseBranch ?? repo.defaultBranch;
   if (isForbiddenBranch(branchName) || isForbiddenBranch(repo.defaultBranch === branchName ? branchName : '')) {
     throw new GitError(`refusing to work on protected branch ${branchName}`);
   }
@@ -128,8 +133,23 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
 
   if (await exists(worktreePath)) {
     log(`reusing worktree ${worktreePath}`);
-    const resumedUnborn = !(await baseBranchExists(bareDir, repo.defaultBranch));
-    return { worktreePath, branchName, baseBranch: repo.defaultBranch, resumed: true, unborn: resumedUnborn };
+    const resumedUnborn = !(await baseBranchExists(bareDir, baseBranch));
+    return { worktreePath, branchName, baseBranch, resumed: true, unborn: resumedUnborn };
+  }
+  if (review) {
+    // The PR's base, fetched loudly (the heads fetch above is best-effort), then the PR
+    // head by its provider ref. A ref the remote doesn't serve (the mock's plain origin)
+    // falls back to the head branch when it's in this repo.
+    await git(bareDir, ['fetch', cloneUrl, `+refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`]);
+    const prRef = `refs/remotes/origin/review/${review.number}`;
+    await git(bareDir, ['fetch', cloneUrl, `+${review.fetchRef}:${prRef}`]).catch(async (e) => {
+      log(`fetch of ${review.fetchRef} failed (${(e as Error).message}); trying the head branch ${review.headBranch}`);
+      await git(bareDir, ['fetch', cloneUrl, `+refs/heads/${review.headBranch}:${prRef}`]);
+    });
+    await git(bareDir, ['worktree', 'prune']);
+    await git(bareDir, ['worktree', 'add', '-B', branchName, worktreePath, prRef]);
+    log(`worktree ${worktreePath} on ${branchName} at the head of ${review.url}`);
+    return { worktreePath, branchName, baseBranch, resumed: false, unborn: false };
   }
   // Branch from the fetched tip of the default branch. A bare clone keeps branches
   // under refs/heads, and `git fetch origin` updates refs/remotes/origin/* — try the
@@ -144,7 +164,7 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
     await git(bareDir, ['worktree', 'prune']);   // forget a registration whose directory was deleted
     await git(bareDir, ['worktree', 'add', '-B', branchName, worktreePath, `origin/${branchName}`]);
     log(`rebuilt worktree ${worktreePath} from origin/${branchName}`);
-    return { worktreePath, branchName, baseBranch: repo.defaultBranch, resumed: true, unborn: !born };
+    return { worktreePath, branchName, baseBranch, resumed: true, unborn: !born };
   }
   if (born) {
     const startRef = await resolveStart(bareDir, repo.defaultBranch);
@@ -157,7 +177,7 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
     await git(bareDir, ['worktree', 'add', '--orphan', '-b', branchName, worktreePath]);
   }
   log(`worktree ${worktreePath} on ${branchName}`);
-  return { worktreePath, branchName, baseBranch: repo.defaultBranch, resumed: false, unborn: !born };
+  return { worktreePath, branchName, baseBranch, resumed: false, unborn: !born };
 }
 
 const TRAILER_AUTHOR = 'Agentic Software Factory <factory@users.noreply.github.com>';

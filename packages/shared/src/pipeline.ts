@@ -68,6 +68,21 @@ export function skipRoles(stages: PipelineStagesConfig, roles: Role[]): Pipeline
   return out;
 }
 
+/**
+ * A review-only run: only the review stage runs, keeping the org's review gate.
+ * Plan, implement, test, create_mr and merge are off. Refused when the org has
+ * switched review off — there would be nothing left to do.
+ */
+export function reviewOnlyStages(stages: PipelineStagesConfig): PipelineStagesConfig {
+  const cfg = pipelineStagesSchema.parse(stages ?? {});
+  if (cfg.review?.enabled === false) {
+    throw new PipelineConfigError('the review stage is switched off for this org, so a review-only run has nothing to do. Turn review on in /pipeline.');
+  }
+  const out: PipelineStagesConfig = {};
+  for (const s of PIPELINE_STAGES) out[s] = { enabled: s === 'review', gate: cfg[s]?.gate ?? defaultGate(s) };
+  return out;
+}
+
 /** The roles whose stage the org switched off (a dispatch can't switch them back on). */
 export function disabledRoles(stages: PipelineStagesConfig): Role[] {
   const cfg = pipelineStagesSchema.parse(stages ?? {});

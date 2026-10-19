@@ -54,8 +54,8 @@ export const runSchema = z.object({
   changeRequestUrl: z.string().nullable(),
   changeRequestNumber: z.number().int().nullable().default(null),
   changeRequestState: z.enum(['open', 'ready', 'merged', 'closed']).nullable().default(null),
-  /** How delivery concluded: merged by ASF, awaiting an external human merge, no repo bound, or split into queued sub-tasks. Null until the run succeeds. */
-  deliveryOutcome: z.enum(['merged', 'awaiting_external_merge', 'no_repo', 'split']).nullable().default(null),
+  /** How delivery concluded: merged by ASF, awaiting an external human merge, no repo bound, split into queued sub-tasks, or (a review-only run) the review written. Null until the run succeeds. */
+  deliveryOutcome: z.enum(['merged', 'awaiting_external_merge', 'no_repo', 'split', 'reviewed']).nullable().default(null),
   costUsd: z.number().nonnegative().default(0),
   maxCostUsd: z.number().nonnegative(),
   reviewIterations: z.number().int().nonnegative().default(0),

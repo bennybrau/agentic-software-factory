@@ -46,6 +46,26 @@ export function isForbiddenBranch(name: string): boolean {
   return (FORBIDDEN_BRANCHES as readonly string[]).includes(name.trim().toLowerCase());
 }
 
+/**
+ * "Please review <PR/MR URL>": the text must say `review` (any case) and carry a
+ * GitHub `/owner/repo/pull/N` or GitLab `/group/…/repo/-/merge_requests/N` URL.
+ * Anything else is null — the caller refuses rather than guess.
+ */
+export function parseReviewRequest(text: string): { url: string; repoPath: string; number: number } | null {
+  if (!/review/i.test(text)) return null;
+  for (const m of text.matchAll(/https?:\/\/[^\s<>()"']+/g)) {
+    let u: URL;
+    try { u = new URL(m[0].replace(/[.,;:!?]+$/, '')); } catch { continue; }
+    const path = u.pathname.replace(/\/+$/, '');
+    const gl = path.match(/^\/(.+\/[^/]+)\/-\/merge_requests\/(\d+)(?:\/.*)?$/);
+    const gh = gl ? null : path.match(/^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/.*)?$/);
+    const hit = gl ?? gh;
+    if (!hit) continue;
+    return { url: `${u.origin}/${hit[1]}${gl ? '/-/merge_requests/' : '/pull/'}${hit[2]}`, repoPath: hit[1], number: Number(hit[2]) };
+  }
+  return null;
+}
+
 export interface ScmProvider {
   readonly kind: ScmProviderKind;
   preflight(): Promise<Preflight>;

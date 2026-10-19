@@ -58,6 +58,19 @@ export const teamTemplateSchema = z.object({
    * before_merge policy invariant is untouched (it only applies when merge runs).
    */
   mergeEnabled: z.boolean().default(true),
+  /**
+   * A review-only run: the team reviews an existing PR/MR instead of writing a
+   * change. The worker checks out `fetchRef` (the PR head) on the run branch,
+   * which is never pushed, and the run ends `reviewed` with no publish phase.
+   * Null/absent = an ordinary run.
+   */
+  reviewTarget: z.object({
+    url: z.string(),
+    number: z.number().int(),
+    headBranch: z.string(),
+    baseBranch: z.string(),
+    fetchRef: z.string(),   // refs/pull/N/head (GitHub) or refs/merge-requests/N/head (GitLab)
+  }).nullable().optional(),
 });
 export type TeamTemplate = z.infer<typeof teamTemplateSchema>;
 

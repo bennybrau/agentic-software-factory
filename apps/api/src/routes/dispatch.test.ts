@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { registerDispatchRoutes } from './dispatch.js';
 import { MockTicketProvider } from '../providers/tickets/mock.js';
 import { MockScmProvider } from '../providers/scm/mock.js';
+import type { TeamTemplate } from '@asf/shared';
 
 // The dispatch route enforces the org cost caps (WP 7.4) before it asks the
 // registry to create a run. It reaches the registry over HTTP via registry/client.ts,
@@ -466,4 +467,58 @@ test('done when (#1): a Vertex org adds its ids + MODEL_ALLOWLIST; the preview o
     assert.ok(bad.json().whyNot.some((w: string) => /no allowed model can run/.test(w)));
     await a.close();
   } finally { await clearOrg(); }
+});
+
+test('reviewOf: a review-only run of the PR, in the PR\'s repository, reviewer only, no loop', async () => {
+  process.env.ORG_MAX_COST_USD = '100';
+  process.env.ORG_MONTHLY_BUDGET_USD = '0';
+  let created: { repoId: string; team: TeamTemplate } | undefined;
+  stubRegistry({ onCreateRun: (i) => { created = i as typeof created; } });
+  const scm = new MockScmProvider();
+  const repo = await scm.getRepo('example/app');
+  await scm.openChangeRequest(repo, { head: 'feature/x', base: 'develop', title: 't', body: '', draft: false });
+  const a = Fastify();
+  registerDispatchRoutes(a, { tickets: new MockTicketProvider(), scm });
+  await a.ready();
+  const res = await a.inject({ method: 'POST', url: '/api/tickets/asf-1/dispatch', payload: { reviewOf: 'please review https://github.com/example/app/pull/1' } });
+  assert.equal(res.statusCode, 201);
+  assert.equal(created!.repoId, '1');
+  assert.deepEqual(created!.team.roles.map((r) => r.role), ['reviewer']);
+  assert.equal(created!.team.loop, null);
+  assert.equal(created!.team.mergeEnabled, false);
+  assert.deepEqual(created!.team.reviewTarget, {
+    url: 'https://github.com/example/app/pull/1', number: 1, headBranch: 'feature/x', baseBranch: 'develop', fetchRef: 'refs/pull/1/head',
+  });
+  await a.close();
+});
+
+test('reviewOf: a GitLab URL fetches the merge-request ref', async () => {
+  process.env.ORG_MAX_COST_USD = '100';
+  process.env.ORG_MONTHLY_BUDGET_USD = '0';
+  let created: { team: TeamTemplate } | undefined;
+  stubRegistry({ onCreateRun: (i) => { created = i as typeof created; } });
+  const scm = new MockScmProvider();
+  await scm.openChangeRequest(await scm.getRepo('example/app'), { head: 'f', base: 'main', title: 't', body: '', draft: false });
+  const a = Fastify();
+  registerDispatchRoutes(a, { tickets: new MockTicketProvider(), scm });
+  await a.ready();
+  const res = await a.inject({ method: 'POST', url: '/api/tickets/asf-1/dispatch', payload: { reviewOf: 'Review https://gitlab.com/example/app/-/merge_requests/1' } });
+  assert.equal(res.statusCode, 201);
+  assert.equal(created!.team.reviewTarget?.fetchRef, 'refs/merge-requests/1/head');
+  await a.close();
+});
+
+test('reviewOf: an unparsable URL or an unreachable PR is a 400 bad_review_target and no run', async () => {
+  process.env.ORG_MAX_COST_USD = '100';
+  process.env.ORG_MONTHLY_BUDGET_USD = '0';
+  let created: unknown;
+  stubRegistry({ onCreateRun: (i) => { created = i; } });
+  const a = await app();
+  for (const reviewOf of ['review the login page', 'review https://github.com/example/app/pull/99', 'review https://github.com/nobody/else/pull/1']) {
+    const res = await a.inject({ method: 'POST', url: '/api/tickets/asf-1/dispatch', payload: { reviewOf } });
+    assert.equal(res.statusCode, 400, reviewOf);
+    assert.equal(res.json().error, 'bad_review_target', reviewOf);
+  }
+  assert.equal(created, undefined, 'no run is created');
+  await a.close();
 });

@@ -220,3 +220,12 @@ test('an implementer re-run for a merge conflict leads with the files and the ke
   const none = await renderPrompt('implementer', 'run_cf', { ...base, prior: priorsFor.implementer });
   assert.ok(!/MERGE CONFLICT/.test(none));
 });
+
+test('a review-only run renders the reviewer from reviewer-pr.md with the PR filled in', async () => {
+  const review = { url: 'https://github.com/acme/web/pull/42', number: 42, headBranch: 'feature/x', baseBranch: 'develop' };
+  const p = await renderPrompt('reviewer', 'run_rv', { ...base, prior: {}, review });
+  assert.ok(!p.includes('{{'), `left a placeholder: ${p.match(/\{\{[^}]*\}\}/)?.[0]}`);
+  assert.match(p, /https:\/\/github\.com\/acme\/web\/pull\/42 \(#42\)/);
+  assert.match(p, /git diff origin\/develop\.\.\.HEAD/);
+  assert.doesNotMatch(p, /Test report:/, 'not the team reviewer template');
+});

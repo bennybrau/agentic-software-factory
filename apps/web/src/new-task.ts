@@ -1,4 +1,4 @@
-import { attachmentProblem, type AdhocLimits } from '@asf/shared/ui';
+import { attachmentProblem, parseReviewRequest, type AdhocLimits } from '@asf/shared/ui';
 
 /** The file's metadata as the New task screen and the api check it. */
 export interface PickedMeta { name: string; mime: string; size: number }
@@ -53,6 +53,20 @@ export function chatProblem(text: string, files: PickedMeta[], limits: AdhocLimi
 /** The repository a chat starts in: the one the task names, else the first connected one. */
 export function pickChatRepo(preview: { suggestedRepoId: string | null; repos: { id: string }[] }): string | null {
   return preview.suggestedRepoId ?? preview.repos[0]?.id ?? null;
+}
+
+/**
+ * The dispatch body for a chat message. "Review <PR/MR URL>" starts a review-only
+ * run: the whole message goes as `reviewOf`, because the api re-parses it and needs
+ * the word "review". Anything else starts in the chat's repository.
+ */
+export function chatDispatchBody(
+  text: string,
+  preview: { suggestedRepoId: string | null; repos: { id: string }[] } | null,
+  by: string,
+): { reviewOf?: string; repoId?: string; by: string } {
+  if (parseReviewRequest(text)) return { reviewOf: text, by };
+  return { repoId: (preview && pickChatRepo(preview)) ?? undefined, by };
 }
 
 /**

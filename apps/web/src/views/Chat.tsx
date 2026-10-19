@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ADHOC_DEFAULT_LIMITS, type AdhocLimits } from '@asf/shared/ui';
+import { ADHOC_DEFAULT_LIMITS, parseReviewRequest, type AdhocLimits } from '@asf/shared/ui';
 import { api, subscribeEvents, type RunDetail } from '../api';
-import { chatProblem, chatTitle, pickChatRepo } from '../new-task';
+import { chatDispatchBody, chatProblem, chatTitle } from '../new-task';
 import { chatStatus } from '../chat-status';
 import { PAGE } from '../words';
 import { useMe } from '../useMe';
@@ -50,12 +50,21 @@ export function Chat() {
       const task = created.body.task;
       if (created.status !== 201 || !task) { setFailure({ reason: created.body.reason ?? `Couldn’t save it (${created.status}).`, saved: false }); return; }
       setText(''); att.clear();
-      const preview = await api.dispatchPreview(task.id).catch((e) => { setFailure({ reason: String(e), saved: true }); return null; });
-      if (!preview) return;
-      if (preview.blocker) { setFailure({ reason: preview.blocker.reason, blocker: preview.blocker, saved: true }); return; }
-      const { status, body } = await api.dispatch(task.id, { repoId: pickChatRepo(preview) ?? undefined, by: me.user });
-      if (status === 201) navigate(`/chat/${body.run.id}`);
-      else setFailure({ reason: body.reason || `Couldn’t start it (${status}).`, saved: true });
+      // A review request has no repository to pick and no planner to chat with:
+      // dispatch checks readiness itself, and the run page shows the review.
+      const review = parseReviewRequest(text) !== null;
+      let preview: Awaited<ReturnType<typeof api.dispatchPreview>> | null = null;
+      if (!review) {
+        preview = await api.dispatchPreview(task.id).catch((e) => { setFailure({ reason: String(e), saved: true }); return null; });
+        if (!preview) return;
+        if (preview.blocker) { setFailure({ reason: preview.blocker.reason, blocker: preview.blocker, saved: true }); return; }
+      }
+      const { status, body } = await api.dispatch(task.id, chatDispatchBody(text, preview, me.user));
+      if (status === 201) navigate(review ? `/run/${body.run.id}` : `/chat/${body.run.id}`);
+      else {
+        const reason = body.reason || `Couldn’t start it (${status}).`;
+        setFailure({ reason: review ? `Couldn’t start the review: ${reason}` : reason, saved: true });
+      }
     } catch (e) {
       setFailure({ reason: String(e), saved: false });
     } finally {

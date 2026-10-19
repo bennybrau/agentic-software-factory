@@ -141,9 +141,11 @@ test('list walks JQL pages, maps issues to tickets, applies bucket filter', asyn
     assert.equal(open.assignee, 'Octo Cat');
     assert.equal(open.parentId, 'SWL-1');
     assert.deepEqual(open.children, ['SWL-43', 'SWL-44']);
-    // the ADF table survives into the body as a placeholder token
+    // the ADF table the editing grammar can't spell is shown as a readable
+    // table, not as a ⟦jira-block-N⟧ token (DCP-15671: tokens hid the text)
     assert.match(open.body, /Add a token bucket\./);
-    assert.match(open.body, /⟦jira-block-0: table⟧/);
+    assert.doesNotMatch(open.body, /jira-block|⟦/);
+    assert.match(open.body, /\| Limit \| 100\/min \|/);
 
     // the JQL the walk sent was rendered from the template + scope
     const firstUrl = s.calls[0]!.url;

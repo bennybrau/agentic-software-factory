@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { adfToMarkdown, adfToText, markdownToAdf, parseAdf } from './adf.js';
+import { adfToMarkdown, adfToReadable, adfToText, markdownToAdf, parseAdf } from './adf.js';
 
 /**
  * The round-trip contract, stated as tests because it is the only thing keeping
@@ -16,6 +16,7 @@ import { adfToMarkdown, adfToText, markdownToAdf, parseAdf } from './adf.js';
 const doc = (...content: unknown[]) => ({ type: 'doc', version: 1, content });
 const p = (...content: unknown[]) => ({ type: 'paragraph', content });
 const t = (text: string, marks?: unknown[]) => (marks ? { type: 'text', text, marks } : { type: 'text', text });
+const h = (level: number, ...content: unknown[]) => ({ type: 'heading', attrs: { level }, content });
 
 /** Read to markdown, write straight back, and hand back what Jira would store. */
 function roundTrip(input: unknown): unknown {
@@ -224,6 +225,93 @@ test('a bare string description, which Jira still sends on some sites, is read',
   assert.equal(parseAdf('x')?.type, 'doc');
 });
 
-test('adfToText names preserved blocks instead of showing tokens', () => {
-  assert.equal(adfToText(doc(p(t('before')), TABLE)), 'before\n\n[table]');
+test('adfToText shows a preserved table as a readable table, not a token', () => {
+  assert.equal(adfToText(doc(p(t('before')), TABLE)), 'before\n\n|  |  |\n| --- | --- |\n| Office ID | 4031 |');
+});
+
+// --- adfToReadable: the reading rendering --------------------------------------
+
+test('readable: exactly the editing markdown when there is nothing to hold aside', () => {
+  const input = doc(h(2, t('Goal')), p(t('Rate limit '), t('login', [{ type: 'strong' }])), { type: 'rule' });
+  assert.equal(adfToReadable(input), adfToMarkdown(input).text);
+  assert.equal(adfToReadable(null), '');
+  assert.equal(adfToReadable('plain\nlines'), 'plain\n\nlines');
+});
+
+test('readable: a paragraph with a colour, an underline or a mention shows its words (the DCP-15671 case)', () => {
+  const legal = doc(
+    p(t('Legal Approved Text for Checkboxes:')),
+    p(t('I agree to receive ', [{ type: 'textColor', attrs: { color: '#ff5630' } }]), t('text messages', [{ type: 'underline' }, { type: 'strong' }]), t(' from Acme.')),
+    p({ type: 'mention', attrs: { id: 'abc', text: '@Dana Legal' } }, t(' approved on '), { type: 'date', attrs: { timestamp: '1792368000000' } },
+      t(' '), { type: 'status', attrs: { text: 'final', color: 'green' } }, t(' '), { type: 'emoji', attrs: { shortName: ':white_check_mark:', text: '✅' } }),
+  );
+  const out = adfToReadable(legal);
+  assert.doesNotMatch(out, /jira-block|⟦/);
+  assert.equal(out, [
+    'Legal Approved Text for Checkboxes:',
+    'I agree to receive **text messages** from Acme.',
+    '@Dana Legal approved on 2026-10-19 [FINAL] ✅',
+  ].join('\n\n'));
+  // The editing view of the same issue still holds those two blocks aside.
+  assert.equal(adfToMarkdown(legal).preserved.length, 2);
+});
+
+test('readable: tables, with and without a header row, escape pipes and keep multi-line cells', () => {
+  const cell = (type: string, ...c: unknown[]) => ({ type, attrs: {}, content: c });
+  const row = (...c: unknown[]) => ({ type: 'tableRow', content: c });
+  const headed = { type: 'table', content: [
+    row(cell('tableHeader', p(t('Field'))), cell('tableHeader', p(t('Value')))),
+    row(cell('tableCell', p(t('a|b'))), cell('tableCell', p(t('one')), p(t('two')))),
+    row(cell('tableCell', p(t('short')))),
+  ] };
+  assert.equal(adfToReadable(doc(headed)), '| Field | Value |\n| --- | --- |\n| a\\|b | one<br>two |\n| short |  |');
+});
+
+test('readable: panels, expands, task and decision lists, cards, media, macros, layouts', () => {
+  const out = adfToReadable(doc(
+    { type: 'panel', attrs: { panelType: 'warning' }, content: [p(t('Do not ship on Friday'))] },
+    { type: 'expand', attrs: { title: 'Payload' }, content: [p(t('inside the expand'))] },
+    { type: 'taskList', attrs: { localId: 'x' }, content: [
+      { type: 'taskItem', attrs: { state: 'DONE' }, content: [t('wire the form')] },
+      { type: 'taskItem', attrs: { state: 'TODO' }, content: [t('legal sign-off')] },
+    ] },
+    { type: 'decisionList', content: [{ type: 'decisionItem', attrs: { state: 'DECIDED' }, content: [t('Use opt-in')] }] },
+    { type: 'blockCard', attrs: { url: 'https://example.com/spec' } },
+    { type: 'mediaSingle', content: [{ type: 'media', attrs: { type: 'file', id: 'f1', alt: 'mock.png' } }] },
+    { type: 'extension', attrs: { extensionKey: 'toc' } },
+    { type: 'bodiedExtension', attrs: { extensionKey: 'details' }, content: [p(t('macro body'))] },
+    { type: 'layoutSection', content: [
+      { type: 'layoutColumn', content: [p(t('left'))] }, { type: 'layoutColumn', content: [p(t('right'))] },
+    ] },
+  ));
+  assert.equal(out, [
+    '> **Warning:** Do not ship on Friday',
+    '**Payload**', 'inside the expand',
+    '- [x] wire the form\n- [ ] legal sign-off',
+    '- ✓ Use opt-in',
+    'https://example.com/spec',
+    '[image: mock.png]',
+    '[macro: toc]',
+    'macro body',
+    'left', 'right',
+  ].join('\n\n'));
+});
+
+test('readable: a list item richer than the editor allows still shows every line', () => {
+  const list = { type: 'bulletList', content: [
+    { type: 'listItem', content: [p(t('first')), p(t('second paragraph')), { type: 'codeBlock', content: [t('x = 1')] }] },
+    { type: 'listItem', content: [p(t('colour', [{ type: 'textColor', attrs: { color: 'red' } }]))] },
+  ] };
+  assert.equal(adfToReadable(doc(list)), '- first\n  second paragraph\n  ```\n  x = 1\n  ```\n- colour');
+});
+
+test('readable: a code block containing a fence gets a longer fence', () => {
+  const code = { type: 'codeBlock', attrs: { language: 'md' }, content: [t('```\nnested\n```')] };
+  assert.equal(adfToReadable(doc(code)), '````md\n```\nnested\n```\n````');
+});
+
+test('readable: a node type nobody has heard of still shows its text', () => {
+  assert.equal(adfToReadable(doc({ type: 'futureBlock', content: [t('still here')] })), 'still here');
+  assert.equal(adfToReadable(doc(p(t('a')), { type: 'futureWrapper', content: [p(t('nested words'))] })), 'a\n\nnested words');
+  assert.equal(adfToReadable(doc(p({ type: 'futureInline', attrs: { text: 'label' } }))), 'label');
 });

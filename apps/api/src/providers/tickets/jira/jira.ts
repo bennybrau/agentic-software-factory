@@ -3,7 +3,7 @@ import type {
   Preflight, Ticket, TicketBucket, TicketComment, TicketLink, TicketListQuery,
   TicketProvider, TicketProviderCapabilities, TicketScope, TicketSprint, TicketTransition,
 } from '@asf/shared';
-import { adfToMarkdown, markdownToAdf, adfToText } from './adf.js';
+import { adfToMarkdown, markdownToAdf, adfToReadable, adfToText } from './adf.js';
 import { preflightFailure } from '../../rejected.js';
 
 /**
@@ -186,10 +186,12 @@ export class JiraTicketProvider implements TicketProvider {
       key: issue.key,
       url: this.issueUrl(issue.key),
       title: f.summary ?? '',
-      // A block the Markdown grammar cannot spell is a ⟦jira-block-N⟧ token in
-      // the body; adfToText would name it instead, but the seam is Markdown so
-      // the token is what the implementer sees and what update() resolves.
-      body: adfToMarkdown(f.description ?? null).text,
+      // Readable: blocks the editing grammar can't spell exactly (a coloured
+      // word, a table, a panel) are rendered as plain markdown, not as
+      // ⟦jira-block-N⟧ tokens, so the board and the agent can read them.
+      // update() never trusts this text for those blocks: it re-reads the
+      // description from Jira and resolves tokens against that.
+      body: adfToReadable(f.description ?? null),
       status: f.status?.name ?? 'Unknown',
       bucket: bucketOf(f.status, this.cfg.bucketMap),
       priority: priorityOf(f.priority),

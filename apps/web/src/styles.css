@@ -173,6 +173,13 @@ pre.artifact { background: var(--panel2); border: 1px solid var(--border); borde
 .ticket-desc code { font-family: var(--mono); font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
 .ticket-desc pre { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; }
 .ticket-desc pre code { background: none; border: 0; padding: 0; }
+.ticket-desc blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--border); color: var(--muted); }
+.ticket-desc table { border-collapse: collapse; margin: 8px 0; display: block; overflow-x: auto; max-width: 100%; }
+.ticket-desc th, .ticket-desc td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; vertical-align: top; }
+.ticket-desc th { background: var(--panel2); font-weight: 600; }
+/* A Jira table with no header row comes through with a blank one (GFM needs it). */
+.ticket-desc thead:not(:has(th:not(:empty))) { display: none; }
+.ticket-desc input[type=checkbox] { margin-right: 6px; }
 .ticket-desc blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted); }
 .ticket-desc table { width: auto; }
 .ticket-desc img { max-width: 100%; }

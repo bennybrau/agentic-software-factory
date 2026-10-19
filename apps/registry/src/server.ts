@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { config, resolveSecret } from './config.js';
-import { sql, ping, closePool } from './db/pool.js';
+import { sql, ping, probe, closePool } from './db/pool.js';
 import { migrate, MIGRATIONS_DIR } from './db/migrate.js';
 import { installAuth } from './auth.js';
 import { registerRpc } from './routes/rpc.js';
@@ -16,9 +16,14 @@ export async function buildServer(opts: { secret?: string; migrate?: boolean; sw
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, forceCloseConnections: true });
   const db = sql({ url: opts.databaseUrl, schema: opts.schema });
 
-  if (!(await ping())) {
-    app.log.error({ databaseUrl: config.databaseUrl.replace(/:\/\/.*@/, '://***@') }, 'database unreachable');
-    throw new Error('database unreachable; a registry with no database would accept a dispatch and lose it');
+  const problem = await probe();
+  if (problem) {
+    app.log.error({ databaseUrl: redactUrl(config.databaseUrl), code: problem.code, error: problem.message, hint: problem.hint }, 'database unreachable');
+    throw new Error(
+      `database unreachable: ${problem.message}${problem.code ? ` (${problem.code})` : ''}` +
+      (problem.hint ? `\n  ${problem.hint}` : '') +
+      '\n  (a registry with no database would accept a dispatch and lose it, so it stops here)',
+    );
   }
   let migrations = 0;
   if (opts.migrate ?? config.migrate) {
@@ -68,4 +73,9 @@ export async function buildServer(opts: { secret?: string; migrate?: boolean; sw
 
   app.addHook('onClose', async () => { stopSweeper(); stopRecurring(); await closeStream(); await closePool(); });
   return { app, secret };
+}
+
+/** DATABASE_URL with the password hidden (user:***@host). */
+export function redactUrl(url: string): string {
+  return url.replace(/(:\/\/[^:/@]*):.*@/, '$1:***@');
 }

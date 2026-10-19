@@ -254,6 +254,27 @@ if [ "$FAILURES" -gt 0 ]; then
 fi
 
 # --- .env -------------------------------------------------------------------
+# A pgdata volume from an earlier install (checkout deleted or re-cloned, or .env
+# removed) holds that install's password; a new one in .env can't log in, and the
+# registry crash-loops with "password authentication failed". Modes 1 and 2 only:
+# dev mode's docker-compose.yml uses a fixed password.
+stale_pgdata_check() {
+  [ "$MODE" = "3" ] && return 0
+  [ "$DOCKER_OK" -eq 1 ] || return 0
+  local project vol created
+  project="$(sed -n 's/^name:[[:space:]]*//p' "$ROOT/docker-compose.self-host.yml" 2>/dev/null | head -1 | tr -d "\"'\r" | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//')"
+  vol="${project:-asf}_pgdata"
+  docker volume inspect "$vol" >/dev/null 2>&1 || return 0
+  created="$(docker volume inspect --format '{{.CreatedAt}}' "$vol" 2>/dev/null || true)"
+  bad "a database from an earlier install is still here: Docker volume ${vol}${created:+ (created ${created})}" \
+    "its password isn't in .env, so a new one would lock the registry out"
+  info "Start fresh:   ./scripts/uninstall.sh   (saves a copy of the old database first), then ./scripts/setup.sh"
+  info "Or keep it:    put that install's POSTGRES_PASSWORD (and ASF_SECRET_KEY) in .env, then re-run setup"
+  [ -f "$ENV_FILE.bak" ] && info "               .env.bak may be that install's .env"
+  printf '\n%sstopped before writing .env — nothing was changed.%s\n' "$C_RED" "$C_RESET" >&2
+  exit 1
+}
+
 section "Configuration (.env)"
 ENV_FILE="$ROOT/.env"
 EXAMPLE="$ROOT/.env.example"
@@ -297,7 +318,14 @@ else
   fi
 
   RUN_EVENT_SECRET_VALUE="$(rand_hex 32)"
-  POSTGRES_PASSWORD_VALUE="$(rand_hex 16)"
+  # The Postgres data volume keeps the password it was created with, whatever
+  # .env says later. So --force keeps the existing one, and a fresh .env next to
+  # an existing volume stops here: a new password would lock the registry out.
+  POSTGRES_PASSWORD_VALUE="$(read_env_key "$ENV_FILE" POSTGRES_PASSWORD)"
+  if [ -z "$POSTGRES_PASSWORD_VALUE" ]; then
+    stale_pgdata_check
+    POSTGRES_PASSWORD_VALUE="$(rand_hex 16)"
+  fi
   # Encrypts tokens saved in Settings at rest (#9). --force keeps an existing key:
   # a new one would make every token already in the database unreadable.
   SECRET_KEY_VALUE="$(read_env_key "$ENV_FILE" ASF_SECRET_KEY)"

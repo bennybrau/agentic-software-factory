@@ -55,6 +55,12 @@ git init -q "$FAKE_ROOT"
 cat > "$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "info" ]; then exit 0; fi
+# FAKE_PGDATA=<name>: that volume exists (a database from an earlier install).
+if [ "$1" = "volume" ] && [ "${2:-}" = "inspect" ]; then
+  [ -n "${FAKE_PGDATA:-}" ] && [ "${!#}" = "$FAKE_PGDATA" ] || exit 1
+  case "$*" in *CreatedAt*) echo "2026-09-01T10:00:00Z" ;; esac
+  exit 0
+fi
 if [ "$1" = "compose" ] && [ "${2:-}" = "version" ]; then
   echo "Docker Compose version v2.99.9"
   exit 0
@@ -147,6 +153,41 @@ assert_eq "${#up_key}" "64" "re-run adds a 64-hex ASF_SECRET_KEY"
 assert_eq "$(grep -v '^ASF_SECRET_KEY=' "$FAKE_ROOT/.env")" "$before_up" "re-run changes nothing but the added key"
 perm_up="$(stat -c '%a' "$FAKE_ROOT/.env" 2>/dev/null || stat -f '%Lp' "$FAKE_ROOT/.env")"
 assert_eq "$perm_up" "600" ".env stays chmod 600 after adding the key"
+
+# --- --force keeps POSTGRES_PASSWORD: the data volume still has the old one ---
+pg_before="$(get POSTGRES_PASSWORD)"
+[ -n "$pg_before" ] && pass || fail "fresh .env has a POSTGRES_PASSWORD"
+out="$(FAKE_PGDATA=asf_pgdata ASF_MODE=1 ASF_PORT=9123 run_setup --non-interactive --no-up --force 2>&1)"; code=$?
+assert_eq "$code" "0" "--force with an existing database volume succeeds"
+assert_eq "$(get POSTGRES_PASSWORD)" "$pg_before" "--force KEEPS POSTGRES_PASSWORD (the volume was made with it)"
+
+# --- a database volume from an earlier install, no .env: stop, change nothing --
+mv "$FAKE_ROOT/.env" "$FAKE_ROOT/.env.keep"
+rm -f "$FAKE_ROOT/.env.bak"
+out="$(FAKE_PGDATA=asf_pgdata ASF_MODE=1 ASF_PORT=9123 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_eq "$code" "1" "stale asf_pgdata without .env => exit 1"
+assert_contains "$out" "asf_pgdata (created 2026-09-01T10:00:00Z)" "stale volume is named with its date"
+assert_contains "$out" "./scripts/uninstall.sh" "stale volume points at uninstall.sh"
+assert_contains "$out" "POSTGRES_PASSWORD" "stale volume says which key to restore to keep it"
+assert_contains "$out" "nothing was changed" "stale volume says nothing changed"
+assert_not_contains "$out" ".env.bak may be" "no .env.bak hint when there is none"
+[ -f "$FAKE_ROOT/.env" ] && fail "stale volume: no .env should be written" || pass
+cp "$FAKE_ROOT/.env.keep" "$FAKE_ROOT/.env.bak"
+out="$(FAKE_PGDATA=asf_pgdata ASF_MODE=1 ASF_PORT=9123 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_contains "$out" ".env.bak may be" "stale volume mentions .env.bak when present"
+rm -f "$FAKE_ROOT/.env.bak"
+out="$(FAKE_PGDATA=asf_pgdata ASF_MODE=2 ASF_PORT=9123 run_setup --non-interactive --no-up 2>&1)"
+assert_contains "$out" "earlier install is still here" "mode 2 checks for a stale volume too"
+[ -f "$FAKE_ROOT/.env" ] && fail "mode 2 stale volume: no .env written" || pass
+# Some other project's volume is not ours.
+out="$(FAKE_PGDATA=other_pgdata ASF_MODE=1 ASF_PORT=9123 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_eq "$code" "0" "an unrelated pgdata volume doesn't block setup"
+rm -f "$FAKE_ROOT/.env"
+# Dev mode's docker-compose.yml has a fixed password, so the volume can't mismatch.
+out="$(FAKE_PGDATA=asf_pgdata ASF_MODE=3 ASF_PORT=9123 run_setup --non-interactive --no-up 2>&1)"
+assert_not_contains "$out" "earlier install is still here" "mode 3 doesn't check the self-host volume"
+rm -f "$FAKE_ROOT/.env" "$FAKE_ROOT/.env.bak"
+mv "$FAKE_ROOT/.env.keep" "$FAKE_ROOT/.env"
 
 # --- --force mid-rotation keeps ASF_SECRET_KEY_PREVIOUS too
 printf 'ASF_SECRET_KEY_PREVIOUS=%s\n' "$skey" >> "$FAKE_ROOT/.env"

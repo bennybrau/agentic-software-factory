@@ -37,12 +37,13 @@ trap cleanup EXIT
 mkdir -p "$FAKE_ROOT/scripts/lib"
 cp "$ASF" "$FAKE_ROOT/scripts/asf"
 cp "$REPO_ROOT/scripts/host-worker.sh" "$FAKE_ROOT/scripts/host-worker.sh"
+cp "$REPO_ROOT/scripts/uninstall.sh" "$FAKE_ROOT/scripts/uninstall.sh"
 cp "$REPO_ROOT/scripts/lib/common.sh" "$FAKE_ROOT/scripts/lib/common.sh"
 cp "$REPO_ROOT/docker-compose.self-host.yml" "$FAKE_ROOT/docker-compose.self-host.yml"
 cp "$REPO_ROOT/docker-compose.host-worker.yml" "$FAKE_ROOT/docker-compose.host-worker.yml"
 cp "$REPO_ROOT/docker-compose.host-gateway.yml" "$FAKE_ROOT/docker-compose.host-gateway.yml"
 cp "$REPO_ROOT/docker-compose.testdb.yml" "$FAKE_ROOT/docker-compose.testdb.yml"
-chmod +x "$FAKE_ROOT/scripts/asf" "$FAKE_ROOT/scripts/host-worker.sh"
+chmod +x "$FAKE_ROOT/scripts/asf" "$FAKE_ROOT/scripts/host-worker.sh" "$FAKE_ROOT/scripts/uninstall.sh"
 
 # core utilities doctor calls (df/awk/stat/basename) live in /usr/bin:/bin
 run_asf() { ( cd "$FAKE_ROOT" && PATH="$EMPTY_BIN" NO_COLOR=1 "$FAKE_ROOT/scripts/asf" "$@" ); }
@@ -333,6 +334,13 @@ assert_contains "$out" "unknown update option" "update names the bad option"
 out="$(run_asf restore 2>&1)"; code=$?
 assert_eq "$code" "1" "restore without a file exits 1"
 assert_contains "$out" "usage: asf restore" "restore explains it needs a file"
+
+# --- uninstall hands off to scripts/uninstall.sh ------------------------------
+out="$(run_asf uninstall --help 2>&1)"; code=$?
+assert_eq "$code" "0" "asf uninstall --help exits 0"
+assert_contains "$out" "Usage: scripts/uninstall.sh" "asf uninstall runs scripts/uninstall.sh"
+out="$(run_asf help 2>&1)"
+assert_contains "$out" "uninstall" "asf help lists uninstall"
 
 # --- reset without --yes: refuses ------------------------------------------
 out="$(run_asf reset 2>&1)"; code=$?

@@ -10,6 +10,7 @@
 #   asf backup            # immediate pg_dump into the backups volume + ./backups
 #   asf restore <file>    # load a dump back in
 #   asf reset --yes       # DESTROY all data (down -v)
+#   asf uninstall         # remove the whole install so setup.sh starts fresh
 #   asf open              # open the UI in a browser
 #
 set -euo pipefail
@@ -73,6 +74,8 @@ Usage: scripts/asf <command> [args]
   secret-key         add ASF_SECRET_KEY to .env and encrypt saved tokens
                      (--rotate: move every saved token to a fresh key)
   reset --yes        DESTROY all data and volumes (double-confirmed)
+  uninstall [opts]   remove the whole install (stack, data, host worker, .env) so
+                     scripts/setup.sh starts fresh; see scripts/uninstall.sh --help
   open               open the UI in a browser
   help               this help
 EOF
@@ -700,6 +703,7 @@ case "$cmd" in
   restore)  cmd_restore "$@" ;;
   secret-key) cmd_secret_key "$@" ;;
   reset)    cmd_reset "$@" ;;
+  uninstall) exec "$SCRIPT_DIR/uninstall.sh" "$@" ;;
   open)     cmd_open "$@" ;;
   help|-h|--help) usage ;;
   *) printf 'unknown command: %s\n\n' "$cmd" >&2; usage >&2; exit 2 ;;

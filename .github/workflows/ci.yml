@@ -26,8 +26,8 @@ jobs:
       - run: pnpm test
       - name: release version script
         run: bash scripts/next-version.test.sh
-      - name: asf CLI and setup wizard scripts
-        run: bash scripts/asf.test.sh && bash scripts/setup.test.sh
+      - name: asf CLI, setup wizard and uninstall scripts
+        run: bash scripts/asf.test.sh && bash scripts/setup.test.sh && bash scripts/uninstall.test.sh
       - name: generated config docs are current
         run: pnpm gen:config:check
       - name: no credential env names in agent runtime code

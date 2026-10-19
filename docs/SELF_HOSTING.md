@@ -36,7 +36,7 @@ full list, with defaults and precedence, is in [`CONFIGURATION.md`](CONFIGURATIO
 | `docker-compose.testdb.yml` | A scratch Postgres for the agents' tests ([below](#a-test-database-for-the-agents)). Layered when `.env` has `ASF_TEST_DB=1`. |
 
 `scripts/asf` is the day-2 wrapper over the first file, so you never type a compose
-command (`asf up|down|logs|status|doctor|update|backup|restore|reset`). See
+command (`asf up|down|logs|status|doctor|update|backup|restore|reset|uninstall`). See
 [`INSTALL.md`](INSTALL.md#day-2--the-asf-cli).
 
 ## Services, ports and volumes
@@ -51,7 +51,8 @@ command (`asf up|down|logs|status|doctor|update|backup|restore|reset`). See
 | `testdb` | not published | Only with `ASF_TEST_DB=1`. Scratch Postgres for the agents' tests, in memory. |
 
 **Volumes:** `pgdata`, `worktrees`, `runs`, `backups` — all named, so state survives
-`down` and lives outside any TCC-protected path. Only `reset` (`down -v`) removes them.
+`down` and lives outside any TCC-protected path. Only `reset` (`down -v`) and
+`uninstall` ([`INSTALL.md`](INSTALL.md#uninstall)) remove them.
 
 ## The settings a self-host sets
 

@@ -162,14 +162,55 @@ by itself.
 
 ## Uninstall
 
+To remove ASF from this machine, or to wipe it and start fresh:
+
 ```bash
-scripts/asf reset --yes     # DESTROYS all data: pgdata, worktrees, runs, backups (double-confirmed)
+scripts/uninstall.sh --dry-run   # list what would be removed, change nothing
+scripts/uninstall.sh             # list it, ask you to type "uninstall", then remove it
+./scripts/setup.sh               # optional: start over from nothing
 ```
 
-Then remove the checkout. Mode 2 also wrote a supervisor unit
-(`~/Library/LaunchAgents/com.asf.worker.plist` on macOS, or
-`~/.config/systemd/user/asf-worker.service` on Linux) and `~/.asf/` — remove those to
-fully clean up the host worker.
+`scripts/asf uninstall` does the same. It removes:
+
+- the stack's containers, volumes (the database, worktrees, runs, backups) and network,
+  plus an updater container the in-app updater left behind
+- the dev-mode Postgres (`setup.sh --mode 3`)
+- the host worker (mode 2): the launchd agent `~/Library/LaunchAgents/com.asf.worker.plist`
+  or the systemd unit `~/.config/systemd/user/asf-worker.service`, and `~/.asf/`
+- `.env`, `.env.bak` and `./backups` in the checkout
+
+It keeps the checkout, Docker itself, your `claude login` and gcloud credentials, and
+every other container. A compose project started from a different checkout is left alone
+and named in the output.
+
+Before removing anything it saves a safety copy to `~/asf-uninstall-<timestamp>/`:
+
+- a database dump, `asf-final.sql.gz` (plus `asf-dev-final.sql.gz` for dev mode)
+- the nightly dumps from the backups volume (`backups-volume/`)
+- `.env` and `./backups`
+
+The copy's `.env` holds `ASF_SECRET_KEY`, which you need to restore the dump with its saved
+tokens (`asf restore`). Delete the copy when you no longer need it.
+
+| Option | What it does |
+|---|---|
+| `--dry-run` | List what would be removed, change nothing |
+| `--yes` | Skip the prompt (required when there's no terminal, e.g. over ssh without a tty) |
+| `--images` | Also delete the ASF Docker images, so the next setup pulls or builds them again |
+| `--no-backup` | Skip the safety copy. The database and saved settings are gone for good |
+| `--backup-dir DIR` | Put the safety copy somewhere else |
+
+It changes nothing, and says why, when:
+
+- Docker isn't running: start Docker / Rancher Desktop and run it again.
+- Postgres isn't running, so the database can't be dumped: `scripts/asf up` first, or pass
+  `--no-backup` to delete it unsaved.
+- A dump or the backups-volume copy fails.
+
+To delete only the data and keep the install, use `scripts/asf reset --yes` (double-confirmed),
+then `scripts/asf up`.
+
+To remove ASF completely, delete the checkout after uninstalling.
 
 ## Troubleshooting
 

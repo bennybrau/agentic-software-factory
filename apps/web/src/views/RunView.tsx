@@ -130,6 +130,10 @@ export function RunView() {
         </div>
       )}
 
+      {run.team.reviewTarget && run.state === 'succeeded' && (
+        <PostReview runId={runId} url={run.team.reviewTarget.url} posted={events.some((e) => e.kind === 'review:posted')} onDone={load} />
+      )}
+
       {split && <SplitCard family={split} runId={runId} />}
       {wasSplit && !split && (
         <div className="card"><b>{outcomeLabel('split')}</b><div className="muted" style={{ fontSize: 13, marginTop: 4 }}>The planner divided this job into smaller tasks. Find them on the Activity page.</div></div>
@@ -522,6 +526,38 @@ function RequestChanges({ runId, onDone }: { runId: string; onDone: () => void }
   );
 }
 
+/**
+ * A review-only run's review stays in ASF until you post it: line comments for each
+ * `path:line` finding, plus one summary comment, on the pull request it reviewed.
+ */
+function PostReview({ runId, url, posted, onDone }: { runId: string; url: string; posted: boolean; onDone: () => void }) {
+  const me = useMe();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const post = async () => {
+    if (!confirm(`Post this review as comments on ${url}?`)) return;
+    setBusy(true); setMsg(null);
+    const res = await api.postReview(runId, me.user).catch(() => null);
+    setBusy(false);
+    if (!res || res.status >= 400) { setMsg({ ok: false, text: res?.body.reason ?? `failed (${res?.status ?? 'network'})` }); return; }
+    const { anchored = 0, fallback = 0 } = res.body;
+    setMsg({ ok: true, text: `Posted ${anchored} line comment${anchored === 1 ? '' : 's'}${fallback ? `; ${fallback} couldn't be anchored and went in the summary` : ''}.` });
+    onDone();
+  };
+  // Once posted the card goes away, unless you just posted it here: then it shows the counts.
+  if (posted && !msg) return null;
+  return (
+    <div className="card">
+      <b>Review</b>
+      <div className="muted" style={{ fontSize: 13, margin: '4px 0 0' }}>The review is only in ASF. Post it to <a href={url} target="_blank" rel="noreferrer">the pull request</a> as comments.</div>
+      {msg && <div style={{ color: msg.ok ? 'var(--good)' : 'var(--bad)', marginTop: 6 }}>{msg.text}</div>}
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn primary" onClick={post} disabled={busy || msg?.ok}>Post comments to PR</button>
+      </div>
+    </div>
+  );
+}
+
 function LoopBanner({ events, run }: { events: RunEvent[]; run: RunDetail['run'] }) {
   const loops = events.filter((e) => e.kind === 'review:loop');
   const exhausted = events.find((e) => e.kind === 'loop:exhausted');
@@ -550,5 +586,6 @@ function summarize(e: RunEvent): string {
   if (e.kind === 'tool:pre' || e.kind === 'tool:post') return String(p.summary ?? p.tool ?? '');
   if (e.kind.startsWith('gate:')) return String(p.gate ?? '');
   if (e.kind === 'task:finished' || e.kind === 'segment:finished') return `${p.role ?? ''} ${p.outcome ?? ''}`;
+  if (e.kind === 'review:posted') return `posted to the PR: ${p.anchored ?? 0} line comments, ${p.fallback ?? 0} unanchored${p.by ? ` · by ${p.by}` : ''}`;
   return Object.entries(p).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(' ');
 }

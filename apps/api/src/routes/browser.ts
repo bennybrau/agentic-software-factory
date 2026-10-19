@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ScmProvider, TicketProvider, RunReportInput } from '@asf/shared';
-import { isAdhocId, runReportMarkdown } from '@asf/shared';
+import { isAdhocId, reviewComments, runReportMarkdown } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { ticketsFor } from '../tickets/route.js';
@@ -125,6 +125,46 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
     const b = req.body ?? {};
     await registry.retryFailedTask(req.params.id, b.note ?? null, b.by ?? null);
     return { ok: true };
+  });
+
+  // Post a review-only run's review to the PR/MR it reviewed: each `path:line` finding
+  // as a line comment, the rest (plus any finding the SCM wouldn't anchor) as one
+  // summary comment. Once per run; 409 with the reason when it can't be posted.
+  app.post<{ Params: { id: string }; Body: { by?: string } }>('/api/runs/:id/review/post', async (req, reply) => {
+    const detail = await registry.getRun(req.params.id);
+    if (!detail) return reply.code(404).send({ error: 'not_found' });
+    const { run } = detail;
+    const refuse = (reason: string) => reply.code(409).send({ error: 'review_not_postable', reason });
+    const target = run.team.reviewTarget;
+    if (!target) return refuse('this run is not a review of a pull request');
+    if (run.state !== 'succeeded') return refuse('the review has not finished');
+    if (!run.repoId) return refuse('this run has no repository');
+    const md = (await registry.listArtifacts(run.id)).artifacts.find((a) => a.name === 'review.md')?.content;
+    if (!md?.trim()) return refuse('the reviewer wrote no review.md');
+    for (let after = 0; ;) {
+      const { events } = await registry.getEvents(run.id, after, 1000);
+      if (events.some((e) => e.kind === 'review:posted')) return refuse('this review was already posted');
+      if (events.length < 1000) break;
+      after = events[events.length - 1].seq;
+    }
+
+    const repo = await deps.scm.getRepo(run.repoId);
+    const { summary, anchored } = reviewComments(md);
+    const unanchored: string[] = [];
+    let posted = 0;
+    for (const c of anchored) {
+      try {
+        await deps.scm.comment(repo, target.number, c.body, { path: c.path, line: c.line });
+        posted++;
+      } catch {
+        unanchored.push(`- \`${c.path}:${c.line}\` — ${c.body}`);
+      }
+    }
+    const parts = [summary, unanchored.length ? `### Couldn't anchor\n\n${unanchored.join('\n')}` : ''].filter(Boolean);
+    if (parts.length) await deps.scm.comment(repo, target.number, [`**ASF review (run ${run.id})**`, ...parts].join('\n\n'));
+    const by = (req.body ?? {}).by ?? null;
+    await registry.appendEvent({ runId: run.id, taskId: null, kind: 'review:posted', source: 'human', payload: { anchored: posted, fallback: unanchored.length, by } });
+    return { ok: true, anchored: posted, fallback: unanchored.length };
   });
 
   // A run that failed because its branch no longer merges into the base (other work

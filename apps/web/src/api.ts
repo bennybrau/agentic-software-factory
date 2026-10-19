@@ -109,6 +109,8 @@ export const api = {
   retry: (id: string, note?: string) =>
     fetch(`/api/runs/${encodeURIComponent(id)}/retry`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }) })
       .then(async (r) => ({ status: r.status, body: await r.json() as { ok?: boolean; reason?: string } })),
+  postReview: (id: string, by: string) =>
+    sendJson<{ ok?: boolean; anchored?: number; fallback?: number }>('POST', `/api/runs/${encodeURIComponent(id)}/review/post`, { by }),
   answer: (id: string, reply: string, by: string) =>
     fetch(`/api/runs/${encodeURIComponent(id)}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reply, by }) })
       .then(async (r) => ({ status: r.status, body: await r.json() as { ok?: boolean; reason?: string } })),

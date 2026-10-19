@@ -181,3 +181,97 @@ test('GET /api/runs defaults page size to 25 and omits blank filters', async () 
   assert.equal(call.body.search, undefined);
   await a.close();
 });
+
+// Posting a review-only run's review to its PR: a stub registry with the run, its
+// review.md and events, and an SCM that records comments and won't anchor one path.
+class RecordingScm extends MockScmProvider {
+  comments: Array<{ number: number; body: string; anchor?: { path: string; line: number } }> = [];
+  constructor(private failPath: string | null = null) { super(); }
+  override async comment(_repo: unknown, number: number, body: string, anchor?: { path: string; line: number }) {
+    if (anchor && anchor.path === this.failPath) throw new Error('line not in diff');
+    this.comments.push({ number, body, anchor });
+  }
+}
+
+const REVIEW_TARGET = { url: 'https://github.com/example/app/pull/7', number: 7, headBranch: 'feat', baseBranch: 'main', fetchRef: 'refs/pull/7/head' };
+function stubReviewRun(opts: { state?: string; reviewTarget?: typeof REVIEW_TARGET | null; reviewMd?: string | null; events?: Array<{ kind: string; seq: number }> } = {}) {
+  const appended: Array<Record<string, unknown>> = [];
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string; input?: Record<string, unknown> };
+    const reply = (result: unknown) => new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
+    switch (body.op) {
+      case 'getRun': return reply({ run: { id: 'run_1', ticketId: 'adhoc:t1', state: opts.state ?? 'succeeded', repoId: '1',
+        team: { reviewTarget: opts.reviewTarget === undefined ? REVIEW_TARGET : opts.reviewTarget } }, tasks: [] });
+      case 'listArtifacts': return reply({ artifacts: opts.reviewMd === null ? [] : [{ name: 'review.md', content: opts.reviewMd ?? 'APPROVE', updatedAt: '' }] });
+      case 'getEvents': return reply({ events: opts.events ?? [] });
+      case 'appendEvent': appended.push(body.input!); return reply({ event: {} });
+      default: return reply({});
+    }
+  }) as unknown as typeof fetch;
+  return appended;
+}
+
+async function reviewApp(scm: RecordingScm) {
+  const a = Fastify();
+  registerBrowserRoutes(a, { tickets: new MockTicketProvider(), scm });
+  await a.ready();
+  return a;
+}
+
+test('POST /api/runs/:id/review/post posts line comments, a summary with what could not be anchored, and records review:posted', async () => {
+  const appended = stubReviewRun({ reviewMd: 'REQUEST_CHANGES\n\nTwo problems.\n- `src/a.ts:3` — null check\n  missing on retry\n- `src/gone.ts:9` — stale import' });
+  const scm = new RecordingScm('src/gone.ts');
+  const a = await reviewApp(scm);
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/review/post', payload: { by: 'jon' } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true, anchored: 1, fallback: 1 });
+  assert.deepEqual(scm.comments[0], { number: 7, body: 'null check\nmissing on retry', anchor: { path: 'src/a.ts', line: 3 } });
+  assert.equal(scm.comments.length, 2);
+  const summary = scm.comments[1];
+  assert.equal(summary.anchor, undefined);
+  assert.ok(summary.body.startsWith('**ASF review (run run_1)**'), summary.body);
+  assert.match(summary.body, /REQUEST_CHANGES\n\nTwo problems\./);
+  assert.match(summary.body, /### Couldn't anchor\n\n- `src\/gone\.ts:9` — stale import/);
+  assert.deepEqual(appended, [{ runId: 'run_1', taskId: null, kind: 'review:posted', source: 'human', payload: { anchored: 1, fallback: 1, by: 'jon' } }]);
+  await a.close();
+});
+
+test('POST /api/runs/:id/review/post skips the summary comment when there is nothing to say', async () => {
+  stubReviewRun({ reviewMd: '- `src/a.ts:3` — null check' });
+  const scm = new RecordingScm();
+  const a = await reviewApp(scm);
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/review/post', payload: {} });
+  assert.deepEqual(res.json(), { ok: true, anchored: 1, fallback: 0 });
+  assert.equal(scm.comments.length, 1);
+  await a.close();
+});
+
+test('POST /api/runs/:id/review/post 404s when the run does not exist', async () => {
+  global.fetch = (async () => new Response(JSON.stringify({ ok: true, result: null }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+  const scm = new RecordingScm();
+  const a = await reviewApp(scm);
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_missing/review/post', payload: {} });
+  assert.equal(res.statusCode, 404);
+  assert.equal(scm.comments.length, 0);
+  await a.close();
+});
+
+test('POST /api/runs/:id/review/post refuses with a reason and posts nothing', async () => {
+  const cases: Array<[Parameters<typeof stubReviewRun>[0], RegExp]> = [
+    [{ reviewTarget: null }, /not a review/],
+    [{ state: 'running' }, /not finished/],
+    [{ reviewMd: null }, /no review\.md/],
+    [{ events: [{ kind: 'run:succeeded', seq: 1 }, { kind: 'review:posted', seq: 2 }] }, /already posted/],
+  ];
+  for (const [opts, reason] of cases) {
+    const appended = stubReviewRun(opts);
+    const scm = new RecordingScm();
+    const a = await reviewApp(scm);
+    const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/review/post', payload: {} });
+    assert.equal(res.statusCode, 409);
+    assert.match(res.json().reason, reason);
+    assert.equal(scm.comments.length, 0);
+    assert.equal(appended.length, 0);
+    await a.close();
+  }
+});

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { adhocNext, chatProblem, chatTitle, formatBytes, mimeOf, newTaskProblem, pickChatRepo, removeAdhoc } from './new-task';
+import { adhocNext, chatDispatchBody, chatProblem, chatTitle, formatBytes, mimeOf, newTaskProblem, pickChatRepo, removeAdhoc } from './new-task';
 
 const limits = { maxFiles: 2, maxFileMb: 1 };
 const png = { name: 'shot.png', mime: 'image/png', size: 2048 };
@@ -70,4 +70,15 @@ test('pickChatRepo prefers the suggested repo, else the first, else none', () =>
   assert.equal(pickChatRepo({ suggestedRepoId: 'r2', repos }), 'r2');
   assert.equal(pickChatRepo({ suggestedRepoId: null, repos }), 'r1');
   assert.equal(pickChatRepo({ suggestedRepoId: null, repos: [] }), null);
+});
+
+test('a review request dispatches the whole message as reviewOf, with no repository', () => {
+  const preview = { suggestedRepoId: 'r1', repos: [{ id: 'r1' }] };
+  const text = 'review this https://github.com/o/r/pull/3';
+  const review = chatDispatchBody(text, null, 'ann');
+  assert.equal(review.reviewOf, text);
+  assert.equal('repoId' in review, false);
+  const plain = chatDispatchBody('fix the login page', preview, 'ann');
+  assert.equal(plain.repoId, 'r1');
+  assert.equal('reviewOf' in plain, false);
 });

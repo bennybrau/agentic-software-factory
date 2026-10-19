@@ -86,7 +86,7 @@ export const api = {
   deleteThemePicture: (id: string, slot: string, state?: string) =>
     sendJson<{ ok?: true; deleted?: number }>('DELETE', `/api/themes/${encodeURIComponent(id)}/images/${encodeURIComponent(slot)}${state ? `/${encodeURIComponent(state)}` : ''}`),
   startReadiness: () => fetch('/api/start-readiness').then(j<{ ok: true; repos: { id: string; path: string }[] } | { ok: false; code: string; reason: string; link: string }>),
-  dispatch: (id: string, body: { repoId?: string; maxCostUsd?: number; by?: string; gateOverrides?: Record<string, { mode: string }>; modelOverrides?: Record<string, string>; effortOverrides?: Record<string, string>; runtimeOverrides?: Record<string, string>; skipRoles?: string[] }) =>
+  dispatch: (id: string, body: { repoId?: string; reviewOf?: string; maxCostUsd?: number; by?: string; gateOverrides?: Record<string, { mode: string }>; modelOverrides?: Record<string, string>; effortOverrides?: Record<string, string>; runtimeOverrides?: Record<string, string>; skipRoles?: string[] }) =>
     fetch(`/api/tickets/${encodeURIComponent(id)}/dispatch`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() })),
   runs: (q: RunsQuery = {}) => {
     const p = new URLSearchParams();

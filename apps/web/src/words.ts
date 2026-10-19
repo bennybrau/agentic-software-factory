@@ -65,6 +65,7 @@ export const OUTCOME_LABEL: Record<string, string> = {
   awaiting_external_merge: 'Ready for someone to merge',
   no_repo: 'No repository',
   split: 'Split into smaller tasks',
+  reviewed: 'Reviewed',
 };
 export const outcomeLabel = label(OUTCOME_LABEL);
 

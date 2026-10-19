@@ -10,7 +10,8 @@ import { HiveStage } from '../components/HiveStage';
 import { useTheme } from '../useTheme';
 import type { RunEvent, RunTask } from '@asf/shared';
 import { parseMergeConflict } from '@asf/shared/ui';
-import { PAGE, outcomeLabel, runStateLabel, taskStateLabel } from '../words';
+import { PAGE, outcomeLabel, taskStateLabel } from '../words';
+import { reviewHeading, runPillLabel } from '../review-view';
 import { groupStages, type Attempt } from '../stages';
 import { crewName, laneLabel, memberName } from '../theme-view';
 import { useMe } from '../useMe';
@@ -79,6 +80,10 @@ export function RunView() {
   // Once the human acts on an awaiting-external CR, the watcher stamps its state;
   // the card should then reflect the landed/closed outcome, not the stale "awaiting" framing.
   const externalResolved = awaitingExternal && (crState === 'merged' || crState === 'closed');
+  // A review-only run: its output is the review itself (newest version first, as the api orders them).
+  const review = reviewHeading(run);
+  const reviewMd = (detail.artifactVersions ?? []).find((v) => v.name === 'review.md')?.content
+    ?? artifacts.find((a) => a.name === 'review.md')?.content ?? null;
 
   const groups: Record<string, (k: string) => boolean> = {
     all: () => true, tool: (k) => k.startsWith('tool:'), gate: (k) => k.startsWith('gate:'),
@@ -89,7 +94,12 @@ export function RunView() {
     <div>
       <div className="row between">
         <div><Link to="/runs">← {PAGE.activity}</Link>
-          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{wasSplit ? outcomeLabel('split') : runStateLabel(run.state)}</span></h2>
+          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span></h2>
+          {review && (
+            <div className="muted" style={{ fontSize: 13 }}>
+              <a href={review.url} target="_blank" rel="noreferrer">{review.text}</a>
+            </div>
+          )}
           {detail.recurring && (
             <div className="muted" style={{ fontSize: 13 }}>
               {detail.recurring.title
@@ -146,6 +156,15 @@ export function RunView() {
           <summary><b>The planning conversation</b> <span className="muted" style={{ fontSize: 13 }}>· how the split was agreed</span></summary>
           <PlanChat runId={runId} ticketId={run.ticketId} ticketKey={run.ticketKey} messages={messages} gate={null} plannerTask={plannerTask} onDone={load} />
         </details>
+      )}
+
+      {review && (
+        <div className="card">
+          <b>Review</b>
+          {reviewMd
+            ? <pre className="artifact">{reviewMd}</pre>
+            : <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>The reviewer is still working.</div>}
+        </div>
       )}
 
       <TeamWrap split={wasSplit}>

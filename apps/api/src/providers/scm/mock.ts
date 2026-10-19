@@ -30,7 +30,7 @@ export class MockScmProvider implements ScmProvider {
   async listChangeRequests() { return this.crs; }
   async getChangeRequest(_repo: Repo, number: number) { const cr = this.crs.find((c) => c.number === number); if (!cr) throw new Error('no cr'); return { ...cr, diffRefs: null }; }
   async listReviewComments() { return []; }
-  async comment() {}
+  async comment(_repo: Repo, _number: number, _body: string, _anchor?: { path: string; line: number }) {}
   async markReady(_repo: Repo, number: number) { const cr = await this.getChangeRequest(_repo, number); cr.draft = false; }
   async merge(_repo: Repo, number: number) { const cr = await this.getChangeRequest(_repo, number); cr.state = 'merged'; }
 }

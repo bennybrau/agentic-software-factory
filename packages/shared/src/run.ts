@@ -94,4 +94,5 @@ export const RUN_EVENT_KINDS = [
   'publish:conflict', 'conflict:merging', 'conflict:resolved',
   'auth:expired',
   'artifact:from_reply', 'artifact:missing',
+  'review:posted',
 ] as const;

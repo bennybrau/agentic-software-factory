@@ -336,3 +336,34 @@ test("the target repo's git hooks (husky pre-commit/pre-push) don't block the wo
   const pushed = (await exec('git', ['-C', originDir, 'rev-parse', `refs/heads/${ws.branchName}`])).stdout.trim();
   assert.equal(pushed, sha, 'pushed despite a failing pre-push hook');
 });
+
+test('a review-only run checks out the PR head on the agent branch, with the PR base as its base, also on resume', async () => {
+  // The origin serves the PR head under refs/pull/7/head (as GitHub does) and has a `develop` base.
+  const g = ['-c', 'user.email=t@t', '-c', 'user.name=t'];
+  await exec('git', ['-C', originDir, 'branch', '-f', 'develop', 'main']);
+  await exec('git', ['-C', originDir, ...g, 'commit-tree', '-p', 'main', '-m', 'the PR', 'main^{tree}']).then(async ({ stdout }) => {
+    await exec('git', ['-C', originDir, 'update-ref', 'refs/pull/7/head', stdout.trim()]);
+  });
+  const prHead = (await exec('git', ['-C', originDir, 'rev-parse', 'refs/pull/7/head'])).stdout.trim();
+  const team = { ...STANDARD_TEAM, reviewTarget: { url: 'https://github.com/example/app/pull/7', number: 7, headBranch: 'not-in-this-repo', baseBranch: 'develop', fetchRef: 'refs/pull/7/head' } };
+  const r = run({ id: 'run_review07', ticketKey: 'ASF-RV', team });
+
+  const ws = await git.ensureWorkspace(r, repo(), { url: originDir }, () => {});
+  assert.equal(ws.branchName, 'agent/ASF-RV-review07');
+  assert.equal(ws.baseBranch, 'develop');
+  assert.equal(ws.resumed, false);
+  assert.equal((await exec('git', ['rev-parse', 'HEAD'], { cwd: ws.worktreePath })).stdout.trim(), prHead);
+  assert.equal((await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: ws.worktreePath })).stdout.trim(), ws.branchName);
+
+  const again = await git.ensureWorkspace(r, repo(), { url: originDir }, () => {});
+  assert.equal(again.resumed, true);
+  assert.equal(again.baseBranch, 'develop', 'the PR base survives a resume');
+});
+
+test('a review-only run falls back to the head branch when the remote has no PR ref', async () => {
+  await exec('git', ['-C', originDir, 'branch', '-f', 'feature/pr8', 'main']);
+  const team = { ...STANDARD_TEAM, reviewTarget: { url: 'https://github.com/example/app/pull/8', number: 8, headBranch: 'feature/pr8', baseBranch: 'main', fetchRef: 'refs/pull/8/head' } };
+  const ws = await git.ensureWorkspace(run({ id: 'run_review08', ticketKey: 'ASF-RV', team }), repo(), { url: originDir }, () => {});
+  const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: ws.worktreePath })).stdout.trim();
+  assert.equal(head, (await exec('git', ['-C', originDir, 'rev-parse', 'feature/pr8'])).stdout.trim());
+});

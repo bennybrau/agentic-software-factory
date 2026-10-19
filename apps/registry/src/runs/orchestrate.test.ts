@@ -348,3 +348,31 @@ test('a change_request:opened event stamps the run row (url/number/state); ready
   r = (await getRun(db.sql, run.run.id))!.run;
   assert.equal(r.changeRequestState, 'merged');
 });
+
+/** A review-only run as dispatch builds it: the reviewer alone, no loop, a reviewTarget. */
+const REVIEW_TEAM = {
+  ...STANDARD_TEAM, mergeEnabled: false, loop: null,
+  roles: STANDARD_TEAM.roles.filter((r) => r.role === 'reviewer'),
+  reviewTarget: { url: 'https://github.com/acme/web/pull/42', number: 42, headBranch: 'feature/x', baseBranch: 'main', fetchRef: 'refs/pull/42/head' },
+};
+
+for (const verdict of ['APPROVE', 'REQUEST_CHANGES']) {
+  test(`review-only run: ${verdict} ends succeeded/reviewed with no publish and a link to the PR`, { skip }, async () => {
+    await drain(db.sql);
+    await registerWorker(db.sql, { id: `grv-${verdict}`, host: 'h', runtimes: ['claude-code'], maxConcurrent: 1, inFlightTaskIds: [] });
+    const { run } = await createRun(db.sql, runInput({ ticketId: `g-review-${verdict}`, ticketKey: 'G-RV', repoId: 'repo1', team: REVIEW_TEAM }));
+    const c = await claimTask(db.sql, `grv-${verdict}`, ['claude-code']);
+    assert.equal(String(c!.task.role), 'reviewer');
+    await saveArtifact(db.sql, run.id, 'review.md', `${verdict}\n- a finding`);
+    await finishTask(db.sql, c!.task.id, { outcome: 'done', outputRef: c!.task.outputRef, costUsd: 0.01, reason: null });
+
+    const after = await getRun(db.sql, run.id);
+    assert.equal(after!.run.state, 'succeeded');
+    assert.equal(after!.run.deliveryOutcome, 'reviewed');
+    assert.equal(after!.run.reviewIterations, 0, 'no loop back');
+    assert.deepEqual(after!.tasks.map((t) => String(t.role)), ['reviewer'], 'no implementer re-run, no publish task');
+    const [n] = await db.sql`SELECT body, actions FROM notification WHERE run_id = ${run.id} AND kind = 'finished'`;
+    assert.match(String(n.body), /The review is ready in ASF/);
+    assert.ok((n.actions as { url: string }[]).some((a) => a.url === 'https://github.com/acme/web/pull/42'));
+  });
+}

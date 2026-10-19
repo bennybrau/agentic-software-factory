@@ -21,6 +21,7 @@ export interface PromptVars {
   conflict?: { base: string; files: string[] };  // re-run to resolve a merge conflict with the current base (files empty = it merged cleanly)
   thirdPartySkills?: FallbackSkill[];  // skills written to the run dir for a runtime that doesn't load skill folders; empty/absent = no section
   env?: NodeJS.ProcessEnv;  // the environment the agent inherits (default process.env); read for the test-database note
+  review?: { url: string; number: number; headBranch: string; baseBranch: string };  // a review-only run's PR: the reviewer renders reviewer-pr.md
 }
 
 /** Variables naming a scratch test database the operator gave the agents (ASF_TEST_DB, docker-compose.testdb.yml). */
@@ -163,7 +164,9 @@ If a review finding contradicts the approved plan or the ticket, or is factually
  * throws — a silently blank substitution is how a prompt becomes wrong.
  */
 export async function renderPrompt(role: string, runId: string, vars: PromptVars): Promise<string> {
-  const template = await readFile(join(PROMPTS_DIR, `${role}.md`), 'utf8').catch(() => {
+  // A review-only run's reviewer reviews someone's pull request, not this team's work.
+  const file = vars.review && role === 'reviewer' ? 'reviewer-pr' : role;
+  const template = await readFile(join(PROMPTS_DIR, `${file}.md`), 'utf8').catch(() => {
     throw new Error(`no prompt file for role "${role}" under prompts/roles/`);
   });
   const flat: Record<string, string> = {
@@ -179,6 +182,12 @@ export async function renderPrompt(role: string, runId: string, vars: PromptVars
     'budget.implementerTurns': String(vars.budget?.implementerTurns || 150),
     'budget.timeoutMinutes': String(vars.budget?.timeoutMinutes || 45),
   };
+  if (vars.review) {
+    flat['review.url'] = vars.review.url;
+    flat['review.number'] = String(vars.review.number);
+    flat['review.headBranch'] = vars.review.headBranch;
+    flat['review.baseBranch'] = vars.review.baseBranch;
+  }
   // No plan (the planner was switched off for this run): work from the ticket itself.
   flat['prior.plan.md'] = `No plan for this run, work from the ticket.\n\n**${vars.ticket.title}**\n\n${flat['ticket.body']}`;
   for (const [name, body] of Object.entries(vars.prior)) flat[`prior.${name}`] = body;
@@ -189,7 +198,7 @@ export async function renderPrompt(role: string, runId: string, vars: PromptVars
     // did not produce it) must not crash this role — render a placeholder so the run can
     // proceed and the human sees the gap. A non-prior unknown variable is a template typo: throw.
     if (key.startsWith('prior.')) return '(not available)';
-    throw new Error(`prompt ${role}.md references unknown variable {{${key}}}`);
+    throw new Error(`prompt ${file}.md references unknown variable {{${key}}}`);
   });
   const banner = vars.revision && vars.revision.trim()
     ? `## REVISION REQUESTED\n\nA human reviewed your previous attempt and rejected it. Revise your work to address this note before doing anything else:\n\n> ${vars.revision.trim().replace(/\n/g, '\n> ')}\n\nTreat this note as an overriding instruction: it takes precedence over your earlier choices.\n\n---\n\n`

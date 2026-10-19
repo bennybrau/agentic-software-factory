@@ -124,8 +124,10 @@ export async function advance(sql: Sql, runId: string): Promise<void> {
     if (roleTasks.some((t) => t.state === 'pending')) return;
     if (roleTasks.some((t) => t.state === 'running')) return;
 
-    // All roles are done/skipped -> the publish phase.
+    // All roles are done/skipped -> the publish phase. A review-only run publishes
+    // nothing: the review is the delivery, whatever its verdict.
     if (roleTasks.every((t) => t.state === 'done' || t.state === 'skipped')) {
+      if (run.team.reviewTarget) return succeed(tx, runId, run.ticketKey, 'reviewed', run.team.reviewTarget.url);
       return advancePublish(tx, runId, tasks, run.gates, run.repoId, run.ticketKey, run.team.mergeEnabled);
     }
   });
@@ -302,7 +304,7 @@ async function enqueuePublish(tx: Db, runId: string, kind: string, tasks: RunTas
   await tx`UPDATE agent_run SET state = 'running' WHERE id = ${runId}`;
 }
 
-async function succeed(tx: Db, runId: string, ticketKey: string, outcome: 'merged' | 'awaiting_external_merge' | 'no_repo'): Promise<void> {
+async function succeed(tx: Db, runId: string, ticketKey: string, outcome: 'merged' | 'awaiting_external_merge' | 'no_repo' | 'reviewed', reviewedUrl?: string): Promise<void> {
   const [{ cost }] = await tx`SELECT coalesce(sum(cost_usd), 0) AS cost FROM run_task WHERE run_id = ${runId}`;
   const [cr] = await tx`SELECT change_request_url AS url FROM agent_run WHERE id = ${runId}`;
   await tx`UPDATE agent_run SET delivery_outcome = ${outcome} WHERE id = ${runId}`;
@@ -311,7 +313,10 @@ async function succeed(tx: Db, runId: string, ticketKey: string, outcome: 'merge
   const costStr = `$${Number(cost).toFixed(2)}`;
   const actions = [{ label: 'Open run', url: runLink(runId) }];
   if (cr?.url) actions.push({ label: 'Open merge request', url: String(cr.url) });
-  const body = outcome === 'awaiting_external_merge'
+  if (reviewedUrl) actions.push({ label: 'Open pull request', url: reviewedUrl });
+  const body = outcome === 'reviewed'
+    ? `The review is ready in ASF (${costStr}): ${reviewedUrl ?? 'the pull request'}.`
+    : outcome === 'awaiting_external_merge'
     ? `Delivery complete (${costStr}). The merge request is ready for review — a human review and merge is needed to land it.`
     : outcome === 'merged'
       ? `The run completed and the change was merged (${costStr}).`

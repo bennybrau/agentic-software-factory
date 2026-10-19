@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { STANDARD_TEAM, GatePolicyError, resolvePipeline, skipRoles, disabledRoles, PipelineConfigError } from '@asf/shared';
-import type { GateConfig, ScmProvider, TicketProvider } from '@asf/shared';
+import { STANDARD_TEAM, GatePolicyError, resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, parseReviewRequest, PipelineConfigError } from '@asf/shared';
+import type { GateConfig, Repo, ScmProvider, TeamTemplate, TicketProvider } from '@asf/shared';
 import { registry, RunConflict } from '../registry/client.js';
 import type { RunWithTasks } from '@asf/shared';
 import { cfg, orgValues } from '../settings.js';
@@ -15,7 +15,7 @@ import { startReadiness, pickRepo, type RepoBlocker } from '../start-readiness.j
 import { resolveRoleModels, applyRoleSkills, defaultRoleModels, catalogue, BadModelError, BadEffortError, type OrgRoleModels, type OrgRoleEfforts, type OrgRoleRuntimes } from '../models.js';
 
 /** A dispatch that a caller can act on: `ok` runs are created; the rest carry a machine reason. */
-type DispatchFailure = RepoBlocker | 'not_found' | 'ticket_done' | 'bad_model' | 'bad_effort' | 'cost_cap' | 'over_budget' | 'gate_policy' | 'pipeline_config' | 'run_conflict' | 'no_worker_for_runtime';
+type DispatchFailure = RepoBlocker | 'not_found' | 'ticket_done' | 'bad_model' | 'bad_effort' | 'cost_cap' | 'over_budget' | 'gate_policy' | 'pipeline_config' | 'run_conflict' | 'no_worker_for_runtime' | 'bad_review_target';
 export type DispatchResult =
   | { ok: true; runId: string; run: RunWithTasks }
   | { ok: false; code: DispatchFailure; reason: string; existingRunId?: string; link?: string };
@@ -32,6 +32,26 @@ export interface DispatchInput {
   runtimeOverrides?: Partial<Record<Role, string>>; // per-role runtime for this run; the model must list it and a live worker must offer it
   skillOverrides?: Partial<Record<Role, string>>;  // per-role extra guidance for THIS run, appended after the org ROLE_SKILL_<ROLE> blob
   skipRoles?: Role[];  // roles switched off for THIS run only, on top of the org's disabled stages
+  reviewOf?: string;   // "review <PR/MR URL>": a review-only run of that change request instead of writing one
+}
+
+type ReviewTarget = NonNullable<TeamTemplate['reviewTarget']>;
+
+/**
+ * The repository and change request a review-only run reviews, from the text that
+ * names it. The PR's own repository is the run's repository (no pickRepo). The
+ * ref the worker fetches follows the URL's shape: GitLab's `/-/merge_requests/`,
+ * otherwise GitHub's `refs/pull/N/head` (the mock too).
+ */
+async function resolveReviewTarget(scm: ScmProvider, text: string): Promise<{ ok: true; repo: Repo; target: ReviewTarget } | { ok: false; reason: string }> {
+  const parsed = parseReviewRequest(text);
+  if (!parsed) return { ok: false, reason: 'a review-only run needs the word "review" and a GitHub pull request or GitLab merge request URL.' };
+  const repo = await scm.getRepo(parsed.repoPath).catch(() => null);
+  if (!repo) return { ok: false, reason: `source control can't reach the repository ${parsed.repoPath} for ${parsed.url}.` };
+  const cr = await scm.getChangeRequest(repo, parsed.number).catch(() => null);
+  if (!cr) return { ok: false, reason: `source control can't find change request #${parsed.number} in ${parsed.repoPath} (${parsed.url}).` };
+  const fetchRef = parsed.url.includes('/-/merge_requests/') ? `refs/merge-requests/${parsed.number}/head` : `refs/pull/${parsed.number}/head`;
+  return { ok: true, repo, target: { url: parsed.url, number: parsed.number, headBranch: cr.headBranch, baseBranch: cr.baseBranch, fetchRef } };
 }
 
 /** The org-tier per-role model defaults (MODEL_DEFAULT_<ROLE>), resolved env > org > default. */
@@ -92,8 +112,19 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
   // Nowhere to put code, nothing to start: a run is always bound to one reachable repository.
   const ready = await startReadiness(deps.scm);
   if (!ready.ok) return { ok: false, code: ready.code, reason: ready.reason, link: ready.link };
-  const picked = await pickRepo(deps, ticket, ready.repos, input.repoId);
-  if (!picked.ok) return { ok: false, code: picked.code, reason: picked.reason, link: picked.link };
+  // A review-only run works in the PR's own repository; anything else picks one.
+  let repo: Repo;
+  let reviewTarget: ReviewTarget | null = null;
+  if (input.reviewOf != null) {
+    const review = await resolveReviewTarget(deps.scm, input.reviewOf);
+    if (!review.ok) return { ok: false, code: 'bad_review_target', reason: review.reason };
+    repo = review.repo;
+    reviewTarget = review.target;
+  } else {
+    const picked = await pickRepo(deps, ticket, ready.repos, input.repoId);
+    if (!picked.ok) return { ok: false, code: picked.code, reason: picked.reason, link: picked.link };
+    repo = picked.repo;
+  }
   // Which model each role runs with: dispatch override > org default > template. Refused
   // before any cost check so a typo never creates a run.
   let team: typeof STANDARD_TEAM;
@@ -127,9 +158,12 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
     // (before_merge) can be relaxed here (org tier, via /pipeline) but never by a
     // dispatch (resolveGates enforces it).
     // A dispatch may switch more roles off for this run (never back on).
-    const stages = input.skipRoles?.length ? skipRoles(orgStages, input.skipRoles) : orgStages;
+    // A review-only run runs the reviewer alone and publishes nothing.
+    const stages = reviewTarget ? reviewOnlyStages(orgStages)
+      : input.skipRoles?.length ? skipRoles(orgStages, input.skipRoles) : orgStages;
     const resolved = resolvePipeline(team, stages, { request: input.gateOverrides });
-    team = resolved.team;
+    // No implementer to loop back to: REQUEST_CHANGES is the review's answer, not a retry.
+    team = reviewTarget ? { ...resolved.team, loop: null, reviewTarget } : resolved.team;
     gates = resolved.gates;
   } catch (e) {
     if (e instanceof GatePolicyError) return { ok: false, code: 'gate_policy', reason: e.message };
@@ -152,7 +186,7 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
   try {
     const created = await registry.createRun({
       ticketId: ticket.id, ticketKey: ticket.key, ticketProvider: deps.tickets.kind,
-      team, gates, repoId: picked.repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null,
+      team, gates, repoId: repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null,
     });
     await deps.tickets.comment(ticket.id, `Agentic Software Factory: run ${created.run.id} started (team ${team.name}).`).catch(() => {});
     await transitionTicketTo(deps.tickets, ticket.id, parsePreferredStatuses(cfg('TICKET_STATUS_INPROGRESS')));
@@ -166,7 +200,7 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
 
 const HTTP_STATUS: Record<DispatchFailure, number> = {
   scm_not_connected: 409, no_repos: 409, repo_not_found: 400, repo_ambiguous: 400,
-  not_found: 404, ticket_done: 409, bad_model: 400, bad_effort: 400, cost_cap: 400, over_budget: 400, gate_policy: 400, pipeline_config: 400, run_conflict: 409, no_worker_for_runtime: 400,
+  not_found: 404, ticket_done: 409, bad_model: 400, bad_effort: 400, cost_cap: 400, over_budget: 400, gate_policy: 400, pipeline_config: 400, run_conflict: 409, no_worker_for_runtime: 400, bad_review_target: 400,
 };
 
 /**
@@ -245,13 +279,13 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     };
   });
 
-  app.post<{ Params: { id: string }; Body: { repoId?: string; teamName?: string; maxCostUsd?: number; by?: string; gateOverrides?: Record<string, GateConfig>; modelOverrides?: Partial<Record<Role, string>>; effortOverrides?: Partial<Record<Role, string>>; runtimeOverrides?: Partial<Record<Role, string>>; skillOverrides?: Partial<Record<Role, string>>; skipRoles?: Role[] } }>(
+  app.post<{ Params: { id: string }; Body: { repoId?: string; teamName?: string; maxCostUsd?: number; by?: string; gateOverrides?: Record<string, GateConfig>; modelOverrides?: Partial<Record<Role, string>>; effortOverrides?: Partial<Record<Role, string>>; runtimeOverrides?: Partial<Record<Role, string>>; skillOverrides?: Partial<Record<Role, string>>; skipRoles?: Role[]; reviewOf?: string } }>(
     '/api/tickets/:id/dispatch', async (req, reply) => {
       const body = req.body ?? {};
       const by = body.by ?? resolveIdentity(req).user;
       const result = await dispatchTicket(deps, {
         ticketId: req.params.id, repoId: body.repoId, teamName: body.teamName,
-        maxCostUsd: body.maxCostUsd, by, gateOverrides: body.gateOverrides, modelOverrides: body.modelOverrides, effortOverrides: body.effortOverrides, runtimeOverrides: body.runtimeOverrides, skillOverrides: body.skillOverrides, skipRoles: body.skipRoles,
+        maxCostUsd: body.maxCostUsd, by, gateOverrides: body.gateOverrides, modelOverrides: body.modelOverrides, effortOverrides: body.effortOverrides, runtimeOverrides: body.runtimeOverrides, skillOverrides: body.skillOverrides, skipRoles: body.skipRoles, reviewOf: body.reviewOf,
       });
       if (result.ok) {
         return reply.code(201).send(result.run);

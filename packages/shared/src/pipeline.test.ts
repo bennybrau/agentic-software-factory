@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { STANDARD_TEAM } from './team.js';
-import { resolvePipeline, skipRoles, disabledRoles, PipelineConfigError, GatePolicyError } from './index.js';
+import { resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, PipelineConfigError, GatePolicyError } from './index.js';
 
 test('empty config = standard team, merge on; plan + merge wait for a person, the team in between just goes', () => {
   const r = resolvePipeline(STANDARD_TEAM, {});
@@ -96,4 +96,22 @@ test('skipRoles refuses an unknown role', () => {
 test('disabledRoles lists the roles the org switched off', () => {
   assert.deepEqual(disabledRoles({ test: { enabled: false, gate: 'auto' }, merge: { enabled: false, gate: 'auto' } }), ['tester']);
   assert.deepEqual(disabledRoles({}), []);
+});
+
+test('reviewOnlyStages: only the reviewer runs, nothing is published, the org review gate is kept', () => {
+  const stages = reviewOnlyStages({ review: { enabled: true, gate: 'required' }, merge: { enabled: true, gate: 'required' } });
+  for (const s of ['plan', 'implement', 'test', 'create_mr', 'merge'] as const) assert.equal(stages[s]?.enabled, false, s);
+  assert.deepEqual(stages.review, { enabled: true, gate: 'required' });
+  const r = resolvePipeline(STANDARD_TEAM, stages);
+  assert.deepEqual(r.team.roles.map((x) => x.role), ['reviewer']);
+  assert.equal(r.team.mergeEnabled, false);
+  assert.equal(r.gates['after_role:reviewer'].mode, 'required');
+});
+
+test('reviewOnlyStages: unconfigured review keeps the default gate', () => {
+  assert.deepEqual(reviewOnlyStages({}).review, { enabled: true, gate: 'auto' });
+});
+
+test('reviewOnlyStages: refused when the org switched review off', () => {
+  assert.throws(() => reviewOnlyStages({ review: { enabled: false, gate: 'auto' } }), PipelineConfigError);
 });

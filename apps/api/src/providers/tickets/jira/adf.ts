@@ -378,11 +378,199 @@ export function adfToMarkdown(raw: unknown): AdfMarkdown {
 
 /**
  * A reading rendering, for anywhere that shows a description rather than edits
- * one. Preserved blocks are named rather than shown as tokens.
+ * one: the board, the run page, comments, and the agent's prompt.
+ *
+ * Every block that `adfToMarkdown` can represent exactly is rendered exactly the
+ * same way. The rest — the blocks it holds aside as ⟦jira-block-N⟧ tokens — are
+ * rendered as readable markdown instead of a token: their text is never hidden.
+ * That rendering is lossy on purpose (a coloured word loses its colour, a table
+ * becomes a GFM table, a panel a quote), so it is only for reading. Writes go
+ * through `adfToMarkdown` + `markdownToAdf`, which re-read the issue from Jira.
  */
+export function adfToReadable(raw: unknown): string {
+  const doc = parseAdf(raw);
+  if (!doc) return '';
+  return blocksReadable(doc.content).join('\n\n');
+}
+
+/** Kept for callers that named it; the same reading rendering. */
 export function adfToText(raw: unknown): string {
-  const { text, preserved } = adfToMarkdown(raw);
-  return preserved.reduce((acc, block) => acc.replace(block.token, `[${block.kind}]`), text);
+  return adfToReadable(raw);
+}
+
+// --- read, lossy: anything ADF -> readable markdown -----------------------------
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+const PANEL_LABELS: Record<string, string> = {
+  info: 'Info', note: 'Note', warning: 'Warning', error: 'Error', success: 'Success', tip: 'Tip',
+};
+
+function blocksReadable(nodes: readonly AdfLike[] | undefined): string[] {
+  return (nodes ?? []).map(blockReadable).filter((b) => b.trim() !== '');
+}
+
+/** Inline content as readable markdown: known marks kept, the rest dropped, inline nodes spelled out. */
+function inlineReadable(nodes: readonly AdfLike[] | undefined): string {
+  let out = '';
+  for (const node of nodes ?? []) {
+    const attrs = node.attrs ?? {};
+    switch (node.type) {
+      case 'text': {
+        let piece = escapeInline(node.text ?? '');
+        const marks = node.marks ?? [];
+        const has = (t: string) => marks.some((m) => m.type === t);
+        if (has('code')) piece = `\`${(node.text ?? '').replace(/`/g, "'")}\``;
+        else {
+          if (has('strike')) piece = `~~${piece}~~`;
+          if (has('em')) piece = `*${piece}*`;
+          if (has('strong')) piece = `**${piece}**`;
+        }
+        const href = str(marks.find((m) => m.type === 'link')?.attrs?.['href']);
+        if (href) piece = `[${piece}](${href.replace(/[()\s]/g, encodeURIComponent)})`;
+        out += piece;
+        break;
+      }
+      case 'hardBreak': out += '\n'; break;
+      case 'mention': {
+        const name = str(attrs['text']) || str(attrs['id']);
+        out += name.startsWith('@') ? name : `@${name}`;
+        break;
+      }
+      case 'emoji': out += str(attrs['text']) || str(attrs['shortName']); break;
+      case 'status': out += `[${str(attrs['text']).toUpperCase()}]`; break;
+      case 'date': {
+        const ms = Number(attrs['timestamp']);
+        out += Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : '';
+        break;
+      }
+      case 'inlineCard': {
+        const data = attrs['data'] as { url?: unknown } | undefined;
+        out += str(attrs['url']) || str(data?.url);
+        break;
+      }
+      case 'placeholder': out += str(attrs['text']); break;
+      case 'mediaInline': out += `[attachment: ${str(attrs['alt']) || str(attrs['id']) || 'file'}]`; break;
+      case 'inlineExtension': out += `[macro: ${str(attrs['extensionKey']) || 'extension'}]`; break;
+      default:
+        // Something newer than this file: its text, if it has any.
+        if (typeof node.text === 'string') out += escapeInline(node.text);
+        else if (node.content) out += inlineReadable(node.content);
+        else if (str(attrs['text'])) out += str(attrs['text']);
+    }
+  }
+  return out;
+}
+
+/** Prefix every line (quotes, list continuation). */
+function prefixLines(text: string, first: string, rest: string = first): string {
+  return text.split('\n').map((line, i) => (i === 0 ? first : rest) + line).join('\n').replace(/[ \t]+$/gm, '');
+}
+
+function listReadable(node: AdfLike, ordered: boolean): string {
+  let n = Number(node.attrs?.['order'] ?? 1);
+  if (!Number.isInteger(n)) n = 1;
+  return (node.content ?? []).map((item) => {
+    const marker = ordered ? `${n++}. ` : '- ';
+    const body = blocksReadable(item.content).join('\n') || '';
+    return prefixLines(body, marker, ' '.repeat(marker.length));
+  }).join('\n');
+}
+
+function taskListReadable(node: AdfLike): string {
+  return (node.content ?? []).map((item) => {
+    if (item.type === 'taskList') return prefixLines(taskListReadable(item), '  ');
+    const done = item.attrs?.['state'] === 'DONE';
+    return prefixLines(inlineReadable(item.content), done ? '- [x] ' : '- [ ] ', '      ');
+  }).join('\n');
+}
+
+function cellReadable(cell: AdfLike): string {
+  return blocksReadable(cell.content).join('<br>').replace(/\n/g, '<br>').replace(/\|/g, '\\|').trim();
+}
+
+function tableReadable(node: AdfLike): string {
+  const rows = (node.content ?? []).filter((r) => r.type === 'tableRow').map((r) => (r.content ?? []).map(cellReadable));
+  if (rows.length === 0) return '';
+  const width = Math.max(...rows.map((r) => r.length));
+  const pad = (r: string[]) => [...r, ...Array(width - r.length).fill('')];
+  const line = (r: string[]) => `| ${pad(r).join(' | ')} |`;
+  // GFM needs a header row: the table's own when its first row is headers, else a blank one.
+  const firstIsHeader = (node.content?.[0]?.content ?? []).every((c) => c.type === 'tableHeader');
+  const header = firstIsHeader ? rows[0]! : Array(width).fill('');
+  const body = firstIsHeader ? rows.slice(1) : rows;
+  return [line(header), line(Array(width).fill('---')), ...body.map(line)].join('\n');
+}
+
+function mediaReadable(node: AdfLike): string {
+  const out: string[] = [];
+  const walk = (n: AdfLike) => {
+    if (n.type === 'media') {
+      const a = n.attrs ?? {};
+      const name = str(a['alt']) || (a['type'] === 'external' ? str(a['url']) : '') || str(a['id']) || 'file';
+      out.push(`[${node.type === 'mediaGroup' ? 'attachment' : 'image'}: ${name}]`);
+    }
+    for (const c of n.content ?? []) walk(c);
+  };
+  walk(node);
+  return out.join('\n');
+}
+
+function codeReadable(node: AdfLike): string {
+  const body = (node.content ?? []).map((c) => c.text ?? '').join('');
+  // A fence longer than any backtick run inside, so the block can't close early.
+  const longest = Math.max(2, ...(body.match(/`+/g) ?? []).map((r) => r.length));
+  const fence = '`'.repeat(longest + 1);
+  return `${fence}${str(node.attrs?.['language'])}\n${body}\n${fence}`;
+}
+
+function blockReadable(node: AdfLike): string {
+  // Exactly as the editor sees it whenever that's possible.
+  const exact = blockToMarkdown(node);
+  if (exact !== null) return exact;
+  const attrs = node.attrs ?? {};
+  switch (node.type) {
+    case 'paragraph': return inlineReadable(node.content).split('\n').map(escapeBlockStart).join('\n');
+    case 'heading': {
+      const level = Math.min(6, Math.max(1, Number(attrs['level']) || 1));
+      return `${'#'.repeat(level)} ${inlineReadable(node.content).replace(/\n/g, ' ')}`.trimEnd();
+    }
+    case 'bulletList': return listReadable(node, false);
+    case 'orderedList': return listReadable(node, true);
+    case 'taskList': return taskListReadable(node);
+    case 'decisionList':
+      return (node.content ?? []).map((d) => prefixLines(inlineReadable(d.content), '- ✓ ', '    ')).join('\n');
+    case 'codeBlock': return codeReadable(node);
+    case 'blockquote': return prefixLines(blocksReadable(node.content).join('\n\n'), '> ');
+    case 'rule': return '---';
+    case 'panel': {
+      const label = PANEL_LABELS[str(attrs['panelType'])] ?? 'Note';
+      return prefixLines(`**${label}:** ${blocksReadable(node.content).join('\n\n')}`, '> ');
+    }
+    case 'expand':
+    case 'nestedExpand': {
+      const title = str(attrs['title']);
+      return [`**${title || 'Details'}**`, ...blocksReadable(node.content)].join('\n\n');
+    }
+    case 'table': return tableReadable(node);
+    case 'mediaSingle':
+    case 'mediaGroup': return mediaReadable(node);
+    case 'blockCard':
+    case 'embedCard': {
+      const data = attrs['data'] as { url?: unknown } | undefined;
+      return str(attrs['url']) || str(data?.url);
+    }
+    case 'layoutSection': return (node.content ?? []).flatMap((col) => blocksReadable(col.content)).join('\n\n');
+    case 'bodiedExtension': return blocksReadable(node.content).join('\n\n');
+    case 'extension': return `[macro: ${str(attrs['extensionKey']) || 'extension'}]`;
+    default: {
+      // Something newer than this file: show its text rather than nothing.
+      const kids = node.content ?? [];
+      if (kids.some((k) => k.type === 'text' || k.type === 'hardBreak')) return inlineReadable(kids);
+      if (kids.length > 0) return blocksReadable(kids).join('\n\n');
+      return typeof node.text === 'string' ? escapeInline(node.text) : str(attrs['text']);
+    }
+  }
 }
 
 // --- write: markdown -> ADF ---------------------------------------------------

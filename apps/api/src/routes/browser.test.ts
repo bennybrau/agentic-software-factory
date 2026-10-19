@@ -81,7 +81,7 @@ test('POST /api/runs/:id/skip forwards to skipNeedsHuman', async () => {
   await a.close();
 });
 
-function stubRunDetail(opts: { ticketId: string; adhocTask?: { recurringId?: string | null; recurringTitle?: string | null } | null }) {
+function stubRunDetail(opts: { ticketId: string; adhocTask?: { recurringId?: string | null; recurringTitle?: string | null; body?: string } | null }) {
   global.fetch = (async (_url: string, init?: { body?: string }) => {
     const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
     const reply = (result: unknown) => new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -119,6 +119,15 @@ test('GET /api/runs/:id on an adhoc run whose schedule was deleted gives recurri
   await a.close();
 });
 
+test('GET /api/runs/:id on an adhoc run gives the opening request without the chat\'s repository list', async () => {
+  stubRunDetail({ ticketId: 'adhoc:t1', adhocTask: { body: 'Fix the **login** page.\n\nRepositories connected:\n- org/web' } });
+  const a = await app();
+  const res = await a.inject({ method: 'GET', url: '/api/runs/run_1' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().request, 'Fix the **login** page.');
+  await a.close();
+});
+
 test('GET /api/runs/:id on a tracker-ticket run has recurring: null and never calls the ad-hoc store', async () => {
   const calls: string[] = [];
   global.fetch = (async (_url: string, init?: { body?: string }) => {
@@ -139,6 +148,7 @@ test('GET /api/runs/:id on a tracker-ticket run has recurring: null and never ca
   const res = await a.inject({ method: 'GET', url: '/api/runs/run_1' });
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().recurring, null);
+  assert.equal(res.json().request, null);
   assert.ok(!calls.includes('getAdhoc'), 'a non-adhoc ticket must never hit the ad-hoc store');
   await a.close();
 });

@@ -3,7 +3,9 @@ import type { CreateRecurringTaskInput, RecurringTask, UpdateRecurringTaskInput,
 export interface TicketRow { id: string; key: string; title: string; bucket: string; priority: number | null; status: string; url: string; body: string; }
 export interface RunDetail { run: Run; tasks: RunTask[]; gates: GateWire[]; artifacts: ArtifactWire[]; artifactVersions?: ArtifactVersionWire[]; taskProgress?: Record<string, TaskProgressWire>; messages?: RunMessageWire[]; split?: SplitFamilyWire | null;
   /** The schedule that created this run's ad-hoc task (#188); title is null once the schedule is deleted. */
-  recurring?: { id: string; title: string | null } | null; }
+  recurring?: { id: string; title: string | null } | null;
+  /** An ad-hoc run's opening request as typed (no repository list); null for a tracker run. */
+  request?: string | null; }
 export interface RunsQuery { state?: string; teamName?: string; deliveryOutcome?: string; search?: string; since?: string; limit?: number; offset?: number }
 export interface Identity { user: string; verified: boolean; mode: string }
 export interface Fleet extends FleetWire { monthCostUsd: number; monthUnpricedRuns?: number }

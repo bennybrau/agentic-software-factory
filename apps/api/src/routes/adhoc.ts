@@ -11,6 +11,15 @@ export function adhocLimits(): AdhocLimits {
   return { maxFiles: cfg('ADHOC_MAX_ATTACHMENTS'), maxFileMb: cfg('ADHOC_MAX_ATTACHMENT_MB') };
 }
 
+// The chat path lists the connected repositories under this heading, after what was typed.
+const REPO_LIST_HEADING = '\n\nRepositories connected:\n';
+
+/** A chat-started task's body without the repository list the chat appended: what the person typed. */
+export function withoutRepoList(body: string): string {
+  const at = body.lastIndexOf(REPO_LIST_HEADING);
+  return at < 0 ? body : body.slice(0, at);
+}
+
 /** Sanitised, de-duplicated names: the worker writes each file to disk under this name. */
 function uniqueNames(files: AdhocFileInput[]): AdhocFileInput[] {
   const seen = new Set<string>();
@@ -57,7 +66,7 @@ export function registerAdhocRoutes(app: FastifyInstance, deps: { scm: ScmProvid
     // If the lookup fails the task is still created, just without the list.
     if (chat) {
       const ready = await startReadiness(deps.scm);
-      if (ready.ok) body = `${body}\n\nRepositories connected:\n${ready.repos.map((r) => `- ${r.path}`).join('\n')}`;
+      if (ready.ok) body = `${body}${REPO_LIST_HEADING}${ready.repos.map((r) => `- ${r.path}`).join('\n')}`;
     }
     const { task } = await registry.createAdhoc({ title, body, createdBy: resolveIdentity(req).user || null, attachments: files });
     return reply.code(201).send({ task });

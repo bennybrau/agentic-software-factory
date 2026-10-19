@@ -20,7 +20,7 @@ import type { ChatStatus } from '../chat-status';
  * `variant="page"` is the Orchestrator chat (/chat/:runId): a tall thread with the
  * composer stuck to the bottom, and the plan shown as the tasks it would queue.
  */
-export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTask, onDone, who = 'Planner', variant = 'card', repo = null, status = null }: {
+export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTask, onDone, who = 'Planner', variant = 'card', repo = null, status = null, opening = null }: {
   runId: string;
   ticketId: string;
   ticketKey: string;
@@ -32,6 +32,7 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
   variant?: 'card' | 'page';
   repo?: string | null;             // the run's repository, for parts that don't name one (page variant)
   status?: ChatStatus | null;       // what the run is doing now, as the thread's last message (page variant)
+  opening?: string | null;          // what was asked to start the run, shown as the first message
 }) {
   const me = useMe();
   const [text, setText] = useState('');
@@ -51,9 +52,11 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
   const split = parseSplit(planText);
 
   // A run from before the chat existed has no messages: show its question from the task.
-  const thread: Array<Pick<RunMessageWire, 'id' | 'author' | 'kind' | 'body' | 'by'>> = messages.length
+  const replies: Array<Pick<RunMessageWire, 'id' | 'author' | 'kind' | 'body' | 'by'>> = messages.length
     ? messages
     : asking && plannerTask?.reason ? [{ id: 'legacy', author: 'agent', kind: 'question', body: plannerTask.reason, by: null }] : [];
+  // What was asked to start the run comes first; it isn't a stored message.
+  const thread: typeof replies = opening ? [{ id: 'opening', author: 'human', kind: 'message', body: opening, by: null }, ...replies] : replies;
 
   // The page shows the run's status as the last message, in place of "Thinking…".
   const liveStatus = variant === 'page' ? status : null;

@@ -129,7 +129,7 @@ export function ChatRun() {
       <h2 style={{ margin: '6px 0 12px' }}><span className="mono">{run.ticketKey}</span></h2>
       <PlanChat runId={runId} ticketId={run.ticketId} ticketKey={run.ticketKey} messages={detail.messages ?? []}
         gate={planGate} plannerTask={plannerTask} onDone={load} who="Orchestrator" variant="page" repo={repo}
-        status={chatStatus(detail, repo)} />
+        status={chatStatus(detail, repo)} opening={detail.request} />
     </div>
   );
 }

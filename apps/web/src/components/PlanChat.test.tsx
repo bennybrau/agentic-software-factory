@@ -97,3 +97,23 @@ test('the default card still says Planner', () => {
   assert.match(html, /Plan it with the planner/);
   assert.doesNotMatch(html, /chat-page/);
 });
+
+const opened = (opening?: string | null) => renderToStaticMarkup(
+  <QueryClientProvider client={new QueryClient()}>
+    <PlanChat runId="run_1" ticketId="adhoc:abc" ticketKey="ADHOC-ABC" gate={null} plannerTask={null} onDone={noop}
+      messages={[msg('agent', 'What should change?')]} who="Orchestrator" variant="page" {...(opening === undefined ? {} : { opening })} />
+  </QueryClientProvider>);
+
+test('the opening request is the first message, exactly as typed', () => {
+  const html = opened('Fix the **login** page');
+  const thread = html.slice(html.indexOf('chat-thread'));
+  assert.match(thread, /chat-msg human/);
+  assert.match(thread, /Fix the \*\*login\*\* page/);
+  assert.doesNotMatch(thread, /<strong>login/);
+  assert.ok(thread.indexOf('Fix the **login** page') < thread.indexOf('What should change?'), 'the opening comes before the agent');
+});
+
+test('with no opening the thread is unchanged', () => {
+  assert.equal(opened(null), opened());
+  assert.doesNotMatch(opened(null), /chat-msg human/);
+});

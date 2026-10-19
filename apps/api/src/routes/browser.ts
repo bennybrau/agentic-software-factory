@@ -4,6 +4,7 @@ import { isAdhocId, runReportMarkdown } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { ticketsFor } from '../tickets/route.js';
+import { withoutRepoList } from './adhoc.js';
 
 /** Assemble the report input for a run from the registry (tasks + events + artifact versions). */
 async function buildReportInput(runId: string): Promise<RunReportInput | null> {
@@ -55,6 +56,8 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
       isAdhocId(ticketId) ? ticketsFor(deps.tickets, ticketId).get(ticketId).catch(() => null) : null,
     ]);
     const recurring = adhocTicket?.recurringId ? { id: adhocTicket.recurringId, title: adhocTicket.recurringTitle ?? null } : null;
+    // What was asked, as the chat's first message: the ad-hoc body as typed, without the repository list.
+    const request = adhocTicket ? withoutRepoList(adhocTicket.body) || null : null;
     // The flat "Stage output" list is the role deliverables (plan.md, review.md, …).
     // Prompt mirrors and patches (M11 WP2) are large and per-task — keep them out of
     // that list; they ride in artifactVersions for the task panel to fetch on demand.
@@ -62,7 +65,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
     // Live progress for any running task (M11 WP5): tool-call count + last tool + ceiling.
     const runningIds = run.tasks.filter((t) => t.state === 'running').map((t) => t.id);
     const progress = runningIds.length ? (await registry.taskProgress(runningIds)).progress : {};
-    return { ...run, gates: gates.gates, artifacts: stageArtifacts, artifactVersions: versions.versions, taskProgress: progress, messages: chat.messages, split, recurring };
+    return { ...run, gates: gates.gates, artifacts: stageArtifacts, artifactVersions: versions.versions, taskProgress: progress, messages: chat.messages, split, recurring, request };
   });
 
   // The story of a run in one place (M11 WP6): JSON for the UI Report tab, Markdown

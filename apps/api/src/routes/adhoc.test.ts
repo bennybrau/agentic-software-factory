@@ -2,7 +2,7 @@ import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import type { TicketProvider } from '@asf/shared';
-import { registerAdhocRoutes } from './adhoc.js';
+import { registerAdhocRoutes, withoutRepoList } from './adhoc.js';
 import { registerDispatchRoutes } from './dispatch.js';
 import { registerRunRoutes } from './runs.js';
 import { MockTicketProvider } from '../providers/tickets/mock.js';
@@ -86,6 +86,18 @@ test('POST /api/adhoc from the chat appends the connected repositories; without 
   assert.equal((await b.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: 'Do it.', chat: true } })).statusCode, 201);
   assert.equal(sentBody(), 'Do it.');
   await b.close();
+});
+
+test('withoutRepoList gives back what was typed before the chat added the repositories', async () => {
+  const calls = stubRegistry();
+  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const typed = 'Fix it.\n\nAlso the footer.';
+  await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: typed, chat: true } });
+  const stored = (calls.find((c) => c.op === 'createAdhoc')!.input as { body: string }).body;
+  assert.notEqual(stored, typed);
+  assert.equal(withoutRepoList(stored), typed);
+  assert.equal(withoutRepoList(typed), typed, 'a body with no list is unchanged');
+  await a.close();
 });
 
 test('POST /api/adhoc refuses a missing title, a disallowed type, too many files and an oversized file', async () => {

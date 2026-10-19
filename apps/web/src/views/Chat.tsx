@@ -4,6 +4,7 @@ import { ADHOC_DEFAULT_LIMITS, parseReviewRequest, type AdhocLimits } from '@asf
 import { api, subscribeEvents, type RunDetail } from '../api';
 import { chatDispatchBody, chatProblem, chatTitle } from '../new-task';
 import { chatStatus } from '../chat-status';
+import { loadChatDraft, saveChatDraft } from '../chat-draft';
 import { PAGE } from '../words';
 import { useMe } from '../useMe';
 import { SetupNotice } from '../components/q/SetupNotice';
@@ -22,7 +23,8 @@ interface Failure { reason: string; blocker?: { reason: string; link: string } |
 export function Chat() {
   const navigate = useNavigate();
   const me = useMe();
-  const [text, setText] = useState('');
+  // An unsent message survives a trip to another page (chat-draft.ts).
+  const [text, setText] = useState(loadChatDraft);
   const [limits, setLimits] = useState<AdhocLimits>(ADHOC_DEFAULT_LIMITS);
   const [err, setErr] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -31,6 +33,12 @@ export function Chat() {
   const att = useAttachments(limits, setErr);
 
   useEffect(() => { api.adhocLimits().then(setLimits).catch(() => {}); }, []);
+  useEffect(() => { saveChatDraft(text); }, [text]);
+  // A restored draft: put the caret at its end, to carry on typing.
+  useEffect(() => {
+    const el = box.current;
+    if (el && el.value) el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
   // The composer grows with what's typed (the CSS caps its height).
   useEffect(() => {
     const el = box.current;

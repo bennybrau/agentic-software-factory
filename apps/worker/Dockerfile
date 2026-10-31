@@ -25,7 +25,9 @@ ARG CLAUDE_CODE_VERSION=2.1.284
 # The OpenAI Codex CLI (runtime `codex`), pinned the same way. Both agents ship in
 # every worker; the worker offers whichever one has working credentials.
 ARG CODEX_VERSION=0.159.0
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates openssh-client tini && rm -rf /var/lib/apt/lists/* \
+# poppler-utils: `pdftotext`/`pdfinfo` for target repos whose code or tests extract PDF
+# text (e.g. the Hive's docs ingest). Without it those tests fail in the tester's run.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates openssh-client tini poppler-utils && rm -rf /var/lib/apt/lists/* \
  && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} @openai/codex@${CODEX_VERSION} \
  && corepack enable pnpm yarn
 # pnpm and yarn for the agents: a target repo's own install/test/lint commands (the

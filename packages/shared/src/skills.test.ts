@@ -29,6 +29,9 @@ test('files must include SKILL.md, be unique, and stay within the count and size
   const many = Array.from({ length: SKILL_MAX_FILES }, (_, i) => ({ path: i === 0 ? 'SKILL.md' : `f${i}.md`, content: '' }));
   assert.ok(skillInputSchema.safeParse({ ...skill, files: many }).success);
   assert.equal(skillInputSchema.safeParse({ ...skill, files: [...many, { path: 'extra.md', content: '' }] }).success, false);
+  // A rule-based skill (SKILL.md plus ~76 rules, like Vercel's react-best-practices) fits.
+  const ruleBased = [{ path: 'SKILL.md', content: 'x' }, ...Array.from({ length: 76 }, (_, i) => ({ path: `rules/r${i}.md`, content: 'rule' }))];
+  assert.ok(skillInputSchema.safeParse({ ...skill, files: ruleBased }).success);
   const exact = [{ path: 'SKILL.md', content: 'x'.repeat(SKILL_MAX_TOTAL_BYTES) }];
   assert.ok(skillInputSchema.safeParse({ ...skill, files: exact }).success);
   // Counted in UTF-8 bytes, not characters: two-byte characters halve what fits.

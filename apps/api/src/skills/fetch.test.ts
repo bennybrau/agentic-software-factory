@@ -165,13 +165,21 @@ test('a missing SKILL.md, or one without a name or description, is refused', asy
   assert.match(badName.reason, /lower-case/);
 });
 
+test('a rule-based skill with 76 small files plus SKILL.md is accepted', async () => {
+  const files: Record<string, string> = { 'SKILL.md': SKILL_MD };
+  for (let i = 0; i < 76; i++) files[`rules/r${i}.md`] = `# Rule ${i}\n`;
+  const r = await fetchSkill('https://github.com/acme/skills/tree/main/skills/pdf', { fetch: github(files).fetch });
+  assert.ok(r.ok, r.ok ? '' : r.reason);
+  assert.equal(r.skill.files.length, 77);
+});
+
 test('too many files, or too many bytes, are refused', async () => {
   const many: Record<string, string> = { 'SKILL.md': SKILL_MD };
   for (let i = 0; i < SKILL_MAX_FILES; i++) many[`f${i}.md`] = 'x';
   const tooMany = github(many);
   const r1 = await fetchSkill('https://github.com/acme/skills/tree/main/skills/pdf', { fetch: tooMany.fetch });
   assert.ok(!r1.ok);
-  assert.match(r1.reason, /at most 50/);
+  assert.match(r1.reason, new RegExp(`at most ${SKILL_MAX_FILES} `));
   assert.ok(!tooMany.urls.some((u) => u.startsWith(RAW)), 'nothing downloaded');
 
   const bySize = github({ 'SKILL.md': SKILL_MD, 'big.md': 'x' }, { sizes: { 'big.md': SKILL_MAX_TOTAL_BYTES } });

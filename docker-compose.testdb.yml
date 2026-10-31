@@ -9,6 +9,9 @@
 #   anything here you want to keep. Every run shares it, so tests should create their
 #   own schema or database (most suites already do).
 # - Not published to the host, so only the containers can reach it.
+# - Postgres 16 with the pgvector extension (`create extension vector` works), so repos
+#   that store embeddings can run their tests too. It's the stock postgres:16 image plus
+#   the extension; repos that don't use it see a plain Postgres 16.
 # - The worker gets the URL under the two common names, TEST_DATABASE_URL and
 #   DATABASE_TEST_URL. If your repository reads another name, add it under
 #   `worker.environment` in a compose override of your own.
@@ -18,7 +21,7 @@
 name: asf
 services:
   testdb:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: test

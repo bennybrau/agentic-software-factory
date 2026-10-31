@@ -64,7 +64,7 @@ jobs:
 
       # Every image knows its own version (ASF_BUILD_VERSION, read by the api's update
       # check): the release it is about to be tagged as.
-      # The worker also pins the Claude Code and Codex CLIs at build time (see apps/worker/Dockerfile).
+      # The worker also pins the Claude Code and Codex CLIs and uv at build time (see apps/worker/Dockerfile).
       - id: build-args
         run: |
           {
@@ -73,6 +73,7 @@ jobs:
             if [ "${{ matrix.service }}" = worker ]; then
               echo "CLAUDE_CODE_VERSION=2.1.284"
               echo "CODEX_VERSION=0.159.0"
+              echo "UV_VERSION=0.11.26"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"

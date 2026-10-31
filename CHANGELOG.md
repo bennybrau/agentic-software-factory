@@ -19,6 +19,10 @@ publishes a `vX.Y.Z` release of the GHCR images
   them in the tester's run instead of failing on a missing binary. Adds about 10 MB.
 
 ### Added
+- **The worker image ships Python and uv.** `python3` (Debian's 3.13) and a pinned `uv`
+  (0.11.26) are installed, so Python target repos can install and run their tests
+  (`uv sync`, `uv run pytest`, or plain `python3`). uv fetches another Python version on
+  first use when a repo pins one. Adds about 36 MB.
 - **Saved tokens are encrypted at rest** (#9). Tokens entered in Settings (`org_secret`)
   are stored as AES-256-GCM envelopes under a new registry-only `ASF_SECRET_KEY`, the
   row name bound as authenticated data. `setup.sh` generates the key; existing installs

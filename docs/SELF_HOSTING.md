@@ -101,8 +101,8 @@ instead of approving. Give the agents a database to make those tests run:
 1. Add `ASF_TEST_DB=1` to `.env`.
 2. Run `asf up`.
 
-That starts `testdb` (`docker-compose.testdb.yml`), a Postgres 16 on the compose
-network, and gives the worker its URL as `TEST_DATABASE_URL` and `DATABASE_TEST_URL`.
+That starts `testdb` (`docker-compose.testdb.yml`), a Postgres 16 with the pgvector
+extension available (`create extension vector`) on the compose network, and gives the worker its URL as `TEST_DATABASE_URL` and `DATABASE_TEST_URL`.
 `asf doctor` lists it under Containers.
 
 - **It's scratch.** The data lives in memory and is gone when the container restarts.

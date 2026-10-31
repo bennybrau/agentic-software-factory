@@ -7,6 +7,14 @@ publishes a `vX.Y.Z` release of the GHCR images
 
 ## [Unreleased]
 
+### Fixed
+- **The agents' test database has pgvector.** `testdb` (`ASF_TEST_DB=1`) now runs
+  `pgvector/pgvector:pg16` instead of `postgres:16-alpine`, so repos whose migrations run
+  `create extension vector` can run their database tests. Before, every such test run
+  failed at the first migration, the tester reported `Verified: no`, and the reviewer
+  escalated work that was fine. Run `asf up` to pick it up (the database is scratch, so
+  nothing is lost).
+
 ### Added
 - **Saved tokens are encrypted at rest** (#9). Tokens entered in Settings (`org_secret`)
   are stored as AES-256-GCM envelopes under a new registry-only `ASF_SECRET_KEY`, the

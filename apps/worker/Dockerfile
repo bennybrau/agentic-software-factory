@@ -1,5 +1,11 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage: build the workspace once, then copy one app's pruned production tree.
+# uv (Astral), pinned like the agent CLIs (images.yml passes the same value): Python target
+# repos install and test with it (`uv sync`, `uv run pytest`); it fetches any Python version
+# a repo pins that the system python3 doesn't satisfy, on first use.
+ARG UV_VERSION=0.11.26
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
 FROM node:22-slim AS build
 RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
 WORKDIR /src
@@ -27,12 +33,15 @@ ARG CLAUDE_CODE_VERSION=2.1.284
 ARG CODEX_VERSION=0.159.0
 # poppler-utils: `pdftotext`/`pdfinfo` for target repos whose code or tests extract PDF
 # text (e.g. the Hive's docs ingest). Without it those tests fail in the tester's run.
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates openssh-client tini poppler-utils && rm -rf /var/lib/apt/lists/* \
+# python3: a system interpreter for repos that call `python3` directly (Debian's 3.13);
+# uv uses it when a repo's requires-python allows, so most repos need no download.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates openssh-client tini poppler-utils python3 && rm -rf /var/lib/apt/lists/* \
  && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} @openai/codex@${CODEX_VERSION} \
  && corepack enable pnpm yarn
 # pnpm and yarn for the agents: a target repo's own install/test/lint commands (the
 # version comes from the repo's `packageManager` field, fetched on first use).
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+COPY --from=uv /uv /uvx /usr/local/bin/
 WORKDIR /app
 COPY --from=build /out/dist ./apps/worker/dist
 COPY --from=build /out/node_modules ./apps/worker/node_modules

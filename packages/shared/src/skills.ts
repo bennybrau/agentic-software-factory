@@ -12,7 +12,7 @@ export const SKILL_ID_RE = /^[a-z0-9][a-z0-9-]{1,31}$/;
 /** The `name` in a SKILL.md frontmatter: lower-case letters, digits and hyphens, 1–64 chars. */
 export const SKILL_NAME_RE = /^[a-z0-9-]{1,64}$/;
 
-export const SKILL_MAX_FILES = 50;
+export const SKILL_MAX_FILES = 200;
 export const SKILL_MAX_TOTAL_BYTES = 512 * 1024;
 export const SKILL_ALLOWED_EXTENSIONS = ['.md', '.txt', '.json', '.yaml', '.yml', '.csv'] as const;
 /** Every skill has this file at its root. */

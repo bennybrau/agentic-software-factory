@@ -14,6 +14,9 @@ publishes a `vX.Y.Z` release of the GHCR images
   failed at the first migration, the tester reported `Verified: no`, and the reviewer
   escalated work that was fine. Run `asf up` to pick it up (the database is scratch, so
   nothing is lost).
+- **The worker image ships `pdftotext`.** `poppler-utils` is now installed next to git,
+  so a target repo whose code or tests extract PDF text (`pdftotext`, `pdfinfo`) can run
+  them in the tester's run instead of failing on a missing binary. Adds about 10 MB.
 
 ### Added
 - **Saved tokens are encrypted at rest** (#9). Tokens entered in Settings (`org_secret`)

@@ -152,8 +152,10 @@ not covered by this check.
 ## How it works
 
 - **Where the login lives.** Only the worker uses your Google login, read from
-  `~/.config/gcloud` (mounted read-only into the container in mode 1, override the source
-  with `GCLOUD_CONFIG_DIR`; read directly in mode 2). The api, the database and the web
+  `~/.config/gcloud` (mounted read-only into the container at `/etc/asf/gcloud` in mode 1,
+  override the source with `GCLOUD_CONFIG_DIR`; read directly in mode 2). On a Linux host the
+  agent user must be able to read it: see
+  [Agents run as their own user](SELF_HOSTING.md#agents-run-as-their-own-user). The api, the database and the web
   page never see it, and nothing is stored in Settings' encrypted secrets. That's also
   why a worker, not the api, answers **Check which Claude models work**.
 - **What each run gets.** For every Claude task the worker sets

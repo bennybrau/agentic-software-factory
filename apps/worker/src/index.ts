@@ -20,6 +20,8 @@ import { runPublish } from './publish.js';
 import { RuntimeOffer, containerRefusal, type Preflight } from './offer.js';
 import { mintToken, runVertexCheck } from './vertex-check.js';
 import { LoginWatch } from './login-watch.js';
+import { prepareSharedDirs } from './agent-user.js';
+import { agentUser } from './runtimes/proc.js';
 
 function log(msg: string, extra: Record<string, unknown> = {}): void {
   console.log(JSON.stringify({ t: new Date().toISOString(), worker: config.id, msg, ...extra }));
@@ -65,7 +67,11 @@ async function pollOnce(runtimes: string[], capabilities: string[]): Promise<boo
 }
 
 async function main(): Promise<void> {
-  log('starting', { runtimes: config.runtimes, dryRun: config.dryRun, maxConcurrent: config.maxConcurrent });
+  // #68: files the worker and the agent user create stay writable by the other (the shared group).
+  const agent = agentUser();
+  if (agent) process.umask(0o002);
+  log('starting', { runtimes: config.runtimes, dryRun: config.dryRun, maxConcurrent: config.maxConcurrent, agentUser: agent?.user ?? null });
+  if (agent) await prepareSharedDirs([config.worktreeRoot, config.runDataRoot], process.env, { log });
 
   // Each runtime this worker is configured for is probed (installed?) and its auth
   // preflighted — before this worker offers capacity. A dead subscription login or a

@@ -42,6 +42,9 @@ test('creates a worktree on agent/<key>-<runid> from origin/main', async () => {
   assert.equal(ws.resumed, false);
   const entries = await readdir(ws.worktreePath);
   assert.ok(entries.includes('.git'));
+  // #68: the agent runs as its own user and commits into this clone; git keeps what it writes group-writable.
+  const { stdout } = await exec('git', ['--git-dir', join(root, 'repos', 'r1.git'), 'config', 'core.sharedRepository']);
+  assert.equal(stdout.trim(), 'group');
 });
 
 test('rebaseOntoBase re-anchors the run onto a base that moved, cleanly, as one commit', async () => {

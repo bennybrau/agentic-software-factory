@@ -4,7 +4,7 @@ import type { AgentOutcome, AgentRuntime, AgentSpawn, EventSink, PreflightResult
 import { config } from '../config.js';
 import { applyAuth } from '../auth/index.js';
 import type { RuntimeTaskOptions } from './index.js';
-import { killTree } from './proc.js';
+import { killTree, spawnAgent } from './proc.js';
 import { outcomeFromText } from './outcome.js';
 
 /**
@@ -85,7 +85,7 @@ export class CopilotRuntime implements AgentRuntime {
       // Credentials are set/stripped by the auth layer; this file never spells a credential name.
       const env = applyAuth({ ...process.env, ...spawnReq.env }, spawnReq.auth);
       // detached: copilot leads its own process group so a cancel/timeout kills every command it started.
-      const child = spawn(bin, args, { cwd: spawnReq.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      const child = spawnAgent(bin, args, { cwd: spawnReq.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
       const logStream = this.opts.logPath ? createWriteStream(this.opts.logPath, { flags: 'a' }) : null;
       let stdout = '';
       let stderr = '';

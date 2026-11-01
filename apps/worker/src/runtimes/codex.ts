@@ -7,7 +7,7 @@ import type { AgentOutcome, AgentRuntime, AgentSpawn, AgentUsage, EventSink, Pre
 import { config } from '../config.js';
 import { applyAuth, codexAuthArgs, prepareAuthHome } from '../auth/index.js';
 import type { RuntimeTaskOptions } from './index.js';
-import { killTree } from './proc.js';
+import { killTree, spawnAgent } from './proc.js';
 import { outcomeFromText } from './outcome.js';
 
 export type CodexSandbox = 'workspace-write' | 'off';
@@ -105,7 +105,7 @@ export class CodexRuntime implements AgentRuntime {
 
     const done = await new Promise<AgentOutcome | null>((resolve) => {
       // detached: codex leads its own process group so a cancel/timeout kills every command it started.
-      const child = spawn(bin, args, { cwd: spawnReq.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+      const child = spawnAgent(bin, args, { cwd: spawnReq.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
       const logStream = this.opts.logPath ? createWriteStream(this.opts.logPath, { flags: 'a' }) : null;
       let stdout = '';
       let stderr = '';

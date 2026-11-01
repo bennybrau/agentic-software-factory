@@ -3,7 +3,7 @@ import { createWriteStream } from 'node:fs';
 import type { AgentOutcome, AgentRuntime, AgentSpawn, AgentUsage, EventSink, PreflightResult, RunAuth, RunControl, RuntimeCapabilities, ToolPolicy } from '@asf/shared';
 import { config } from '../config.js';
 import { applyAuth } from '../auth/index.js';
-import { killTree } from './proc.js';
+import { killTree, spawnAgent } from './proc.js';
 import { outcomeFromText } from './outcome.js';
 
 /**
@@ -116,7 +116,7 @@ export class ClaudeCodeRuntime implements AgentRuntime {
       const env = applyAuth({ ...process.env, ...spawnReq.env }, spawnReq.auth);
       // detached: the agent leads its own process group, so a cancel/timeout kills the
       // whole tree (Bash tool children, test runners) — not just the `claude` parent.
-      const child = spawn(bin, args, { cwd: spawnReq.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+      const child = spawnAgent(bin, args, { cwd: spawnReq.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
       const logStream = this.opts.logPath ? createWriteStream(this.opts.logPath, { flags: 'a' }) : null;
       let stdout = '';
       let stderr = '';

@@ -8,6 +8,18 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Fixed
+- **An agent can no longer kill the worker.** In the worker container, agents now run as their
+  own user (`agent`, uid 1001) instead of the worker's (`node`), and Linux only lets a process
+  signal its own user's processes. Before, an implementer stopping its own test server with a
+  kill-by-name loop also matched the worker (`node apps/worker/dist/index.js`); the worker
+  shut down and the run went `stale`. The agent also can't read the worker's environment any
+  more. Cancel and timeout still kill the agent's whole process group. Existing worktree and
+  run volumes are shared with the agent user on the first start, once. **Vertex on a Linux
+  host:** give uid 1001 read access to your Google login
+  (`setfacl -m u:1001:r ~/.config/gcloud/application_default_credentials.json`); it's now
+  mounted at `/etc/asf/gcloud`. See
+  [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md#agents-run-as-their-own-user). A worker on the
+  host (hybrid mode) is unchanged.
 - **The agents' test database has pgvector.** `testdb` (`ASF_TEST_DB=1`) now runs
   `pgvector/pgvector:pg16` instead of `postgres:16-alpine`, so repos whose migrations run
   `create extension vector` can run their database tests. Before, every such test run

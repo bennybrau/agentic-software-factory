@@ -41,6 +41,19 @@ jobs:
           done
           echo "api /health never came up"; exit 1
 
+      - name: an agent can't kill the worker (agents run as their own user, #68)
+        run: |
+          # Inside the real worker container: spawn an agent exactly as a task does, have it
+          # try pkill -f, the /proc kill loop that took a worker down (bennybrau/hive#10),
+          # kill -1 and kill 1; the worker must survive. Also checks the agent's uid, groups
+          # and capabilities, shared-file writes both ways, and that cancel still kills the
+          # agent's whole process group.
+          docker compose -f docker-compose.self-host.yml exec -T worker \
+            node --input-type=module - < scripts/agent-isolation-smoke.mjs
+          sleep 2
+          docker compose -f docker-compose.self-host.yml ps worker --format '{{.State}}' | grep -qx running \
+            || { echo "the worker container stopped"; docker compose -f docker-compose.self-host.yml logs worker | tail -20; exit 1; }
+
       - name: registry applied migrations, api provider preflight ok
         run: |
           registry_log="$(docker compose -f docker-compose.self-host.yml logs registry)"

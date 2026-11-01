@@ -46,13 +46,44 @@ command (`asf up|down|logs|status|doctor|update|backup|restore|reset|uninstall`)
 | `postgres` | not published | `pgdata` volume. The only thing the registry connects to. |
 | `registry` | `expose: 8788` (never published in mode 1) | Runs, tasks, gates, orchestrator, sweeper, SSE. Binds `0.0.0.0` inside the network; unreachable from the host by design. |
 | `api` | `127.0.0.1:${ASF_PORT:-8787}` → `8787` | Serves the web bundle + the API on one loopback origin. Put Tailscale/Caddy in front to reach it from elsewhere ([`INSTALL.md`](INSTALL.md#reach-it-from-other-devices--tailscale)). |
-| `worker` | internal `8790` | `worktrees` + `runs` volumes. Mounts the host's `~/.config/gcloud` read-only for Vertex ADC. `deploy.resources.limits.memory: 8g`. |
+| `worker` | internal `8790` | `worktrees` + `runs` volumes. Mounts the host's `~/.config/gcloud` read-only at `/etc/asf/gcloud` for Vertex ADC. Agents run as their own user (see below). `deploy.resources.limits.memory: 8g`. |
 | `backup` | — | Nightly `pg_dump` into the `backups` volume, 14-day retention. |
 | `testdb` | not published | Only with `ASF_TEST_DB=1`. Scratch Postgres for the agents' tests, in memory. |
 
 **Volumes:** `pgdata`, `worktrees`, `runs`, `backups` — all named, so state survives
 `down` and lives outside any TCC-protected path. Only `reset` (`down -v`) and
 `uninstall` ([`INSTALL.md`](INSTALL.md#uninstall)) remove them.
+
+## Agents run as their own user
+
+In the worker container, the worker runs as `node` (uid 1000) and every agent it starts runs
+as `agent` (uid 1001). Linux lets a process signal only processes of its own user, so an agent
+command that kills by name or pattern (`pkill -f dist/index.js`, a loop over `/proc`) can't stop
+the worker. Before, one did: the worker went down mid-run and the run went `stale`.
+
+- **Files.** Both users are in the group `asfwork` (gid 1500). The worktrees and run dirs
+  belong to that group, and the worker runs with umask 002, so each user can write what the
+  other made. A volume from an older image is converted on the worker's first start (the log
+  says `sharing worker dirs with the agent user (one-time)`). On a large volume this takes a
+  few seconds, once.
+- **Switching user.** The worker uses a copy of `setpriv` at
+  `/usr/local/libexec/asf/as-agent` that holds the setuid/setgid capabilities. Only `node`
+  can run it, and the agent starts with no capabilities, so it can't switch back.
+  Cancel and timeout kill the agent's process group through the same helper.
+- **The agent can't read the worker's environment** (`/proc/<worker>/environ`), so it can't
+  read the worker's secrets. It gets its own credential per run, as before.
+- **Vertex.** The Google login is mounted at `/etc/asf/gcloud`, and the agent reads it. With
+  Docker Desktop (Mac, Windows) that works as is. On a Linux host, the file
+  `gcloud auth application-default login` writes is `0600` and owned by you, so give uid 1001
+  read access: `setfacl -m u:1001:r ~/.config/gcloud/application_default_credentials.json`.
+- **Codex `chatgpt` mode** links the worker's `~/.codex/auth.json` into each task. Under the
+  agent user, that file must be readable and writable by group `asfwork`. API-key mode is
+  unaffected.
+- **Check it:** `docker compose -f docker-compose.self-host.yml exec -T worker node --input-type=module - < scripts/agent-isolation-smoke.mjs`
+  has an agent try those kills and prints one line per check.
+
+A worker on the host (hybrid mode, below) doesn't set `ASF_AGENT_USER`, so its agents still
+run as the worker's user.
 
 ## The settings a self-host sets
 
@@ -152,7 +183,7 @@ a credential that only exists on the host:
   paste into Settings.
 - **Company-managed Claude Code settings or host tools.** A host worker runs under the
   Mac's own Claude Code policy and tools. (Google ADC for Vertex does *not* need this
-  mode: the container worker reads `~/.config/gcloud` through a read-only mount.
+  mode: the container worker reads `~/.config/gcloud` through a read-only mount (at `/etc/asf/gcloud`).
   See [`VERTEX.md`](VERTEX.md).)
 
 Everything else — cost halts, gates, the pipeline — is identical to the all-container

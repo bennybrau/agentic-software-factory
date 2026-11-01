@@ -128,13 +128,15 @@ services:
       # CLOUD_ML_REGION). Auth is the host's Application Default Credentials, mounted
       # read-only below — never copied into the image or the org secret sink. Inert
       # in the other auth modes (nothing reads it unless CLAUDE_CODE_USE_VERTEX is on).
-      GOOGLE_APPLICATION_CREDENTIALS: /home/node/.config/gcloud/application_default_credentials.json
+      GOOGLE_APPLICATION_CREDENTIALS: /etc/asf/gcloud/application_default_credentials.json
     volumes:
       - worktrees:/data/worktrees
       - runs:/data/runs
       # Host ADC (`gcloud auth application-default login`). Override the source with
       # GCLOUD_CONFIG_DIR; harmless empty mount when the host has no gcloud config.
-      - ${GCLOUD_CONFIG_DIR:-${HOME}/.config/gcloud}:/home/node/.config/gcloud:ro
+      # A neutral path, not the worker's home: the agent runs as its own user (#68)
+      # and is the one that reads it.
+      - ${GCLOUD_CONFIG_DIR:-${HOME}/.config/gcloud}:/etc/asf/gcloud:ro
     deploy:
       resources:
         limits:

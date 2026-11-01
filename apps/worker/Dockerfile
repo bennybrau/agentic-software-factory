@@ -56,7 +56,24 @@ COPY --from=build /src/packages/shared/dist /app/packages/shared/dist
 # shared's own deps (zod) as a real, symlink-free install.
 RUN cd /app/packages/shared && npm install --omit=dev --no-package-lock --no-audit --no-fund --loglevel=error
 RUN rm -f apps/worker/node_modules/@asf/shared && ln -s ../../../../packages/shared apps/worker/node_modules/@asf/shared \
- && mkdir -p /data/worktrees /data/runs && chown -R node:node /data /app
+ && mkdir -p /data/worktrees /data/runs && chown -R node:node /app
+# #68: agents run as their own user, so an agent command that kills by name or pattern
+# (`pkill -f dist/index.js`) can't reach the worker: Linux only lets a process signal its
+# own uid. `agent` (1001) and the worker's `node` share the group `asfwork` (1500), so each
+# can write the worktrees and run dirs the other made (the worker runs with umask 002).
+# The worker switches to `agent` with a copy of setpriv that holds cap_setuid/cap_setgid and
+# that only `node` can execute (root:node 0750). The agent is not in group `node`, and
+# setpriv drops every capability before exec, so it can't use the helper to switch back.
+RUN groupadd -g 1500 asfwork && useradd -m -u 1001 -U -G asfwork -s /bin/bash agent && usermod -aG asfwork node \
+ && apt-get update && apt-get install -y --no-install-recommends libcap2-bin \
+ && install -d -m 0755 /usr/local/libexec/asf \
+ && install -o root -g node -m 0750 /usr/bin/setpriv /usr/local/libexec/asf/as-agent \
+ && setcap cap_setuid,cap_setgid+ep /usr/local/libexec/asf/as-agent \
+ && apt-get purge -y libcap2-bin && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
+ && printf '[safe]\n\tdirectory = *\n' > /home/agent/.gitconfig && chown agent:agent /home/agent/.gitconfig \
+ && chown -R node:asfwork /data && chmod -R 2775 /data \
+ && install -d -o root -g asfwork -m 0750 /etc/asf/gcloud
+ENV ASF_AGENT_USER=agent
 USER node
 ARG ASF_BUILD_VERSION=dev
 ENV ASF_BUILD_VERSION=$ASF_BUILD_VERSION

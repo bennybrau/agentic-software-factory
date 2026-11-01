@@ -127,6 +127,8 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
   // clone cached before this change is scrubbed too. The worker's own fetch/push always
   // pass cred.url explicitly and never rely on the stored remote.
   await git(bareDir, ['config', 'remote.origin.url', credentialLessUrl(cloneUrl)]);
+  // #68: the agent runs as its own user and commits into this clone's object store; keep what git writes group-writable.
+  await git(bareDir, ['config', 'core.sharedRepository', 'group']);
   await git(bareDir, ['fetch', '--prune', cloneUrl, '+refs/heads/*:refs/remotes/origin/*'], {}).catch((e) => {
     log(`fetch failed (${(e as Error).message}); using cached clone — the base may be stale`);
   });

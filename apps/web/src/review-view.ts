@@ -20,3 +20,15 @@ export function runPillLabel(run: RunLike): string {
   if (run.deliveryOutcome === 'reviewed') return outcomeLabel('reviewed');
   return runStateLabel(run.state);
 }
+
+/**
+ * The Activity table's "Result": a run left for someone to merge says what happened
+ * to its pull request once it's merged or closed; otherwise the stored outcome.
+ */
+export function runResultLabel(run: Pick<Run, 'deliveryOutcome' | 'changeRequestState'>): string {
+  if (run.deliveryOutcome === 'awaiting_external_merge') {
+    if (run.changeRequestState === 'merged') return outcomeLabel('merged');
+    if (run.changeRequestState === 'closed') return 'Closed without merging';
+  }
+  return outcomeLabel(run.deliveryOutcome);
+}

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, subscribeEvents } from '../api';
 import type { Run } from '@asf/shared';
-import { PAGE as TITLES, OUTCOME_LABEL, runStateLabel, outcomeLabel } from '../words';
+import { PAGE as TITLES, OUTCOME_LABEL, runStateLabel } from '../words';
+import { runResultLabel } from '../review-view';
 import { ActiveWork } from '../components/ActiveWork';
 
 const RUN_STATES = ['queued', 'running', 'awaiting_checkpoint', 'succeeded', 'failed', 'cancelled', 'stale', 'halted'];
@@ -98,7 +99,7 @@ export function Runs() {
                 <td className="mono">{r.ticketKey}</td>
                 <td><span className={`pill ${r.state}`}>{runStateLabel(r.state)}</span></td>
                 <td className="muted">{r.teamName}</td>
-                <td className="muted">{outcomeLabel(r.deliveryOutcome)}</td>
+                <td className="muted">{runResultLabel(r)}</td>
                 <td className="muted">${r.costUsd.toFixed(2)}</td>
                 <td className="muted">{r.startedAt ? new Date(r.startedAt).toLocaleString() : '—'}</td>
               </tr>

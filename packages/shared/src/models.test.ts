@@ -47,8 +47,14 @@ test('every default is a catalogue model + valid effort, and the standard team c
 
 test('tiers order from cheapest to strongest', () => {
   const tiers = (provider: string) => MODELS.filter((m) => m.providerId === provider).map((m) => m.tier);
-  assert.deepEqual(tiers('anthropic'), ['fast', 'balanced', 'max', 'max', 'max']);
+  assert.deepEqual(tiers('anthropic'), ['fast', 'balanced', 'balanced', 'max', 'max', 'max']);
   assert.deepEqual(tiers('openai'), ['fast', 'balanced', 'max']);
+});
+
+test('Sonnet 5.5 is selectable and priced', () => {
+  assert.ok(MODELS.some((m) => m.id === 'claude-sonnet-5-5' && m.tier === 'balanced'));
+  assert.equal(isKnownModel('claude-sonnet-5-5', MODELS), true);
+  assert.equal(priceUsage('claude-sonnet-5-5', { inputTokens: 1_000_000, outputTokens: 1_000_000 }), 18);
 });
 
 test('Opus 5.5 is selectable and priced', () => {

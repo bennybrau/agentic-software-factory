@@ -66,6 +66,10 @@ services:
       # Bind all interfaces so the worker container can reach it (see registry note).
       # The host publish binding below is loopback unless ASF_BIND is set.
       API_HOST: 0.0.0.0
+      # The host address the port below is published on, for the AUTH_MODE=header guard: header
+      # mode is only safe when that is loopback (tailscale serve/Caddy is then the only way in).
+      # Keep it the same expression as the `ports:` entry.
+      API_PUBLISH_HOST: ${ASF_BIND:-127.0.0.1}
       REGISTRY_URL: http://registry:8788
       WEB_DIST: /app/web
       DATABASE_URL: ''   # only the registry talks to Postgres

@@ -29,6 +29,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 |---|---|---|---|---|---|
 | `API_PORT` | number | `8787` | env | api | Port the api binds. PORT (Cloud Run) overrides. |
 | `API_HOST` | string | `127.0.0.1` | env | api | Bind address; 0.0.0.0 in a container (automatic when PORT is present). |
+| `API_PUBLISH_HOST` | string | *(blank)* | env | api | Host address the api port is published on. docker-compose.self-host.yml sets it from ASF_BIND (do not set it in .env; compose overrides it). When set, AUTH_MODE=header is allowed only if it is loopback, because then the proxy on the host is the only way in. |
 | `API_URL` | string | `http://127.0.0.1:8787` | env | worker | Where the worker reaches the api (alias BFF_URL). |
 | `BFF_URL` | string | *(blank)* | env | worker | Alias of API_URL (takes precedence when set). |
 | `WEB_DIST` | string | *(blank)* | env | api | Serve the built web bundle from this directory at /. Blank = the Vite dev server serves it (pnpm dev). |

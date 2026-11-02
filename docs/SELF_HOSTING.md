@@ -95,7 +95,7 @@ run as the worker's user.
 | Postgres password | `POSTGRES_PASSWORD=…` | Compose wires the registry's `DATABASE_URL` from it. `setup.sh` generates it. |
 | Work tracker / source control | `TICKET_PROVIDER`, `SCM_PROVIDER` | Left **blank** by `setup.sh` so the **Settings** UI owns them (chosen live, no restart). Pre-seed from the env instead if you prefer: `TICKET_PROVIDER=github` (+ `GITHUB_TOKEN`, `GITHUB_REPOS`), `jira`, or `trello`. See [`PROVIDERS.md`](PROVIDERS.md). |
 | Agent auth | `AGENT_AUTH_MODE` (+ credential) | Left blank so **Settings → Which AI should do the work?** owns it (API key, subscription token, or Claude on Google Cloud). Export a mode + credential in the launching shell to hard-pin the fleet (env wins over the UI). Vertex: [`VERTEX.md`](VERTEX.md). |
-| Who is the operator | `AUTH_MODE`, `AUTH_HEADER` | `none` for one person; `header` + `AUTH_HEADER=Tailscale-User-Login` when serving through Tailscale so runs record who dispatched them. |
+| Who is the operator | `AUTH_MODE`, `AUTH_HEADER` | `none` for one person; `header` + `AUTH_HEADER=Tailscale-User-Login` when serving through Tailscale so runs record who dispatched them. Header mode needs the api published on loopback (`ASF_BIND` unset); compose passes that address to the api as `API_PUBLISH_HOST` and the api refuses to start in header mode on anything else. |
 | Cost guardrails | `ORG_MAX_COST_USD`, `ORG_MONTHLY_BUDGET_USD` | Also editable later in the UI. |
 
 Everything else has a working default. Full list: [`CONFIGURATION.md`](CONFIGURATION.md).

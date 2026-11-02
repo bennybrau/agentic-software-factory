@@ -71,6 +71,8 @@ export const SETTINGS = {
   // --------------------------------------------------------------------- api
   API_PORT: S({ type: 'number', default: 8787, tiers: ['env'], group: 'API', readBy: ['api'], description: 'Port the api binds. PORT (Cloud Run) overrides.' }),
   API_HOST: S({ type: 'string', default: '127.0.0.1', tiers: ['env'], group: 'API', readBy: ['api'], description: 'Bind address; 0.0.0.0 in a container (automatic when PORT is present).' }),
+  API_PUBLISH_HOST: S({ type: 'string', default: '', tiers: ['env'], group: 'API', readBy: ['api'],
+    description: 'Host address the api port is published on. docker-compose.self-host.yml sets it from ASF_BIND (do not set it in .env; compose overrides it). When set, AUTH_MODE=header is allowed only if it is loopback, because then the proxy on the host is the only way in.' }),
   API_URL: S({ type: 'string', default: 'http://127.0.0.1:8787', tiers: ['env'], group: 'API', readBy: ['worker'], description: 'Where the worker reaches the api (alias BFF_URL).' }),
   BFF_URL: S({ type: 'string', default: '', tiers: ['env'], group: 'API', readBy: ['worker'], description: 'Alias of API_URL (takes precedence when set).' }),
   WEB_DIST: S({ type: 'string', default: '', tiers: ['env'], group: 'API', readBy: ['api'],

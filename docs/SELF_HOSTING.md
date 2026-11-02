@@ -45,7 +45,7 @@ command (`asf up|down|logs|status|doctor|update|backup|restore|reset|uninstall`)
 |---|---|---|
 | `postgres` | not published | `pgdata` volume. The only thing the registry connects to. |
 | `registry` | `expose: 8788` (never published in mode 1) | Runs, tasks, gates, orchestrator, sweeper, SSE. Binds `0.0.0.0` inside the network; unreachable from the host by design. |
-| `api` | `127.0.0.1:${ASF_PORT:-8787}` → `8787` | Serves the web bundle + the API on one loopback origin. Put Tailscale/Caddy in front to reach it from elsewhere ([`INSTALL.md`](INSTALL.md#reach-it-from-other-devices--tailscale)). |
+| `api` | `${ASF_BIND:-127.0.0.1}:${ASF_PORT:-8787}` → `8787` | Serves the web bundle + the API on one loopback origin. Put Tailscale/Caddy in front to reach it from elsewhere ([`INSTALL.md`](INSTALL.md#reach-it-from-other-devices--tailscale)), or set `ASF_BIND=0.0.0.0` to publish it on every interface — **ASF has no login, so anyone who can reach the port can drive it**; only on a trusted network. |
 | `worker` | internal `8790` | `worktrees` + `runs` volumes. Mounts the host's `~/.config/gcloud` read-only at `/etc/asf/gcloud` for Vertex ADC. Agents run as their own user (see below). `deploy.resources.limits.memory: 8g`. |
 | `backup` | — | Nightly `pg_dump` into the `backups` volume, 14-day retention. |
 | `testdb` | not published | Only with `ASF_TEST_DB=1`. Scratch Postgres for the agents' tests, in memory. |

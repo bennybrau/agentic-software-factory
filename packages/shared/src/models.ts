@@ -77,6 +77,7 @@ const OPUS_RATE: ModelRate = { inputPerM: 15, outputPerM: 75, cacheReadPerM: 1.5
 export const MODELS: ModelInfo[] = [
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — fast, cheapest', tier: 'fast', providerId: 'anthropic', runtimes: ['claude-code', 'opencode'], rate: { inputPerM: 1, outputPerM: 5, cacheReadPerM: 0.1, cacheWritePerM: 1.25 } },
   { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — balanced', tier: 'balanced', providerId: 'anthropic', runtimes: ['claude-code', 'opencode', 'copilot'], rate: { inputPerM: 3, outputPerM: 15, cacheReadPerM: 0.3, cacheWritePerM: 3.75 } },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 — latest Sonnet, balanced', tier: 'balanced', providerId: 'anthropic', runtimes: ['claude-code', 'opencode'], rate: { inputPerM: 3, outputPerM: 15, cacheReadPerM: 0.3, cacheWritePerM: 3.75 } },
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 — strongest, ~5× Sonnet', tier: 'max', providerId: 'anthropic', runtimes: ['claude-code', 'opencode'], rate: OPUS_RATE },
   { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 — latest Opus, ~5× Sonnet', tier: 'max', providerId: 'anthropic', runtimes: ['claude-code', 'opencode'], rate: OPUS_RATE },
   // OpenAI, driven by the Codex CLI. Standard short-context (<272K) list prices from

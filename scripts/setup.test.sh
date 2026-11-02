@@ -76,6 +76,16 @@ exit 0
 EOF
 chmod +x "$FAKE_BIN/pnpm"
 
+# Free disk is faked too: tests point HOME at mktemp dirs, and on some runners /tmp is a small
+# RAM disk (ubuntu-26.04 images before 20261025 mount a 7.8 GB tmpfs), which would trip the
+# >= 10 GB preflight for reasons unrelated to the test. FAKE_DF_KB=<n> sets the available KB.
+cat > "$FAKE_BIN/df" <<'EOF'
+#!/usr/bin/env bash
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "fakefs 1073741824 0 ${FAKE_DF_KB:-536870912} 0% ${!#}"
+EOF
+chmod +x "$FAKE_BIN/df"
+
 run_setup() { # runs setup.sh from within FAKE_ROOT with fakes on PATH
   ( cd "$FAKE_ROOT" && PATH="$FAKE_BIN:$PATH" "$FAKE_ROOT/scripts/setup.sh" "$@" )
 }
@@ -202,6 +212,15 @@ out="$(ASF_MODE=3 ASF_PORT=9124 run_setup --non-interactive --no-up 2>&1)"; code
 assert_eq "$code" "0" "mode 3 non-interactive --no-up succeeds"
 pw3="$(get POSTGRES_PASSWORD)"
 assert_eq "$(get DATABASE_URL)" "postgres://asf:${pw3}@localhost:5432/asf" "mode 3 rewrites DATABASE_URL with the generated password"
+
+# --- low disk => preflight fails, exit 1, no .env written ---------------
+rm -f "$FAKE_ROOT/.env" "$FAKE_ROOT/.env.bak"
+out="$(FAKE_DF_KB=$((9 * 1024 * 1024)) ASF_MODE=1 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_eq "$code" "1" "under 10 GB free fails preflight"
+assert_contains "$out" "disk: only 9 GB free" "low disk is named in the preflight"
+[ -f "$FAKE_ROOT/.env" ] && fail "low disk: no .env written" || pass
+out="$(FAKE_DF_KB=$((10 * 1024 * 1024)) ASF_MODE=1 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_eq "$code" "0" "exactly 10 GB free passes preflight"
 
 # --- mode 2: writes the host-worker override files and advertises the host worker
 rm -f "$FAKE_ROOT/.env" "$FAKE_ROOT/.env.bak"

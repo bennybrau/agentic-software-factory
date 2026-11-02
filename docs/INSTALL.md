@@ -154,7 +154,9 @@ hangs waiting for a cert. The config persists across reboots.
 Now `https://<host>.<tailnet>.ts.net` is the factory, with TLS, reachable only from
 your tailnet. `tailscale serve` also forwards the caller's identity in the
 `Tailscale-User-Login` header — set `AUTH_MODE=header` + `AUTH_HEADER=Tailscale-User-Login`
-in `.env` to record who dispatched each run.
+in `.env` to record who dispatched each run. This needs the port published on loopback only
+(no `ASF_BIND` in `.env`), so `tailscale serve` is the only way in and nobody can send that
+header themselves; with `ASF_BIND` set to anything else the api refuses to start in header mode.
 
 **Or bind it directly.** Setup asks "Reach the UI from other machines?"; answering y
 writes `ASF_BIND=0.0.0.0` to `.env`, so the UI is published on every interface at
@@ -162,7 +164,8 @@ writes `ASF_BIND=0.0.0.0` to `.env`, so the UI is published on every interface a
 `ASF_BIND=0.0.0.0 ./scripts/setup.sh` (or set `ASF_BIND` in `.env` and `asf up`).
 **ASF has no login: anyone who can reach that port can drive the factory** — use it
 only on a trusted network such as your tailnet, with the port closed on the router and
-host firewall. There is no TLS and no caller identity; `tailscale serve` gives you both.
+host firewall. There is no TLS and no caller identity (`AUTH_MODE=header` is refused on a
+port published like this); `tailscale serve` gives you both.
 
 Without Tailscale: Caddy on the host with `reverse_proxy 127.0.0.1:8787` and a real
 domain, with basic auth or an OAuth proxy in front — nothing in the app authenticates

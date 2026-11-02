@@ -9,10 +9,12 @@ import { resolve } from '@asf/shared';
  *           unverified because nothing checked it.
  *   header  an upstream proxy (Google IAP, Tailscale serve, an SSO gateway) has
  *           already authenticated the user and set AUTH_HEADER. We trust it —
- *           but only when the api is NOT directly reachable, i.e. it binds
- *           loopback/VPC and the proxy is the only way in. Binding 0.0.0.0 with
- *           header mode would let anyone spoof the header, so that combination
- *           is refused at boot (assertIdentityConfig).
+ *           but only when the api is NOT directly reachable and the proxy is
+ *           the only way in: either the api binds loopback/VPC, or (in a
+ *           container) its port is published on loopback only, which compose
+ *           tells us through API_PUBLISH_HOST. Anything else would let a direct
+ *           caller spoof the header, so it is refused at boot
+ *           (assertIdentityConfig).
  *
  * IAP sets X-Goog-Authenticated-User-Email to `accounts.google.com:alice@x.com`;
  * we return the bare address.
@@ -24,7 +26,14 @@ export interface Identity { user: string; verified: boolean; mode: string }
 
 function authMode(): string { return resolve('AUTH_MODE'); }
 function authHeader(): string { return resolve('AUTH_HEADER'); }
-function apiHost(): string { return process.env.PORT ? '0.0.0.0' : resolve('API_HOST'); }
+// Same precedence as config.ts: an explicit API_HOST wins, else PORT (a container) means 0.0.0.0.
+function apiHost(): string { return process.env.API_HOST ? resolve('API_HOST') : process.env.PORT ? '0.0.0.0' : resolve('API_HOST'); }
+function publishHost(): string { return resolve('API_PUBLISH_HOST').trim(); }
+
+export function isLoopback(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return h === 'localhost' || h === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
 
 export function resolveIdentity(req: FastifyRequest): Identity {
   if (authMode() === 'header') {
@@ -44,18 +53,32 @@ export function resolveIdentity(req: FastifyRequest): Identity {
 }
 
 /**
- * Boot-time guard: header mode is only safe behind a proxy, i.e. when the api
- * binds a private address. Refuse header + a public bind so a header cannot be
- * spoofed by a direct caller.
+ * Boot-time guard: header mode is only safe when the proxy is the only way in.
+ *
+ * In a container the api has to bind 0.0.0.0 (the worker reaches it over the
+ * compose network), so the bind address alone says nothing. What decides who
+ * can reach it from outside is the host address docker publishes the port on.
+ * docker-compose.self-host.yml passes that as API_PUBLISH_HOST, from the same
+ * ASF_BIND expression as its `ports:` line. When it is set, it decides: loopback
+ * is allowed (tailscale serve / Caddy on the host is the only way in), anything
+ * else is refused. When it isn't set, the bind address decides, as before.
  */
 export function assertIdentityConfig(): void {
-  if (authMode() === 'header') {
-    const host = apiHost();
-    if (host === '0.0.0.0') {
-      throw new Error(
-        `AUTH_MODE=header requires the api to sit behind a proxy, but the api binds ${host} (publicly reachable). ` +
-        'Bind loopback/VPC and let the proxy (IAP/Tailscale/SSO) reach it, or use AUTH_MODE=none.',
-      );
-    }
+  if (authMode() !== 'header') return;
+  const published = publishHost();
+  if (published) {
+    if (isLoopback(published)) return;
+    throw new Error(
+      `AUTH_MODE=header needs the proxy to be the only way in, but the api's port is published on ${published} (ASF_BIND), ` +
+      `so anyone who can reach that port could send ${authHeader()} themselves. ` +
+      'Remove ASF_BIND from .env (loopback is the default) and reach ASF through tailscale serve, or use AUTH_MODE=none.',
+    );
+  }
+  const host = apiHost();
+  if (host === '0.0.0.0') {
+    throw new Error(
+      `AUTH_MODE=header requires the api to sit behind a proxy, but the api binds ${host} (publicly reachable). ` +
+      'Bind loopback/VPC and let the proxy (IAP/Tailscale/SSO) reach it, or use AUTH_MODE=none.',
+    );
   }
 }

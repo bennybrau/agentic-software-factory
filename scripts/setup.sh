@@ -56,12 +56,15 @@ Usage: scripts/setup.sh [options]
   --no-supervisor     mode 2: write worker.env and build, but do not install or start the
                       launchd/systemd supervisor (you start the worker yourself)
   --pull              pull prebuilt images and start (no local build); default builds
-  --non-interactive   never prompt; read ASF_MODE / ASF_PORT / ASF_FORCE from the environment
+  --non-interactive   never prompt; read ASF_MODE / ASF_PORT / ASF_BIND / ASF_FORCE from the environment
   --help              show this help
 
 Environment (used by --non-interactive):
   ASF_MODE   1|2|3     which mode, or containers|host-worker|dev (default 1)
   ASF_PORT   number    host port the UI binds (default 8787)
+  ASF_BIND   IPv4      host address the UI binds (default 127.0.0.1; 0.0.0.0 = every
+                       interface — ASF has no login, so only on a trusted network).
+                       Also updates an existing .env: ASF_BIND=0.0.0.0 ./scripts/setup.sh
   ASF_FORCE  1         same as --force
   ASF_PULL   1         same as --pull
 EOF
@@ -85,6 +88,21 @@ done
 [ -t 0 ] || INTERACTIVE=0
 [ "${ASF_FORCE:-}" = "1" ] && FORCE=1
 [ "${ASF_PULL:-}" = "1" ] && PULL=1
+
+# ASF_BIND is the host address docker publishes the UI on; only IPv4 is accepted.
+is_ipv4() {
+  local IFS=. a b c d extra o
+  read -r a b c d extra <<< "$1"
+  [ -z "$extra" ] || return 1
+  for o in "$a" "$b" "$c" "$d"; do
+    case "$o" in ''|*[!0-9]*) return 1 ;; esac
+    [ "${#o}" -le 3 ] && [ "$((10#$o))" -le 255 ] || return 1
+  done
+}
+if [ -n "${ASF_BIND:-}" ] && ! is_ipv4 "$ASF_BIND"; then
+  printf '%sinvalid ASF_BIND: %s (want an IPv4 address, e.g. 127.0.0.1 or 0.0.0.0)%s\n' "$C_RED" "$ASF_BIND" "$C_RESET" >&2
+  exit 2
+fi
 
 # --- helpers ----------------------------------------------------------------
 rand_hex() { # $1 = bytes of entropy -> 2*$1 hex chars
@@ -287,6 +305,14 @@ if [ -f "$ENV_FILE" ] && [ "$FORCE" -ne 1 ]; then
   [ -n "$ASF_PORT_VALUE" ] || ASF_PORT_VALUE="$DEFAULT_PORT"
   ok ".env already present — keeping it (use --force to regenerate)"
   info "port from .env: ${ASF_PORT_VALUE}"
+  # ASF_BIND from the environment switches an existing install (e.g. to 0.0.0.0).
+  if [ -n "${ASF_BIND:-}" ]; then
+    set_env_key "$ENV_FILE" ASF_BIND "$ASF_BIND"
+    chmod 600 "$ENV_FILE"
+    ok "set ASF_BIND=${ASF_BIND} in .env"
+  fi
+  ASF_BIND_VALUE="$(read_env_key "$ENV_FILE" ASF_BIND)"
+  [ -n "$ASF_BIND_VALUE" ] || ASF_BIND_VALUE="127.0.0.1"
   # Upgrade path for #9: an .env from before saved-token encryption gets a key, so
   # the registry encrypts the tokens already saved in Settings on its next boot.
   # An existing key is NEVER replaced — that would orphan every saved token.
@@ -311,6 +337,17 @@ else
       warn "port ${ASF_PORT_VALUE} is already in use — continuing (it may be your existing ASF)."
     fi
   fi
+
+  # Where the UI is published: the environment wins, then (with --force) the
+  # existing .env, then a question (modes 1 and 2), then loopback.
+  ASF_BIND_VALUE="${ASF_BIND:-}"
+  [ -n "$ASF_BIND_VALUE" ] || ASF_BIND_VALUE="$(read_env_key "$ENV_FILE" ASF_BIND)"
+  if [ -z "$ASF_BIND_VALUE" ] && [ "$INTERACTIVE" -eq 1 ] && [ "$MODE" != "3" ]; then
+    printf '  Reach the UI from other machines (e.g. over Tailscale)? [y/N]: '
+    read -r reply || reply=""
+    case "$reply" in y|Y|yes|YES) ASF_BIND_VALUE="0.0.0.0" ;; esac
+  fi
+  [ -n "$ASF_BIND_VALUE" ] || ASF_BIND_VALUE="127.0.0.1"
 
   if [ -f "$ENV_FILE" ]; then
     cp "$ENV_FILE" "$ENV_FILE.bak"
@@ -345,6 +382,7 @@ else
   [ -z "$HOST_GATEWAY_VALUE" ] || set_env_key "$TMP_ENV" ASF_HOST_GATEWAY "$HOST_GATEWAY_VALUE"
   [ -z "$TEST_DB_VALUE" ] || set_env_key "$TMP_ENV" ASF_TEST_DB "$TEST_DB_VALUE"
   set_env_key "$TMP_ENV" ASF_PORT "$ASF_PORT_VALUE"
+  set_env_key "$TMP_ENV" ASF_BIND "$ASF_BIND_VALUE"
   # The day-2 CLI (scripts/asf) reads the mode from .env to decide, e.g., whether
   # `up` also starts a host worker (mode 2).
   set_env_key "$TMP_ENV" ASF_MODE "$MODE"
@@ -367,6 +405,7 @@ else
   printf '    %s%-18s %s%s\n' "$C_DIM" "POSTGRES_PASSWORD" "$(mask "$POSTGRES_PASSWORD_VALUE")" "$C_RESET"
   printf '    %s%-18s %s%s\n' "$C_DIM" "ASF_SECRET_KEY" "$(mask "$SECRET_KEY_VALUE") (back up .env: database backups need it)" "$C_RESET"
   printf '    %s%-18s %s%s\n' "$C_DIM" "ASF_PORT" "$ASF_PORT_VALUE" "$C_RESET"
+  printf '    %s%-18s %s%s\n' "$C_DIM" "ASF_BIND" "$ASF_BIND_VALUE" "$C_RESET"
   printf '    %s%-18s %s%s\n' "$C_DIM" "AUTH_MODE" "none" "$C_RESET"
   printf '    %s%-18s %s%s\n' "$C_DIM" "TICKET_PROVIDER" "(blank — set in the web UI)" "$C_RESET"
   printf '    %s%-18s %s%s\n' "$C_DIM" "SCM_PROVIDER" "(blank — set in the web UI)" "$C_RESET"
@@ -655,6 +694,22 @@ printf '    1. Where your tickets and code live\n'
 printf '    2. %sWhich AI should do the work?%s  Claude or ChatGPT/OpenAI, with step-by-step help getting a key\n' "$C_BOLD" "$C_RESET"
 printf '    3. Pick a ticket and press Start\n'
 printf '  Nothing to edit here: the worker picks up the AI you connect within a minute.\n'
+if [ "$MODE" != "3" ]; then
+  case "$ASF_BIND_VALUE" in
+    127.*) ;;
+    *)
+      REMOTE_HOST="$ASF_BIND_VALUE"
+      if [ "$REMOTE_HOST" = "0.0.0.0" ]; then
+        REMOTE_HOST="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+        [ -n "$REMOTE_HOST" ] || REMOTE_HOST="$(hostname 2>/dev/null || echo '<this-host>')"
+      fi
+      printf '\n'
+      printf '  From other machines:            %s%shttp://%s:%s%s\n' "$C_BOLD" "$C_GREEN" "$REMOTE_HOST" "$ASF_PORT_VALUE" "$C_RESET"
+      warn "the UI is published on ${ASF_BIND_VALUE}:${ASF_PORT_VALUE}. ASF has no login: anyone who can reach this port can drive it."
+      info "Keep it on a trusted network (e.g. your tailnet), or set ASF_BIND=127.0.0.1 in .env and put tailscale serve in front."
+      ;;
+  esac
+fi
 if [ "$MODE" = "2" ]; then
   printf '\n'
   printf '  %sHost worker (mode 2):%s the agent runs on THIS machine (supervised); the compose stack runs everything else.\n' "$C_BOLD" "$C_RESET"

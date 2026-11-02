@@ -281,5 +281,37 @@ fi
 assert_contains "$out" "skipping the launchd/systemd unit" "--no-supervisor says it skipped the supervisor"
 rm -rf "$FAKE_HOME2"
 
+# --- ASF_BIND: where the UI is published (loopback unless asked) ------------
+assert_contains "$(cat "$REPO_ROOT/docker-compose.self-host.yml")" "'\${ASF_BIND:-127.0.0.1}:\${ASF_PORT:-8787}:8787'" "compose publishes the api on \${ASF_BIND:-127.0.0.1}"
+rm -f "$FAKE_ROOT/.env" "$FAKE_ROOT/.env.bak"
+out="$(ASF_MODE=1 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_eq "$code" "0" "default run succeeds"
+assert_eq "$(get ASF_BIND)" "127.0.0.1" "default run writes ASF_BIND=127.0.0.1"
+assert_not_contains "$out" "ASF has no login" "loopback bind prints no exposure warning"
+
+rm -f "$FAKE_ROOT/.env" "$FAKE_ROOT/.env.bak"
+out="$(ASF_MODE=1 ASF_BIND=0.0.0.0 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_eq "$code" "0" "ASF_BIND=0.0.0.0 succeeds"
+assert_eq "$(get ASF_BIND)" "0.0.0.0" "ASF_BIND=0.0.0.0 is written to .env"
+assert_contains "$out" "ASF has no login" "a non-loopback bind warns there is no login"
+assert_contains "$out" "From other machines:" "a non-loopback bind prints a remote URL"
+
+out="$(ASF_MODE=1 run_setup --non-interactive --no-up --force 2>&1)"; code=$?
+assert_eq "$code" "0" "--force with ASF_BIND in .env succeeds"
+assert_eq "$(get ASF_BIND)" "0.0.0.0" "--force keeps ASF_BIND"
+
+out="$(ASF_MODE=1 ASF_BIND=127.0.0.1 run_setup --non-interactive --no-up 2>&1)"; code=$?
+assert_eq "$code" "0" "existing .env + ASF_BIND succeeds"
+assert_contains "$out" "already present" "existing .env is kept"
+assert_eq "$(get ASF_BIND)" "127.0.0.1" "existing .env + ASF_BIND updates the key"
+
+for badbind in "::" "localhost" "256.0.0.1" "1.2.3" "1.2.3.4.5"; do
+  before="$(cat "$FAKE_ROOT/.env")"
+  out="$(ASF_MODE=1 ASF_BIND="$badbind" run_setup --non-interactive --no-up 2>&1)"; code=$?
+  [ "$code" -ne 0 ] && pass || fail "ASF_BIND=$badbind exits non-zero"
+  assert_contains "$out" "invalid ASF_BIND" "ASF_BIND=$badbind is refused with a reason"
+  assert_eq "$(cat "$FAKE_ROOT/.env")" "$before" "ASF_BIND=$badbind leaves .env untouched"
+done
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

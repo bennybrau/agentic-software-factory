@@ -1,7 +1,8 @@
 # Self-hosted factory: every service as a container, restart-always, state in
 # named volumes.   docker compose -f docker-compose.self-host.yml up -d --build
 # Configuration: copy .env.example to .env (see docs/CONFIGURATION.md).
-# Access: the api binds loopback; put Tailscale/Caddy in front (docs/SELF_HOSTING.md).
+# Access: the api binds loopback unless ASF_BIND says otherwise; put Tailscale/Caddy in
+# front (docs/SELF_HOSTING.md).
 name: asf
 services:
   postgres:
@@ -63,7 +64,7 @@ services:
     environment:
       PORT: 8787
       # Bind all interfaces so the worker container can reach it (see registry note).
-      # The host publish binding below is still loopback-only.
+      # The host publish binding below is loopback unless ASF_BIND is set.
       API_HOST: 0.0.0.0
       REGISTRY_URL: http://registry:8788
       WEB_DIST: /app/web
@@ -79,9 +80,10 @@ services:
       # and lets an update be applied from the UI.
       ASF_LOCAL_SUPERVISOR: '1'
       SUPERVISOR_URL: http://supervisor:8791
-    # Loopback only; expose it to people through Tailscale or a reverse proxy.
+    # Loopback by default; expose it through Tailscale or a reverse proxy. ASF_BIND=0.0.0.0
+    # in .env publishes it on every interface — ASF has no login, so only on a trusted network.
     ports:
-      - '127.0.0.1:${ASF_PORT:-8787}:8787'
+      - '${ASF_BIND:-127.0.0.1}:${ASF_PORT:-8787}:8787'
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 5s

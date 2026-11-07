@@ -82,4 +82,6 @@ export interface ScmProvider {
   markReady(repo: Repo, number: number): Promise<void>;
   /** Only ever called after the `before_merge` gate resolves. */
   merge(repo: Repo, number: number, opts: { method: 'merge' | 'squash' | 'rebase' }): Promise<void>;
+  /** Paths a change request touches, at most `limit` (providers cap at 500). Optional: the Hive hook sends [] without it. */
+  changedFiles?(repo: Repo, number: number, limit: number): Promise<string[]>;
 }

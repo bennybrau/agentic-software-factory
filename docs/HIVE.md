@@ -1,6 +1,6 @@
 # Hive
 
-ASF can send each finished run to [Hive](https://github.com/bennybrau/hive) so
+ASF can send each merged run to [Hive](https://github.com/bennybrau/hive) so
 Hive remembers what the factory has already done. It is off until `HIVE_URL` is
 set.
 
@@ -18,10 +18,13 @@ To turn it off, clear `HIVE_URL` and run `scripts/asf up` again.
 
 ## What is sent
 
-One episode per **succeeded** run, POSTed to `<HIVE_URL>/v1/episodes`:
+One episode per run whose pull request was **merged** (by the factory or by a
+person), POSTed to `<HIVE_URL>/v1/episodes`. A run that succeeded but whose PR
+is still open, or was closed, is not sent.
 
 ```json
-{ "kind": "asf_run", "repo_key": "gh/owner/repo", "ref": "<run id>", "content": "..." }
+{ "kind": "asf_run", "repo_key": "gh/owner/repo", "ref": "<run id>", "content": "...",
+  "metadata": { "merged_at": "<ISO time>", "pr_url": "https://...", "title": "<ticket title>", "paths": ["src/a.ts"] } }
 ```
 
 - `repo_key` is `gh/<owner/repo>` on GitHub, `gl/<group/repo>` on GitLab. A run
@@ -31,10 +34,14 @@ One episode per **succeeded** run, POSTed to `<HIVE_URL>/v1/episodes`:
   link, then the latest `plan.md` and `review.md` the agents wrote. If the
   tracker can't be read, the ticket key stands in for the title. Nothing is
   truncated.
+- `metadata.merged_at` is when the PR merged (the run's first
+  `change_request:merged` event, else when the run finished).
+- `metadata.paths` are the files the PR changed, at most 500. It is `[]` when
+  the SCM can't list them; the episode is still sent.
 
 ## When
 
-The api checks once a minute for succeeded runs that finished since it started
+The api checks once a minute for runs that merged since it started
 (minus a day) and sends each one it hasn't sent yet. A failed send (Hive down,
 an error answer) is logged and retried on the next check, up to 5 times, then
 given up with a log line. The hook runs separately from the orchestrator, so
@@ -45,15 +52,15 @@ sent again; Hive dedupes it.
 
 ## Backfill
 
-Runs that finished before the hook was on (or more than a day before a
+Runs that merged before the hook was on (or more than a day before a
 restart) are sent with:
 
 ```bash
 scripts/asf hive-backfill --dry-run                 # how many runs, how many bytes
-scripts/asf hive-backfill --since 2026-01-01         # send those finished since then
-scripts/asf hive-backfill                            # send every succeeded run
+scripts/asf hive-backfill --since 2026-01-01         # send those merged since then
+scripts/asf hive-backfill                            # send every merged run
 ```
 
-It sends oldest first, about 3 a second. Without `--dry-run` it refuses while
+It sends oldest merge first, about 3 a second. Without `--dry-run` it refuses while
 `HIVE_URL` is blank. It exits non-zero if any run failed to send; running it
 again is safe.

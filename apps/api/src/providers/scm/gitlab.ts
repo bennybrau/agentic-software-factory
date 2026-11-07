@@ -233,6 +233,17 @@ export class GitlabScmProvider implements ScmProvider {
     }));
   }
 
+  async changedFiles(repo: Repo, number: number, limit: number): Promise<string[]> {
+    const max = Math.min(limit, 500);
+    const out: string[] = [];
+    for (let page = 1; out.length < max; page++) {
+      const diffs = await this.gl<{ new_path: string }[]>('GET', `/projects/${this.pid(repo.path)}/merge_requests/${number}/diffs?per_page=100&page=${page}`);
+      out.push(...diffs.map((d) => d.new_path));
+      if (diffs.length < 100) break;
+    }
+    return out.slice(0, max);
+  }
+
   async comment(repo: Repo, number: number, body: string, anchor?: { path: string; line: number }): Promise<void> {
     if (anchor) {
       // A positioned discussion needs the MR's diff refs to anchor against.

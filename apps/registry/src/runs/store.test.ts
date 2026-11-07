@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRun, RunConflictError, appendEvent, getEvents, requestCancel, getRun, listRuns, taskProgress, runsAwaitingExternalMerge } from './store.js';
+import { createRun, RunConflictError, appendEvent, getEvents, requestCancel, getRun, listRuns, taskProgress, runsAwaitingExternalMerge, hiveMergedRuns } from './store.js';
 import { finishTask, claimTask, registerWorker } from './workers.js';
 import { dbAvailable, testDb, runInput, drain } from '../test/harness.js';
 import { DEFAULT_GATES } from '@asf/shared';
@@ -169,4 +169,32 @@ test('merge watch set: open/ready, plus closed for a day so a wrong "closed" can
   await appendEvent(db.sql, { runId: justClosed, taskId: null, kind: 'change_request:merged', source: 'orchestrator', payload: { number: 1, external: true } });
   assert.equal((await getRun(db.sql, justClosed))!.run.changeRequestState, 'merged');
   assert.ok(!(await runsAwaitingExternalMerge(db.sql, 100)).some((r) => r.id === justClosed));
+});
+
+test('hiveMergedRuns: merged runs with a repo, stamped and ordered by merge time, since filters on it', { skip }, async () => {
+  const mk = async (key: string, set: { crState: string | null; repo: string | null; finishedAgo: string }) => {
+    const { run } = await createRun(db.sql, runInput({ ticketId: `hv-${key}`, ticketKey: `HV-${key}` }));
+    await db.sql`UPDATE agent_run SET state = 'succeeded', repo_id = ${set.repo}, change_request_number = 1,
+      change_request_state = ${set.crState}, finished_at = now() - ${set.finishedAgo}::interval WHERE id = ${run.id}`;
+    return run.id;
+  };
+  // Finished long ago, merged (by the watcher) just now.
+  const lateMerge = await mk('late', { crState: 'merged', repo: 'r', finishedAgo: '30 days' });
+  await appendEvent(db.sql, { runId: lateMerge, taskId: null, kind: 'change_request:merged', source: 'orchestrator', payload: { number: 1 } });
+  // Merged with no event: falls back to finished_at.
+  const noEvent = await mk('noevent', { crState: 'merged', repo: 'r', finishedAgo: '2 days' });
+  const closed = await mk('closed', { crState: 'closed', repo: 'r', finishedAgo: '1 hour' });
+  const noCr = await mk('nocr', { crState: null, repo: 'r', finishedAgo: '1 hour' });
+  const noRepo = await mk('norepo', { crState: 'merged', repo: null, finishedAgo: '1 hour' });
+
+  const mine = new Set([lateMerge, noEvent, closed, noCr, noRepo]);
+  const all = (await hiveMergedRuns(db.sql, { limit: 1000 })).filter((r) => mine.has(r.id));
+  assert.deepEqual(all.map((r) => r.id), [noEvent, lateMerge]);
+  const [ev] = (await getEvents(db.sql, lateMerge, 0, 100)).filter((e) => e.kind === 'change_request:merged');
+  assert.equal(all[1].mergedAt, ev.at);
+  assert.equal(all[0].mergedAt, (await getRun(db.sql, noEvent))!.run.finishedAt);
+
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const recent = (await hiveMergedRuns(db.sql, { since, limit: 1000 })).filter((r) => mine.has(r.id));
+  assert.deepEqual(recent.map((r) => r.id), [lateMerge]);
 });

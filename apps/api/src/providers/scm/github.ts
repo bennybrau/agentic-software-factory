@@ -212,6 +212,17 @@ export class GithubScmProvider implements ScmProvider {
     }));
   }
 
+  async changedFiles(repo: Repo, number: number, limit: number): Promise<string[]> {
+    const max = Math.min(limit, 500);
+    const out: string[] = [];
+    for (let page = 1; out.length < max; page++) {
+      const files = await this.gh<{ filename: string }[]>('GET', `/repos/${repo.path}/pulls/${number}/files?per_page=100&page=${page}`);
+      out.push(...files.map((f) => f.filename));
+      if (files.length < 100) break;
+    }
+    return out.slice(0, max);
+  }
+
   async comment(repo: Repo, number: number, body: string, anchor?: { path: string; line: number }): Promise<void> {
     if (anchor) {
       // A line comment needs the head sha to anchor against.

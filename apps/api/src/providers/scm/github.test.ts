@@ -194,3 +194,35 @@ test('preflight explains a bad token and a missing repository in plain words, no
       { ok: false, reason: 'GitHub can’t find the repository acme/scratch. Check the spelling (owner/name), or that octocat has access to it.' });
   } finally { s.restore(); }
 });
+
+function stubPagedFiles(totalFiles: number) {
+  const calls: string[] = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => {
+    calls.push(String(url));
+    const page = Number(new URL(String(url)).searchParams.get('page'));
+    const start = (page - 1) * 100;
+    const names = Array.from({ length: Math.max(0, Math.min(100, totalFiles - start)) },
+      (_, i) => `file-${start + i}.ts`);
+    return { ok: true, status: 200, json: async () => names.map((filename) => ({ filename })), text: async () => '[]' } as Response;
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = orig; } };
+}
+
+test('changedFiles pages until a short page, under the cap', async () => {
+  const s = stubPagedFiles(150);
+  try {
+    const files = await new GithubScmProvider(cfg()).changedFiles(REPO, 5, 500);
+    assert.equal(files.length, 150);
+    assert.equal(s.calls.length, 2);
+  } finally { s.restore(); }
+});
+
+test('changedFiles stops paging once the 500 cap is reached', async () => {
+  const s = stubPagedFiles(600);
+  try {
+    const files = await new GithubScmProvider(cfg()).changedFiles(REPO, 5, 1000);
+    assert.equal(files.length, 500);
+    assert.equal(s.calls.length, 5);
+  } finally { s.restore(); }
+});

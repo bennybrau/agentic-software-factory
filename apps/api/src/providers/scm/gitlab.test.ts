@@ -216,3 +216,35 @@ test('preflight explains a bad token and a missing project in plain words, not r
       { ok: false, reason: 'GitLab can’t find the project acme/scratch. Check the spelling (group/project), or that octocat has access to it.' });
   } finally { s.restore(); }
 });
+
+function stubPagedDiffs(totalFiles: number) {
+  const calls: string[] = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => {
+    calls.push(String(url));
+    const page = Number(new URL(String(url)).searchParams.get('page'));
+    const start = (page - 1) * 100;
+    const names = Array.from({ length: Math.max(0, Math.min(100, totalFiles - start)) },
+      (_, i) => `file-${start + i}.ts`);
+    return { ok: true, status: 200, json: async () => names.map((new_path) => ({ new_path })), text: async () => '[]' } as Response;
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = orig; } };
+}
+
+test('changedFiles pages until a short page, under the cap', async () => {
+  const s = stubPagedDiffs(150);
+  try {
+    const files = await new GitlabScmProvider(cfg()).changedFiles(REPO, 5, 500);
+    assert.equal(files.length, 150);
+    assert.equal(s.calls.length, 2);
+  } finally { s.restore(); }
+});
+
+test('changedFiles stops paging once the 500 cap is reached', async () => {
+  const s = stubPagedDiffs(600);
+  try {
+    const files = await new GitlabScmProvider(cfg()).changedFiles(REPO, 5, 1000);
+    assert.equal(files.length, 500);
+    assert.equal(s.calls.length, 5);
+  } finally { s.restore(); }
+});

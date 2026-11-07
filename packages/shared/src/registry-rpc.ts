@@ -110,6 +110,8 @@ export const rpcRequestSchema = z.discriminatedUnion('op', [
     state: z.enum(['dispatched', 'failed']), runId: z.string().nullable().default(null), reason: z.string().nullable().default(null) }),
   // merge-watcher: runs that finished awaiting an external merge, to poll the SCM for.
   z.object({ op: z.literal('runsAwaitingExternalMerge'), limit: z.number().int().positive().max(100).default(50) }),
+  z.object({ op: z.literal('hiveMergedRuns'), since: z.string().datetime({ offset: true }).optional(),
+    limit: z.number().int().positive().max(1000).default(500), offset: z.number().int().nonnegative().default(0) }),
   // Today view (M6 WP6.2): the four landing-page buckets in one aggregate.
   z.object({ op: z.literal('today'), since: z.string() }),
   // Notifications (M6 WP6.3): the web inbox + the external-sink delivery cursor.
@@ -208,6 +210,8 @@ export interface RpcResults {
   removeQueueEntry: { ok: true };
   readyQueueEntries: { entries: z.infer<typeof workQueueEntrySchema>[] };
   runsAwaitingExternalMerge: { runs: z.infer<typeof runSchema>[] };
+  /** Merged runs for the Hive hook, oldest merge first. */
+  hiveMergedRuns: { runs: (z.infer<typeof runSchema> & { mergedAt: string })[] };
   markQueueEntry: { ok: true };
   today: TodayWire;
   listNotifications: { notifications: NotificationWire[]; unread: number };

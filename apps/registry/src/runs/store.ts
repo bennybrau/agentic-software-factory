@@ -114,6 +114,25 @@ export async function runsAwaitingExternalMerge(sql: Sql, limit: number): Promis
   return rows.map(rowToRun);
 }
 
+/**
+ * Merged runs for the Hive hook (#78): a run with a repo whose change request
+ * is merged, stamped with when it merged — the first change_request:merged
+ * event, or finished_at for a run merged before that event existed. Oldest
+ * merge first; `since` filters on that merge time.
+ */
+export async function hiveMergedRuns(sql: Sql, q: { since?: string; limit: number; offset?: number }): Promise<(Run & { mergedAt: string })[]> {
+  const rows = await sql`SELECT * FROM (
+      SELECT r.*, COALESCE(
+        (SELECT min(e.at) FROM run_events e WHERE e.run_id = r.id AND e.kind = 'change_request:merged'),
+        r.finished_at) AS merged_at
+      FROM agent_run r
+      WHERE r.change_request_state = 'merged' AND r.repo_id IS NOT NULL) m
+    WHERE merged_at IS NOT NULL
+      AND (${q.since ?? null}::timestamptz IS NULL OR merged_at >= ${q.since ?? null}::timestamptz)
+    ORDER BY merged_at, id LIMIT ${q.limit} OFFSET ${q.offset ?? 0}`;
+  return rows.map((r) => ({ ...rowToRun(r), mergedAt: iso(r.mergedAt)! }));
+}
+
 export async function getEvents(sql: Sql, runId: string, afterSeq: number, limit: number): Promise<RunEvent[]> {
   const rows = await sql`SELECT * FROM run_events WHERE run_id = ${runId} AND seq > ${afterSeq} ORDER BY seq LIMIT ${limit}`;
   return rows.map(rowToEvent);

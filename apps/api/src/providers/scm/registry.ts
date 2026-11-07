@@ -56,6 +56,11 @@ export class ScmProviderRegistry {
       markReady: (repo: Repo, number: number) => this.current().then((p) => p.markReady(repo, number)),
       merge: (repo: Repo, number: number, opts: { method: 'merge' | 'squash' | 'rebase' }) =>
         this.current().then((p) => p.merge(repo, number, opts)),
+      // Optional on providers; the live wrapper throws when the current one lacks it (callers fall back).
+      changedFiles: (repo: Repo, number: number, limit: number): Promise<string[]> => this.current().then((p) => {
+        if (!p.changedFiles) throw new Error(`${p.kind} cannot list changed files`);
+        return p.changedFiles(repo, number, limit);
+      }),
     };
     // `kind` stays a live getter (it follows hot-swaps); an arrow keeps `this` = the registry.
     Object.defineProperty(live, 'kind', { get: () => (this.instance?.kind ?? 'mock') as ScmProviderKind, enumerable: true });

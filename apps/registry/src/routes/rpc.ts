@@ -67,6 +67,7 @@ export function rpcHandlers(sql: Sql): Handler {
     removeQueueEntry: async (r) => { await queue.removeQueueEntry(sql, r.id, r.by); return { ok: true as const }; },
     readyQueueEntries: async (r) => ({ entries: await queue.readyQueueEntries(sql, r.limit) }),
     runsAwaitingExternalMerge: async (r) => ({ runs: await store.runsAwaitingExternalMerge(sql, r.limit) }),
+    hiveMergedRuns: async (r) => ({ runs: await store.hiveMergedRuns(sql, { since: r.since, limit: r.limit, offset: r.offset }) }),
     markQueueEntry: async (r) => { await queue.markQueueEntry(sql, r.id, r.state, r.runId, r.reason); return { ok: true as const }; },
     today: async (r) => today(sql, new Date(r.since)),
     listNotifications: async (r) => notifications.listNotifications(sql, { unreadOnly: r.unreadOnly, limit: r.limit }),

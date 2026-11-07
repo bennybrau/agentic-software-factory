@@ -73,6 +73,8 @@ Usage: scripts/asf <command> [args]
   restore <file>     restore the database from a .sql.gz dump
   secret-key         add ASF_SECRET_KEY to .env and encrypt saved tokens
                      (--rotate: move every saved token to a fresh key)
+  hive-backfill [--since <date>] [--dry-run]
+                     send past succeeded runs to Hive (docs/HIVE.md)
   reset --yes        DESTROY all data and volumes (double-confirmed)
   uninstall [opts]   remove the whole install (stack, data, host worker, .env) so
                      scripts/setup.sh starts fresh; see scripts/uninstall.sh --help
@@ -702,6 +704,7 @@ case "$cmd" in
   backup)   cmd_backup "$@" ;;
   restore)  cmd_restore "$@" ;;
   secret-key) cmd_secret_key "$@" ;;
+  hive-backfill) compose exec -T api node apps/api/dist/hive-backfill.js "$@" ;;
   reset)    cmd_reset "$@" ;;
   uninstall) exec "$SCRIPT_DIR/uninstall.sh" "$@" ;;
   open)     cmd_open "$@" ;;

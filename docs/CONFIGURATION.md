@@ -103,6 +103,13 @@ Every decision is a named setting resolved **environment variable > org setting 
 | `TELEGRAM_CHAT_ID` | string | *(blank)* | env, org | api | Telegram chat id the bot posts notifications to (a user, group, or channel id). Required when NOTIFY_SINKS includes telegram. |
 | `NOTIFY_POLL_MS` | number | `5000` | env | api | How often the api looks for undelivered notifications to push to external sinks. |
 
+## Hive
+
+| Key | Type | Default | Set from | Read by | Description |
+|---|---|---|---|---|---|
+| `HIVE_URL` | string | *(blank)* | env, org | api | Hive base URL. When set, the api sends each succeeded run (ticket, PR link, plan and review) to <HIVE_URL>/v1/episodes about a minute after it finishes; see docs/HIVE.md. Blank = off. |
+| `HIVE_TOKEN` | string | *(secret)* | env, org | api | Hive API token, sent as Authorization: Bearer. Blank = no Authorization header. |
+
 ## Identity
 
 | Key | Type | Default | Set from | Read by | Description |

@@ -17,6 +17,7 @@ import { registerDispatchRoutes } from './routes/dispatch.js';
 import { registerQueueRoutes } from './routes/queue.js';
 import { startScheduler } from './scheduler.js';
 import { startMergeWatch } from './merge-watcher.js';
+import { startHiveHook } from './hive.js';
 import { startNotifier } from './notifications/sinks.js';
 import { startCredentialChecks } from './credential-health.js';
 import { registerBrowserRoutes } from './routes/browser.js';
@@ -164,8 +165,10 @@ const stopScheduler = startScheduler({ tickets, scm }, app.log);
 const stopNotifier = startNotifier(app.log);
 // The merge-watcher lands runs left awaiting an external merge once a human merges/closes the MR/PR.
 const stopMergeWatch = startMergeWatch({ tickets, scm }, app.log);
+// The Hive hook sends each succeeded run to Hive (#76); off while HIVE_URL is blank.
+const stopHiveHook = startHiveHook({ tickets }, app.log);
 // Credential health (#139): re-test the tracker/SCM tokens and the subscription token's age.
 const stopCredentialChecks = startCredentialChecks({ tickets: ticketRegistry, scm: scmRegistry }, app.log);
 // Update check: is a newer ASF release published? At boot, then daily while UPDATE_CHECK_ENABLED.
 const stopUpdateChecks = startUpdateChecks(app.log);
-for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, async () => { stopScheduler(); stopNotifier(); stopMergeWatch(); stopCredentialChecks(); stopUpdateChecks(); await app.close(); process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, async () => { stopScheduler(); stopNotifier(); stopMergeWatch(); stopHiveHook(); stopCredentialChecks(); stopUpdateChecks(); await app.close(); process.exit(0); });

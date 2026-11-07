@@ -1,10 +1,10 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { backfillHive, buildEpisode, newHiveHookState, tickHive, HIVE_MAX_ATTEMPTS } from './hive.js';
+import { backfillHive, buildDialogEpisode, buildEpisode, newHiveHookState, tickHive, HIVE_MAX_ATTEMPTS } from './hive.js';
 import type { MergedRun } from './hive.js';
-import type { ArtifactWire, Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
+import type { ArtifactWire, HiveDialogItem, Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 
-// One fake fetch plays both sides: the registry RPC (hiveMergedRuns, listArtifacts) and
+// One fake fetch plays both sides: the registry RPC (hiveMergedRuns, hiveDialog, listArtifacts) and
 // Hive's POST /v1/episodes, which we record (or fail on demand).
 const realFetch = global.fetch;
 afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'SCM_PROVIDER']) delete process.env[k]; });
@@ -42,14 +42,15 @@ function fakeScm(files: string[] | 'throw' | 'missing' = ['src/a.ts', 'src/b.ts'
 }
 const deps = { tickets, scm: fakeScm() };
 
-type Sent = { url: string; auth: string | null; body: { ref: string; repo_key: string; content: string; kind: string; metadata: { merged_at: string; pr_url: string | null; title: string; paths: string[] } } };
+type Sent = { url: string; auth: string | null; body: { ref: string; repo_key: string; content: string; kind: string; metadata: { merged_at: string; pr_url: string | null; title: string; paths: string[]; author?: string | null } } };
 
 /**
  * Stub fetch. `runs` is every run the registry knows; hiveMergedRuns answers the
  * merged ones (like the registry, filtering on since and ordering by mergedAt).
  * `hive` decides each Hive answer: a status, or 'throw' for a network error.
+ * `dialog` is what hiveDialog answers (filtered on since).
  */
-function stub(runs: MergedRun[], hive: (n: number) => number | 'throw' = () => 200) {
+function stub(runs: MergedRun[], hive: (n: number) => number | 'throw' = () => 200, dialog: HiveDialogItem[] = []) {
   const sent: Sent[] = [];
   let hiveCalls = 0;
   global.fetch = (async (url: string, init?: { body?: string; headers?: Record<string, string> }) => {
@@ -59,6 +60,9 @@ function stub(runs: MergedRun[], hive: (n: number) => number | 'throw' = () => 2
         const merged = runs.filter((r) => r.changeRequestState === 'merged' && (!body.since || r.mergedAt >= body.since))
           .sort((a, b) => a.mergedAt.localeCompare(b.mergedAt));
         return json({ ok: true, result: { runs: body.offset ? [] : merged } });
+      }
+      if (body.op === 'hiveDialog') {
+        return json({ ok: true, result: { items: body.offset ? [] : dialog.filter((d) => !body.since || d.at >= body.since) } });
       }
       if (body.op === 'listArtifacts') return json({ ok: true, result: { artifacts } });
       return json({ ok: true, result: {} });
@@ -207,4 +211,46 @@ test('tick: a succeeded run whose PR is not merged is not sent', async () => {
   const sent = stub([run({ id: 'open', changeRequestState: 'open' }), run({ id: 'closed', changeRequestState: 'closed' }), run()]);
   await tickHive(deps, newHiveHookState(), log);
   assert.deepEqual(sent.map((s) => s.body.ref), ['run_1']);
+});
+
+function item(over: Partial<HiveDialogItem> = {}): HiveDialogItem {
+  return { kind: 'gate', runId: 'run_1', repoId: 'example/app', id: 'gate_1', text: 'Use Node.', answer: 'Python or Node?',
+    author: 'jon', at: new Date().toISOString(), ...over };
+}
+
+test('buildDialogEpisode: asf_dialog, <run>:<kind>:<id> ref, assistant then user; null without a repo', () => {
+  const ep = buildDialogEpisode(item())!;
+  assert.deepEqual(ep, {
+    kind: 'asf_dialog', repo_key: 'gh/example/app', ref: 'run_1:gate:gate_1',
+    content: 'assistant: Python or Node?\nuser: Use Node.', metadata: { author: 'jon' },
+  });
+  assert.equal(buildDialogEpisode(item({ kind: 'msg', id: 'msg_9' }))!.ref, 'run_1:msg:msg_9');
+  assert.equal(buildDialogEpisode(item({ repoId: '' })), null);
+});
+
+test('tick: a run whose PR was closed sends its dialog but no asf_run', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  const sent = stub([run({ id: 'closed', changeRequestState: 'closed' })], () => 200, [item({ runId: 'closed' })]);
+  assert.equal(await tickHive(deps, newHiveHookState(), log), 1);
+  assert.deepEqual(sent.map((s) => [s.body.kind, s.body.ref]), [['asf_dialog', 'closed:gate:gate_1']]);
+});
+
+test('tick: dialog is sent once across ticks; one written before the lookback is not sent', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  const old = item({ id: 'gate_old', at: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+  const sent = stub([run()], () => 200, [item(), item({ kind: 'msg', id: 'msg_1' }), old]);
+  const state = newHiveHookState();
+  assert.equal(await tickHive(deps, state, log), 3);
+  assert.equal(await tickHive(deps, state, log), 0);
+  assert.deepEqual(sent.map((s) => s.body.ref), ['run_1', 'run_1:gate:gate_1', 'run_1:msg:msg_1']);
+});
+
+test('backfill --dry-run: counts dialog messages too', async () => {
+  const mergedAt = new Date().toISOString();
+  const sent = stub([run({ id: 'a', mergedAt })], () => 200, [item(), item({ kind: 'msg', id: 'msg_1' }), item({ id: 'g2', repoId: '' })]);
+  const r = await backfillHive(deps, { dryRun: true }, log);
+  const run1 = Buffer.byteLength(JSON.stringify(buildEpisode(run({ id: 'a', mergedAt }), artifacts, 'Fix the thing', ['src/a.ts', 'src/b.ts'])));
+  const dlg = [item(), item({ kind: 'msg', id: 'msg_1' })].map((d) => Buffer.byteLength(JSON.stringify(buildDialogEpisode(d))));
+  assert.equal(sent.length, 0);
+  assert.deepEqual({ runs: r.runs, dialog: r.dialog, bytes: r.bytes }, { runs: 1, dialog: 2, bytes: run1 + dlg[0] + dlg[1] });
 });

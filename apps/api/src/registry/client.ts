@@ -71,6 +71,8 @@ export const registry = {
   runsAwaitingExternalMerge: (limit?: number) => rpc({ op: 'runsAwaitingExternalMerge', limit: limit ?? 50 }),
   hiveMergedRuns: (q: { since?: string; limit?: number; offset?: number } = {}) =>
     rpc({ op: 'hiveMergedRuns', since: q.since, limit: q.limit ?? 500, offset: q.offset ?? 0 }),
+  hiveDialog: (q: { since?: string; limit?: number; offset?: number } = {}) =>
+    rpc({ op: 'hiveDialog', since: q.since, limit: q.limit ?? 500, offset: q.offset ?? 0 }),
   markQueueEntry: (id: string, state: 'dispatched' | 'failed', runId: string | null, reason: string | null) => rpc({ op: 'markQueueEntry', id, state, runId, reason }),
   today: (since: string) => rpc({ op: 'today', since }),
   listNotifications: (q: { unreadOnly?: boolean; limit?: number } = {}) => rpc({ op: 'listNotifications', unreadOnly: q.unreadOnly ?? false, limit: q.limit ?? 50 }),

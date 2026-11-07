@@ -58,6 +58,15 @@ export interface RunMessageWire {
   author: 'agent' | 'human'; kind: 'question' | 'plan' | 'reply' | 'message';
   body: string; by: string | null; sessionId: string | null; createdAt: string;
 }
+/**
+ * One human turn for the Hive hook (#78): a gate decision with a note, or a
+ * person's chat message. `text` is what they wrote, `answer` what the agent had
+ * last put in front of them (≤1,500 chars; '' when nothing).
+ */
+export interface HiveDialogItem {
+  kind: 'gate' | 'msg'; runId: string; repoId: string; id: string;
+  text: string; answer: string; author: string | null; at: string;
+}
 
 export const rpcRequestSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('createRun'), input: createRunInputSchema }),
@@ -111,6 +120,8 @@ export const rpcRequestSchema = z.discriminatedUnion('op', [
   // merge-watcher: runs that finished awaiting an external merge, to poll the SCM for.
   z.object({ op: z.literal('runsAwaitingExternalMerge'), limit: z.number().int().positive().max(100).default(50) }),
   z.object({ op: z.literal('hiveMergedRuns'), since: z.string().datetime({ offset: true }).optional(),
+    limit: z.number().int().positive().max(1000).default(500), offset: z.number().int().nonnegative().default(0) }),
+  z.object({ op: z.literal('hiveDialog'), since: z.string().datetime({ offset: true }).optional(),
     limit: z.number().int().positive().max(1000).default(500), offset: z.number().int().nonnegative().default(0) }),
   // Today view (M6 WP6.2): the four landing-page buckets in one aggregate.
   z.object({ op: z.literal('today'), since: z.string() }),
@@ -212,6 +223,8 @@ export interface RpcResults {
   runsAwaitingExternalMerge: { runs: z.infer<typeof runSchema>[] };
   /** Merged runs for the Hive hook, oldest merge first. */
   hiveMergedRuns: { runs: (z.infer<typeof runSchema> & { mergedAt: string })[] };
+  /** Human gate notes and chat messages for the Hive hook, oldest first. */
+  hiveDialog: { items: HiveDialogItem[] };
   markQueueEntry: { ok: true };
   today: TodayWire;
   listNotifications: { notifications: NotificationWire[]; unread: number };

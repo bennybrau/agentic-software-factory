@@ -107,7 +107,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 
 | Key | Type | Default | Set from | Read by | Description |
 |---|---|---|---|---|---|
-| `HIVE_URL` | string | *(blank)* | env, org | api | Hive base URL. When set, the api sends each merged run (ticket, PR link, plan, review and changed paths) to <HIVE_URL>/v1/episodes about a minute after it merges; see docs/HIVE.md. Blank = off. Set in Settings → Hive. |
+| `HIVE_URL` | string | *(blank)* | env, org | api | Hive base URL. When set, the api sends each merged run (ticket, PR link, plan, review and changed paths), and each gate note and chat message a person writes, to <HIVE_URL>/v1/episodes about a minute later; see docs/HIVE.md. Blank = off. Set in Settings → Hive. |
 | `HIVE_TOKEN` | string | *(secret)* | env, org | api | Hive API token, sent as Authorization: Bearer. Blank = no Authorization header. |
 
 ## Identity

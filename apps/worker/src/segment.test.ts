@@ -59,19 +59,19 @@ async function drainWith(lines: string | null): Promise<CreateAdhocInput[]> {
   const dir = await mkdtemp(join(tmpdir(), 'asf-todos-'));
   if (lines !== null) await writeFile(join(dir, 'todos.outbox.jsonl'), lines);
   const made: CreateAdhocInput[] = [];
-  await drainTodosOutbox(dir, 'implementer', async (input) => { made.push(input); return null; });
+  await drainTodosOutbox(dir, 'implementer', 'run_1', async (input) => { made.push(input); return null; });
   await rm(dir, { recursive: true, force: true });
   return made;
 }
 
-test('drainTodosOutbox: parses each line into a createAdhoc call tagged with the role', async () => {
+test('drainTodosOutbox: parses each line into a createAdhoc call tagged with the role and the run', async () => {
   const made = await drainWith([
     JSON.stringify({ title: 'First', body: 'b1' }),
     JSON.stringify({ title: 'Second' }),
   ].join('\n'));
   assert.equal(made.length, 2);
-  assert.deepEqual(made[0], { title: 'First', body: 'b1', createdBy: 'agent:implementer', attachments: [] });
-  assert.deepEqual(made[1], { title: 'Second', body: '', createdBy: 'agent:implementer', attachments: [] });
+  assert.deepEqual(made[0], { title: 'First', body: 'b1', createdBy: 'agent:implementer', attachments: [], sourceRunId: 'run_1' });
+  assert.deepEqual(made[1], { title: 'Second', body: '', createdBy: 'agent:implementer', attachments: [], sourceRunId: 'run_1' });
 });
 
 test('drainTodosOutbox: a later role in the same run dir files nothing again', async () => {
@@ -81,7 +81,7 @@ test('drainTodosOutbox: a later role in the same run dir files nothing again', a
   await writeFile(join(dir, 'todos.outbox.jsonl'), JSON.stringify({ title: 'Follow-up' }) + '\n');
   const made: CreateAdhocInput[] = [];
   for (const role of ['implementer', 'tester', 'reviewer']) {
-    await drainTodosOutbox(dir, role, async (input) => { made.push(input); return null; });
+    await drainTodosOutbox(dir, role, 'run_1', async (input) => { made.push(input); return null; });
   }
   await rm(dir, { recursive: true, force: true });
   assert.deepEqual(made.map((m) => [m.title, m.createdBy]), [['Follow-up', 'agent:implementer']]);

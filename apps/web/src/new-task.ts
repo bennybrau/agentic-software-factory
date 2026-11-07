@@ -1,5 +1,11 @@
 import { attachmentProblem, parseReviewRequest, type AdhocLimits } from '@asf/shared/ui';
 
+/** The "Added by" cell for a to-do: who added it, plus the repository its run was in for an agent's to-do. */
+export function addedBy(t: { createdBy: string | null; sourceRepoId?: string | null }): string {
+  const who = t.createdBy ?? '—';
+  return t.sourceRepoId ? `${who} · ${t.sourceRepoId}` : who;
+}
+
 /** The file's metadata as the New task screen and the api check it. */
 export interface PickedMeta { name: string; mime: string; size: number }
 

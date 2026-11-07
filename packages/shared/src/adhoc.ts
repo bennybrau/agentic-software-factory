@@ -76,6 +76,8 @@ export const adhocTaskSchema = z.object({
   recurringId: z.string().nullable().optional(),
   /** That schedule's title; null when the schedule has since been deleted. */
   recurringTitle: z.string().nullable().optional(),
+  /** An agent to-do: the repository the run that added it was working in (#82). */
+  sourceRepoId: z.string().nullable().optional(),
 });
 export type AdhocTask = z.infer<typeof adhocTaskSchema>;
 
@@ -103,6 +105,8 @@ export const createAdhocInputSchema = z.object({
   body: z.string(),
   createdBy: z.string().nullable().default(null),
   attachments: z.array(adhocFileInputSchema),
+  /** An agent to-do: the run that added it (stored as parent_run_id with no part). */
+  sourceRunId: z.string().nullable().optional(),
 });
 export type CreateAdhocInput = z.infer<typeof createAdhocInputSchema>;
 

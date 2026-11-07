@@ -29,8 +29,9 @@ export async function applySplit(tx: Db, runId: string, planMd: string | null, b
   if (run.changeRequestUrl) {
     throw new SplitError(`${run.ticketKey} already has a pull request, so it can't be split now. Remove the asf-split block from the plan to keep working on that pull request.`);
   }
-  const [parentTask] = await tx`SELECT title, parent_run_id FROM adhoc_task WHERE id = ${String(run.ticketId)}`;
-  if (parentTask?.parentRunId) {
+  // parent_run_id with no part is an agent to-do (the run that added it), not a split part.
+  const [parentTask] = await tx`SELECT title, parent_run_id, part FROM adhoc_task WHERE id = ${String(run.ticketId)}`;
+  if (parentTask?.parentRunId && parentTask.part != null) {
     throw new SplitError(`${run.ticketKey} is already a part of a split; split it no further. Remove the asf-split block from the plan, or ask the planner to fit it in one pull request.`);
   }
   const parent = { key: String(run.ticketKey), title: parentTask?.title ? String(parentTask.title) : String(run.ticketKey) };
@@ -65,9 +66,9 @@ export async function getSplitFamily(sql: Db, runId: string): Promise<SplitFamil
   let parentRunId = runId;
   let currentPart: number | null = null;
   const [mine] = await sql`SELECT parent_run_id, part FROM adhoc_task WHERE id = ${String(run.ticketId)}`;
-  if (mine?.parentRunId) { parentRunId = String(mine.parentRunId); currentPart = mine.part == null ? null : Number(mine.part); }
+  if (mine?.parentRunId && mine.part != null) { parentRunId = String(mine.parentRunId); currentPart = mine.part == null ? null : Number(mine.part); }
 
-  const tasks = await sql`SELECT id, key, title, part FROM adhoc_task WHERE parent_run_id = ${parentRunId} ORDER BY part`;
+  const tasks = await sql`SELECT id, key, title, part FROM adhoc_task WHERE parent_run_id = ${parentRunId} AND part IS NOT NULL ORDER BY part`;
   if (tasks.length === 0) return null;
   const ids = tasks.map((t) => String(t.id));
   const keyOf = new Map(tasks.map((t) => [String(t.id), String(t.key)]));

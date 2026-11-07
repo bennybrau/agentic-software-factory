@@ -2,7 +2,8 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createAdhoc, getAdhoc, getAdhocAttachment, listAdhoc, deleteAdhoc } from './adhoc-store.js';
 import { rpcHandlers } from '../routes/rpc.js';
-import { dbAvailable, testDb } from '../test/harness.js';
+import { createRun } from './store.js';
+import { dbAvailable, testDb, runInput } from '../test/harness.js';
 
 let db: Awaited<ReturnType<typeof testDb>>;
 const skip = !(await dbAvailable());
@@ -30,6 +31,18 @@ test('createAdhoc stores the task and its attachments; getAdhoc reads them back 
 
   const again = await getAdhoc(db.sql, task.id);
   assert.deepEqual(again, task);
+});
+
+test('an agent to-do carries the repository of the run that added it; a hand-made one has none', { skip }, async () => {
+  const { run } = await createRun(db.sql, runInput({ ticketId: 'src-1', ticketKey: 'SRC-1', repoId: 'bennybrau/hive' }));
+  const todo = await createAdhoc(db.sql, { title: 'Follow-up', body: '', createdBy: 'agent:implementer', attachments: [], sourceRunId: run.id });
+  const hand = await createAdhoc(db.sql, { title: 'By hand', body: '', createdBy: 'ana', attachments: [] });
+  assert.equal(todo.sourceRepoId, 'bennybrau/hive');
+  assert.equal((await getAdhoc(db.sql, todo.id))!.sourceRepoId, 'bennybrau/hive');
+  assert.equal(hand.sourceRepoId, null);
+  const listed = await listAdhoc(db.sql);
+  assert.equal(listed.find((t) => t.id === todo.id)?.sourceRepoId, 'bennybrau/hive');
+  assert.equal(listed.find((t) => t.id === hand.id)?.sourceRepoId, null);
 });
 
 test('getAdhocAttachment returns the exact bytes; unknown task or name is null', { skip }, async () => {

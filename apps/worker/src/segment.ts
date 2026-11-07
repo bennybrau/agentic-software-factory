@@ -402,7 +402,7 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
   }
   // Turn whatever this role proposed in its run-dir outbox into ad-hoc tasks. The file
   // lives in the run dir, so a read-only role that never wrote one simply no-ops here.
-  await drainTodosOutbox(runDir, String(task.role), (input) => api.createAdhoc(input));
+  await drainTodosOutbox(runDir, String(task.role), run.id, (input) => api.createAdhoc(input));
   await api.event(run.id, 'segment:finished', { role: task.role, outcome: outcome.outcome, costUsd }, task.id);
   return {
     outcome: outcome.outcome,
@@ -464,9 +464,10 @@ const TODOS_OUTBOX = { maxItems: 20, maxTitle: 200, maxBody: 100_000 } as const;
  *
  * The run dir is shared by every role, so the file is moved aside before it is read:
  * the next role starts with no outbox and can't file the same items again.
+ * Each item records `runId` as its source, so dispatch can suggest that run's repository.
  */
 export async function drainTodosOutbox(
-  runDir: string, role: string,
+  runDir: string, role: string, runId: string,
   create: (input: CreateAdhocInput) => Promise<AdhocTask | null>,
 ): Promise<void> {
   const outbox = join(runDir, 'todos.outbox.jsonl');
@@ -486,7 +487,7 @@ export async function drainTodosOutbox(
     if (typeof obj?.title !== 'string' || !obj.title.trim()) continue;
     const title = obj.title.trim().slice(0, TODOS_OUTBOX.maxTitle);
     const body = typeof obj.body === 'string' ? obj.body.slice(0, TODOS_OUTBOX.maxBody) : '';
-    await create({ title, body, createdBy: `agent:${role}`, attachments: [] });
+    await create({ title, body, createdBy: `agent:${role}`, attachments: [], sourceRunId: runId });
     made++;
   }
 }

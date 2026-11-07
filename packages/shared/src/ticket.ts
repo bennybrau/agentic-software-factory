@@ -33,6 +33,8 @@ export const ticketSchema = z.object({
   /** Ad-hoc tickets only: the recurring task (#188) that created it, and its title (null once the schedule is deleted). */
   recurringId: z.string().nullable().optional(),
   recurringTitle: z.string().nullable().optional(),
+  /** Ad-hoc tickets only: the repository the run that added this to-do was working in. */
+  sourceRepoId: z.string().nullable().optional(),
 });
 export type Ticket = z.infer<typeof ticketSchema>;
 

@@ -6,7 +6,7 @@ export function adhocToTicket(t: AdhocTask): Ticket {
   return {
     id: t.id, key: t.key, url: '', title: t.title, body: t.body, status: 'Ad-hoc', bucket: 'ready',
     priority: null, assignee: null, labels: [], links: [], parentId: null, children: [], updatedAt: t.createdAt,
-    recurringId: t.recurringId ?? null, recurringTitle: t.recurringTitle ?? null,
+    recurringId: t.recurringId ?? null, recurringTitle: t.recurringTitle ?? null, sourceRepoId: t.sourceRepoId ?? null,
   };
 }
 
@@ -39,6 +39,8 @@ export class AdhocTicketProvider implements TicketProvider {
     const { task } = await registry.getAdhoc(id);
     return task?.attachments ?? [];
   }
+  /** An agent to-do suggests the repository its run was working in; hand-made tasks and split parts suggest none. */
+  suggestedRepo(t: Ticket): string | null { return t.sourceRepoId ?? null; }
   async update(): Promise<never> { throw new Error('adhoc: tasks cannot be edited'); }
   async createSubtask(): Promise<never> { throw new Error('adhoc: subtasks not supported'); }
   async addLink(): Promise<never> { throw new Error('adhoc: links not supported'); }

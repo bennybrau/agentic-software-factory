@@ -153,3 +153,15 @@ test('a part of a split cannot itself be split', { skip }, async () => {
   const gate = await getOpenGate(db.sql, runId);
   await assert.rejects(resolveGate(db.sql, gate!.id, { decision: 'approve', by: 'jon', note: null, editedArtifact: null }), /already a part of a split/);
 });
+
+test('an agent to-do (parent_run_id, no part) is not in a split family and can still be split', { skip }, async () => {
+  const sourceRunId = await plannedRun('s7', 'SP-7', '# Plan\n\nSmall change.');
+  const todo = await createAdhoc(db.sql, { title: 'follow-up', body: 'b', createdBy: 'agent:implementer', attachments: [], sourceRunId });
+  assert.equal(await getSplitFamily(db.sql, sourceRunId), null, 'the run that added a to-do is not a split parent');
+  const runId = await plannedRun('s8', todo.key, SPLIT_PLAN, todo.id);
+  assert.equal(await getSplitFamily(db.sql, runId), null, 'the to-do run is not a split part');
+  const gate = await getOpenGate(db.sql, runId);
+  await resolveGate(db.sql, gate!.id, { decision: 'approve', by: 'jon', note: null, editedArtifact: null });
+  assert.equal((await getRun(db.sql, runId))!.run.deliveryOutcome, 'split');
+  assert.equal((await getSplitFamily(db.sql, runId))?.parts.length, 3);
+});

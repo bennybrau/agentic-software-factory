@@ -36,6 +36,7 @@ export const QUESTIONS: readonly QuestionDef[] = [
   { id: 'board', tier: 'later', keys: ['TICKET_STATUS_INPROGRESS', 'TICKET_STATUS_INREVIEW', 'TICKET_STATUS_DONE', 'TICKET_ASSIGNEE'] },
   { id: 'guidance', tier: 'later', keys: ['ROLE_SKILL_PLANNER', 'ROLE_SKILL_IMPLEMENTER', 'ROLE_SKILL_TESTER', 'ROLE_SKILL_REVIEWER'] },
   { id: 'alerts', tier: 'later', keys: ['NOTIFY_SINKS', 'TELEGRAM_CHAT_ID', 'WEB_BASE_URL'] },
+  { id: 'hive', tier: 'later', keys: ['HIVE_URL', 'HIVE_TOKEN'] },
   { id: 'look', tier: 'later', keys: ['THEME'] },
 ];
 
@@ -57,8 +58,6 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   QUEUE_ENABLED: 'operator switch',
   MERGE_WATCH_ENABLED: 'operator switch',
   UPDATE_CHECK_ENABLED: 'operator switch (a Settings section comes with the updates UI, ADHOC-CDBC5883)',
-  HIVE_URL: 'operator: the Hive hook (#76, docs/HIVE.md) has no Settings section yet',
-  HIVE_TOKEN: 'operator: the Hive hook (#76, docs/HIVE.md) has no Settings section yet',
   SEGMENT_TIMEOUT_MS: 'operator tuning',
   WORKER_MAX_TURNS: 'operator tuning',
   MAX_TURNS_PLANNER: 'operator tuning',

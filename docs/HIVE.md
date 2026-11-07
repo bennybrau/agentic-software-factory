@@ -6,15 +6,17 @@ set.
 
 ## Turning it on and off
 
-Set these in `.env`, then run `scripts/asf up` (there is no Settings section
-for them yet):
+Set them in Settings → "Send finished work to Hive?". A value in `.env` still
+wins and locks the field there. The settings are:
 
 | Setting      | What it is                                                         |
 |--------------|--------------------------------------------------------------------|
 | `HIVE_URL`   | Hive's base URL, e.g. `https://hive.example.com`. Blank = off.     |
 | `HIVE_TOKEN` | Hive API token, sent as `Authorization: Bearer <token>`. Optional. |
 
-To turn it off, clear `HIVE_URL` and run `scripts/asf up` again.
+To turn it off, clear the address in Settings. It takes effect within about a
+minute, with no restart. (If `HIVE_URL` is in `.env`, clear it there and run
+`scripts/asf up` again.)
 
 ## What is sent
 

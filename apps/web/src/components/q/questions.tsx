@@ -823,5 +823,42 @@ export const alertsQ: Question = {
   },
 };
 
+// ── 10. Hive ─────────────────────────────────────────────────────────────────
+
+/** The Hive writes: the URL only when it changed (blank = null = off), the token only when one was typed. */
+export function hiveEntries(b: ByKey, url: string, token: string): [string, unknown][] {
+  const u = url.trim().replace(/\/+$/, '');
+  return [
+    ...(u !== str(b.HIVE_URL) ? [['HIVE_URL', u || null] as [string, unknown]] : []),
+    ...secretEntry('HIVE_TOKEN', token),
+  ];
+}
+
+export const hiveQ: Question = {
+  id: 'hive',
+  title: 'Send finished work to Hive?',
+  why: 'Hive is a shared memory for your AI tools. When a ticket is done, the factory can send Hive what it changed and why, so it remembers what the factory has done.',
+  tipNote: 'Only finished runs are sent, about a minute after they finish. The token is optional and sent as a Bearer token. docs/HIVE.md',
+  summary: (b) => {
+    const url = str(b.HIVE_URL);
+    return url ? <><b>On</b>: {url}{secretIsSet(b.HIVE_TOKEN) && <> · token saved</>}</> : <span className="muted">Off</span>;
+  },
+  Body: function HiveBody({ store, actions }) {
+    const b = store.byKey;
+    const [url, setUrl] = useState(str(b.HIVE_URL));
+    const [token, setToken] = useState('');
+    const { busy, error, run } = useSaver(store);
+    const save = () => run(hiveEntries(b, url, token),
+      () => (url.trim() && !/^https?:\/\/[^\s/]+/.test(url.trim()) ? 'Hive’s address starts with http:// or https:// (for example https://hive.example.com).' : null));
+    return (
+      <>
+        <Field s={b.HIVE_URL} label="Hive address" placeholder="https://hive.example.com" value={url} onChange={setUrl} help="Leave blank to turn Hive off." />
+        <SecretField s={b.HIVE_TOKEN} label="Hive token (optional)" placeholder="Paste your Hive token" value={token} onChange={setToken} />
+        {actions({ save, busy, error })}
+      </>
+    );
+  },
+};
+
 export const ESSENTIALS: Question[] = [ticketsQ, codeQ, aiQ, approvalsQ, spendingQ];
-export const LATER: Question[] = [ollamaQ, modelsQ, boardQ, guidanceQ, alertsQ, lookQ];
+export const LATER: Question[] = [ollamaQ, modelsQ, boardQ, guidanceQ, alertsQ, hiveQ, lookQ];

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { SettingsStore } from './ui';
-import { aiQ, ESSENTIALS, LATER } from './questions';
+import { aiQ, hiveQ, hiveEntries, ESSENTIALS, LATER } from './questions';
 import { QUESTIONS, THEME_SLOTS, type ThemeSummaryWire } from '@asf/shared/ui';
 import { ThemeCard } from '../ThemeSettings';
 
@@ -72,4 +72,35 @@ test('the Models question never silently swaps a saved model that is not in the 
   assert.equal((html.match(/not available/g) ?? []).length, 1, 'a model in the catalogue gets no marker');
   // the collapsed summary names an unknown id instead of "?"
   assert.match(renderToStaticMarkup(<>{modelsQ.summary(withSettings({ MODEL_DEFAULT_PLANNER: 'x@1', MODEL_DEFAULT_IMPLEMENTER: 'x@1', MODEL_DEFAULT_TESTER: 'claude-sonnet-5', MODEL_DEFAULT_REVIEWER: 'claude-sonnet-5' }).byKey)}</>), /x@1/);
+});
+
+const hiveView = (v: Record<string, { value?: unknown; orgValue?: unknown; envPinned?: boolean }>): SettingsStore =>
+  ({ ...store, byKey: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, { key: k, ...x }])) as never });
+
+test('Hive: the URL is saved trimmed, a blank token sends nothing, and clearing the URL writes null (off)', () => {
+  assert.deepEqual(hiveEntries({}, '  https://hive.example.com/  ', ''), [['HIVE_URL', 'https://hive.example.com']]);
+  assert.deepEqual(hiveEntries({}, 'https://hive.example.com', '  '), [['HIVE_URL', 'https://hive.example.com']]);
+  assert.deepEqual(hiveEntries({}, 'https://h', ' tok '), [['HIVE_URL', 'https://h'], ['HIVE_TOKEN', 'tok']]);
+  const on = hiveView({ HIVE_URL: { value: 'https://h', orgValue: 'https://h' } }).byKey;
+  assert.deepEqual(hiveEntries(on, 'https://h', ''), [], 'an unchanged URL is not re-written');
+  assert.deepEqual(hiveEntries(on, '  ', ''), [['HIVE_URL', null]]);
+});
+
+test('Hive: a saved token shows as saved and never appears in the page', () => {
+  const s = hiveView({ HIVE_URL: { value: 'https://h', orgValue: 'https://h' }, HIVE_TOKEN: { value: 'sekrit-123', orgValue: 'sekrit-123' } });
+  const html = renderToStaticMarkup(<hiveQ.Body store={s} actions={() => null} />);
+  assert.match(html, /saved/);
+  assert.ok(!html.includes('sekrit-123'));
+  const summary = renderToStaticMarkup(<>{hiveQ.summary(s.byKey)}</>);
+  assert.match(summary, /On.*https:\/\/h.*token saved/);
+  assert.ok(!summary.includes('sekrit-123'));
+  assert.match(renderToStaticMarkup(<>{hiveQ.summary({})}</>), /Off/);
+});
+
+test('Hive: env-pinned values lock the fields', () => {
+  const s = hiveView({ HIVE_URL: { value: 'https://env', envPinned: true }, HIVE_TOKEN: { value: null, envPinned: true } });
+  const html = renderToStaticMarkup(<hiveQ.Body store={s} actions={() => null} />);
+  assert.match(html, /disabled/);
+  assert.match(html, /set by your admin/);
+  assert.match(html, /class="locked"/);
 });

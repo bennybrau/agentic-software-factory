@@ -4,7 +4,7 @@ import type { AdhocTask, TicketScope, TicketSprint } from '@asf/shared';
 import { keyPrefixes, looksLikeTicketRef, ticketMatches } from '@asf/shared/ui';
 import { api, encodeTicketId, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
-import { removeAdhoc } from '../new-task';
+import { addedBy, removeAdhoc } from '../new-task';
 import { BUCKETS, loadBacklogFilters, restoreScope, saveBacklogFilters } from '../backlog-filters';
 import { NoRepo } from './Dispatch';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
@@ -257,7 +257,7 @@ export function Backlog() {
                 {adhoc.map((t) => (
                   <tr key={t.id}>
                     <td>{t.title}</td>
-                    <td className="muted">{t.createdBy ?? '—'}</td>
+                    <td className="muted">{addedBy(t)}</td>
                     <td className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
                       <button className="btn" disabled={Boolean(blocked)} onClick={() => navigate(`/dispatch/${encodeTicketId(t.id)}`)}
                         title={blocked ? 'Connect a repository first' : 'Choose the repository and models, then run it'}>Start</button>

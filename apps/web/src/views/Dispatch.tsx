@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { isAdhocId } from '@asf/shared/ui';
 import { api, decodeTicketId, type TicketRow } from '../api';
 import { gatesFor, isCustomised, modelsFor, overridesDiff, reconcileModel, roleLock, runtimeOptions, skipRolesPayload } from '../dispatch-roles';
 import { setupFlags } from '../setup-flags';
@@ -121,7 +122,9 @@ export function Dispatch() {
             {preview.repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
           </select>
           {preview.suggestedRepoId && repoId === preview.suggestedRepoId && (
-            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Suggested — the issue's own repository.</div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+              {isAdhocId(preview.ticket.id) ? 'Suggested: the repository the run that added it was working in' : 'Suggested — the issue\'s own repository.'}
+            </div>
           )}
 
           <details className="advanced" style={{ marginBottom: 10 }}>

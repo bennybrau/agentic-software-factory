@@ -53,6 +53,12 @@ test('get() carries the schedule that created the task, with a null title once i
 });
 
 
+test('suggestedRepo is the repository of the run that added the to-do, or null', () => {
+  const p = new AdhocTicketProvider();
+  assert.equal(p.suggestedRepo(adhocToTicket({ ...TASK, sourceRepoId: 'bennybrau/hive' })), 'bennybrau/hive');
+  assert.equal(p.suggestedRepo(adhocToTicket(TASK)), null);
+});
+
 test('update/createSubtask/addLink refuse: ad-hoc tasks are not editable', async () => {
   const p = new AdhocTicketProvider();
   await assert.rejects(() => p.update());

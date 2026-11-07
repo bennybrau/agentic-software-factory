@@ -17,8 +17,9 @@ export async function createAdhoc(sql: Sql, input: CreateAdhocInput): Promise<Ad
   const id = `${ADHOC_ID_PREFIX}${hex}`;
   const key = `ADHOC-${hex.slice(0, 8).toUpperCase()}`;
   await sql.begin(async (tx) => {
-    await tx`INSERT INTO adhoc_task (id, key, title, body, created_by)
-      VALUES (${id}, ${key}, ${input.title}, ${input.body}, ${input.createdBy})`;
+    // An agent to-do records the run that added it as parent_run_id with no part (a split part has one).
+    await tx`INSERT INTO adhoc_task (id, key, title, body, created_by, parent_run_id)
+      VALUES (${id}, ${key}, ${input.title}, ${input.body}, ${input.createdBy}, ${input.sourceRunId ?? null})`;
     for (const [position, a] of input.attachments.entries()) {
       const bytes = Buffer.from(a.contentBase64, 'base64');
       await tx`INSERT INTO adhoc_attachment (task_id, name, mime, size, content, position)
@@ -30,8 +31,9 @@ export async function createAdhoc(sql: Sql, input: CreateAdhocInput): Promise<Ad
 
 export async function getAdhoc(sql: Sql, id: string): Promise<AdhocTask | null> {
   // The schedule may have been deleted since (no foreign key): recurringId stays, the title is null.
-  const [row] = await sql`SELECT a.*, rt.title AS recurring_title FROM adhoc_task a
-    LEFT JOIN recurring_task rt ON rt.id = a.recurring_id WHERE a.id = ${id}`;
+  const [row] = await sql`SELECT a.*, rt.title AS recurring_title, src.repo_id AS source_repo_id FROM adhoc_task a
+    LEFT JOIN recurring_task rt ON rt.id = a.recurring_id
+    LEFT JOIN agent_run src ON src.id = a.parent_run_id AND a.part IS NULL WHERE a.id = ${id}`;
   if (!row) return null;
   const files = await sql`SELECT name, mime, size FROM adhoc_attachment WHERE task_id = ${id} ORDER BY position`;
   return {
@@ -40,15 +42,17 @@ export async function getAdhoc(sql: Sql, id: string): Promise<AdhocTask | null> 
     attachments: files.map((f) => ({ name: String(f.name), mime: String(f.mime), size: Number(f.size) })),
     createdAt: iso(row.createdAt), recurringId: row.recurringId == null ? null : String(row.recurringId),
     recurringTitle: row.recurringTitle == null ? null : String(row.recurringTitle),
+    sourceRepoId: row.sourceRepoId == null ? null : String(row.sourceRepoId),
   };
 }
 
 /** Ad-hoc tasks that no run has consumed yet (ticket_id never recorded on an agent_run), newest first. */
 export async function listAdhoc(sql: Sql): Promise<AdhocTask[]> {
   const rows = await sql`
-    SELECT a.*, rt.title AS recurring_title FROM adhoc_task a
+    SELECT a.*, rt.title AS recurring_title, src.repo_id AS source_repo_id FROM adhoc_task a
     LEFT JOIN agent_run r ON r.ticket_id = a.id
     LEFT JOIN recurring_task rt ON rt.id = a.recurring_id
+    LEFT JOIN agent_run src ON src.id = a.parent_run_id AND a.part IS NULL
     WHERE r.id IS NULL
     ORDER BY a.created_at DESC`;
   const tasks: AdhocTask[] = [];
@@ -60,6 +64,7 @@ export async function listAdhoc(sql: Sql): Promise<AdhocTask[]> {
       attachments: files.map((f) => ({ name: String(f.name), mime: String(f.mime), size: Number(f.size) })),
       createdAt: iso(row.createdAt), recurringId: row.recurringId == null ? null : String(row.recurringId),
       recurringTitle: row.recurringTitle == null ? null : String(row.recurringTitle),
+      sourceRepoId: row.sourceRepoId == null ? null : String(row.sourceRepoId),
     });
   }
   return tasks;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { adhocNext, chatDispatchBody, chatProblem, chatTitle, formatBytes, mimeOf, newTaskProblem, pickChatRepo, removeAdhoc } from './new-task';
+import { addedBy, adhocNext, chatDispatchBody, chatProblem, chatTitle, formatBytes, mimeOf, newTaskProblem, pickChatRepo, removeAdhoc } from './new-task';
 
 const limits = { maxFiles: 2, maxFileMb: 1 };
 const png = { name: 'shot.png', mime: 'image/png', size: 2048 };
@@ -81,4 +81,10 @@ test('a review request dispatches the whole message as reviewOf, with no reposit
   const plain = chatDispatchBody('fix the login page', preview, 'ann');
   assert.equal(plain.repoId, 'r1');
   assert.equal('reviewOf' in plain, false);
+});
+
+test('"Added by" names the repository an agent to-do came from', () => {
+  assert.equal(addedBy({ createdBy: 'agent:implementer', sourceRepoId: 'bennybrau/hive' }), 'agent:implementer · bennybrau/hive');
+  assert.equal(addedBy({ createdBy: 'ana', sourceRepoId: null }), 'ana');
+  assert.equal(addedBy({ createdBy: null }), '—');
 });

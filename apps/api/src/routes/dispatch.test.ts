@@ -255,6 +255,20 @@ test('preview suggestedRepoId is null for a mock ticket (provider has no suggest
   await a.close();
 });
 
+test('preview suggests the repository of the run that added an agent to-do', async () => {
+  const task = { id: 'adhoc:0123456789abcdef', key: 'ADHOC-01234567', title: 'Follow-up', body: '', createdBy: 'agent:implementer',
+    attachments: [], createdAt: '2026-11-01T00:00:00.000Z', sourceRepoId: 'example/app' };
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
+    return json({ ok: true, result: body.op === 'getAdhoc' ? { task } : {} });
+  }) as unknown as typeof fetch;
+  const a = await app();
+  const res = await a.inject({ method: 'GET', url: `/api/tickets/${encodeURIComponent(task.id)}/dispatch` });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().suggestedRepoId, '1');
+  await a.close();
+});
+
 // --- M8 WP D: model catalogue as data, filtered by what the live fleet runs ---
 import { registerAdminRoutes } from './admin.js';
 import { TicketProviderRegistry } from '../providers/tickets/registry.js';

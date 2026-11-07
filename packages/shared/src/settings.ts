@@ -165,6 +165,12 @@ export const SETTINGS = {
   NOTIFY_POLL_MS: S({ type: 'number', default: 5_000, tiers: ['env'], group: 'Notifications', readBy: ['api'],
     description: 'How often the api looks for undelivered notifications to push to external sinks.' }),
 
+  // -------------------------------------------------------------------- hive
+  HIVE_URL: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Hive', readBy: ['api'],
+    description: 'Hive base URL. When set, the api sends each succeeded run (ticket, PR link, plan and review) to <HIVE_URL>/v1/episodes about a minute after it finishes; see docs/HIVE.md. Blank = off.' }),
+  HIVE_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Hive', readBy: ['api'],
+    description: 'Hive API token, sent as Authorization: Bearer. Blank = no Authorization header.' }),
+
   // ---------------------------------------------------------- identity/auth
   AUTH_MODE: S({ type: 'enum', values: ['none', 'header'], default: 'none', tiers: ['env'], group: 'Identity', readBy: ['api'],
     description: 'Who the operator is. none = single operator, a name box, badge says unverified. header = trust an upstream proxy (IAP, Tailscale, your SSO) that sets AUTH_HEADER; honoured only when the api is not reachable directly.' }),

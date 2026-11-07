@@ -57,6 +57,8 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   QUEUE_ENABLED: 'operator switch',
   MERGE_WATCH_ENABLED: 'operator switch',
   UPDATE_CHECK_ENABLED: 'operator switch (a Settings section comes with the updates UI, ADHOC-CDBC5883)',
+  HIVE_URL: 'operator: the Hive hook (#76, docs/HIVE.md) has no Settings section yet',
+  HIVE_TOKEN: 'operator: the Hive hook (#76, docs/HIVE.md) has no Settings section yet',
   SEGMENT_TIMEOUT_MS: 'operator tuning',
   WORKER_MAX_TURNS: 'operator tuning',
   MAX_TURNS_PLANNER: 'operator tuning',

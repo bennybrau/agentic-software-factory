@@ -167,7 +167,7 @@ export const SETTINGS = {
 
   // -------------------------------------------------------------------- hive
   HIVE_URL: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Hive', readBy: ['api'],
-    description: 'Hive base URL. When set, the api sends each merged run (ticket, PR link, plan, review and changed paths) to <HIVE_URL>/v1/episodes about a minute after it merges; see docs/HIVE.md. Blank = off. Set in Settings → Hive.' }),
+    description: 'Hive base URL. When set, the api sends each merged run (ticket, PR link, plan, review and changed paths), and each gate note and chat message a person writes, to <HIVE_URL>/v1/episodes about a minute later; see docs/HIVE.md. Blank = off. Set in Settings → Hive.' }),
   HIVE_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Hive', readBy: ['api'],
     description: 'Hive API token, sent as Authorization: Bearer. Blank = no Authorization header.' }),
 

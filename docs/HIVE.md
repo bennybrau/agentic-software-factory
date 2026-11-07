@@ -1,7 +1,8 @@
 # Hive
 
-ASF can send each merged run to [Hive](https://github.com/bennybrau/hive) so
-Hive remembers what the factory has already done. It is off until `HIVE_URL` is
+ASF can send each merged run, and what people said to the agents along the way,
+to [Hive](https://github.com/bennybrau/hive) so Hive remembers what the factory
+has already done. It is off until `HIVE_URL` is
 set.
 
 ## Turning it on and off
@@ -41,10 +42,30 @@ is still open, or was closed, is not sent.
 - `metadata.paths` are the files the PR changed, at most 500. It is `[]` when
   the SCM can't list them; the episode is still sent.
 
+### Dialog (`asf_dialog`)
+
+One episode per human turn, on a run of **any** state (merged, closed,
+failed, still running) that has a repository:
+
+- a gate a person decided with a note (a blank note is not sent), and
+- a message a person wrote in a run's chat.
+
+```json
+{ "kind": "asf_dialog", "repo_key": "gh/owner/repo", "ref": "<run id>:gate:<gate id>",
+  "content": "assistant: <what the agent said>\nuser: <what the person wrote>",
+  "metadata": { "author": "<who wrote it>" } }
+```
+
+- `ref` is `<run id>:gate:<gate id>` or `<run id>:msg:<message id>`.
+- `assistant:` is an excerpt of at most 1,500 characters: for a gate, the
+  artifact it showed (e.g. `plan.md`); for a chat message, the agent's latest
+  message before it. It is empty when there was none.
+- The edited artifact from a gate is not sent.
+
 ## When
 
-The api checks once a minute for runs that merged since it started
-(minus a day) and sends each one it hasn't sent yet. A failed send (Hive down,
+The api checks once a minute for runs that merged, and dialog written, since
+it started (minus a day) and sends each one it hasn't sent yet. A failed send (Hive down,
 an error answer) is logged and retried on the next check, up to 5 times, then
 given up with a log line. The hook runs separately from the orchestrator, so
 Hive can never block or fail a run.
@@ -54,15 +75,15 @@ sent again; Hive dedupes it.
 
 ## Backfill
 
-Runs that merged before the hook was on (or more than a day before a
-restart) are sent with:
+Runs that merged, and dialog written, before the hook was on (or more than a
+day before a restart) are sent with:
 
 ```bash
-scripts/asf hive-backfill --dry-run                 # how many runs, how many bytes
-scripts/asf hive-backfill --since 2026-01-01         # send those merged since then
-scripts/asf hive-backfill                            # send every merged run
+scripts/asf hive-backfill --dry-run                 # how many runs and dialog messages, how many bytes
+scripts/asf hive-backfill --since 2026-01-01         # send those merged / written since then
+scripts/asf hive-backfill                            # send every merged run and all dialog
 ```
 
-It sends oldest merge first, about 3 a second. Without `--dry-run` it refuses while
-`HIVE_URL` is blank. It exits non-zero if any run failed to send; running it
+It sends merged runs oldest merge first, then dialog oldest first, about 3 a second. Without `--dry-run` it refuses while
+`HIVE_URL` is blank. It exits non-zero if any episode failed to send; running it
 again is safe.

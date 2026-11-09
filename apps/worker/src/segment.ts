@@ -210,6 +210,7 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
     ticket: ctx.ticket, cwd, branch: ws?.branchName ?? '(none)', artifacts: runDir, prior, revision, wip, skill, conversation, todos, budget, thirdPartySkills,
     conflict: resolvingConflict ? { base: ws?.baseBranch ?? 'main', files: conflictFiles } : undefined,
     review: run.team.reviewTarget ?? undefined,
+    connectedRepos: ctx.connectedRepos, repo: ctx.repo,
   });
   await writeFile(join(runDir, `${task.role}.prompt.md`), prompt, 'utf8');
   // Mirror the exact rendered prompt (with any REVISION / humanReply banner) to

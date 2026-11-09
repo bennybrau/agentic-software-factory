@@ -8,6 +8,11 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Any ticket can be split across repositories.** The planner now sees the connected
+  repositories on every run, with its own marked, so a Jira or GitHub ticket can hand parts of
+  an `asf-split` off to another repository, not only a task started from the chat. With one
+  repository connected the planner is told every part stays there. Chat tasks no longer get the
+  repository list appended to their body; older ones are shown and planned without the old copy.
 - **Sort Planned tasks by ticket, priority or last update.** Click a column header to sort by
   it, and click again to flip the direction. A new **Updated** column shows how long ago each
   ticket changed (hover for the exact time). Columns start in their natural direction: newest

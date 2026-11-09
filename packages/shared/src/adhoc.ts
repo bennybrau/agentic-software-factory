@@ -94,7 +94,8 @@ export const createAdhocRequestSchema = z.object({
   title: z.string().trim().min(1).max(200),
   body: z.string().max(100_000).default(''),
   files: z.array(adhocFileInputSchema).default([]),
-  /** Created from the chat: the api appends the connected repositories to the body. */
+  /** Created from the chat. Older apis appended the connected repositories to the body; every
+   * run's planner now gets them from the run context instead (RunContext.connectedRepos). */
   chat: z.boolean().default(false),
 });
 export type CreateAdhocRequest = z.infer<typeof createAdhocRequestSchema>;
@@ -112,3 +113,12 @@ export type CreateAdhocInput = z.infer<typeof createAdhocInputSchema>;
 
 /** One attachment with its bytes, as the registry hands it back. */
 export interface AdhocAttachmentWire extends Attachment { contentBase64: string }
+
+/** Older chat-started tasks have the connected repositories appended to the body under this heading. */
+export const REPO_LIST_HEADING = '\n\nRepositories connected:\n';
+
+/** A chat-started task's body without the repository list an older api appended: what the person typed. */
+export function withoutRepoList(body: string): string {
+  const at = body.lastIndexOf(REPO_LIST_HEADING);
+  return at < 0 ? body : body.slice(0, at);
+}

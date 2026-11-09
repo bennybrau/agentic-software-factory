@@ -119,7 +119,7 @@ registerSetupRoutes(app, { tickets: ticketRegistry, scm: scmRegistry });
 registerVertexRoutes(app);
 registerOllamaRoutes(app);
 registerWorkerRoutes(app);
-registerAdhocRoutes(app, { scm });
+registerAdhocRoutes(app);
 registerAvatarRoutes(app);
 registerThemeRoutes(app);
 registerSkillRoutes(app);

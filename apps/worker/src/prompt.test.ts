@@ -229,3 +229,39 @@ test('a review-only run renders the reviewer from reviewer-pr.md with the PR fil
   assert.match(p, /git diff origin\/develop\.\.\.HEAD/);
   assert.doesNotMatch(p, /Test report:/, 'not the team reviewer template');
 });
+
+// {{repos.connected}}: where an asf-split part may be handed off, for every run (not only chat tasks).
+const repo = (id: string, path: string) => ({ id, path, url: `https://x/${path}`, defaultBranch: 'main', cloneUrl: `https://x/${path}.git` });
+
+test('the planner lists every connected repository, with this run\'s own marked', async () => {
+  const p = await renderPrompt('planner', 'run_repos', { ...base, prior: {}, repo: repo('2', 'org/api'),
+    connectedRepos: [{ id: '1', path: 'org/web', defaultBranch: 'main' }, { id: '2', path: 'org/api' }, { id: '3', path: 'org/infra' }] });
+  assert.match(p, /Repositories connected:\n- `org\/web`\n- `org\/api` \(this run\)\n- `org\/infra`\n/);
+  assert.doesNotMatch(p, /Only this repository is connected/);
+  assert.doesNotMatch(p, /ticket's "Repositories connected" list/);
+});
+
+test('with one connected repository the planner is told every part stays here', async () => {
+  const p = await renderPrompt('planner', 'run_one', { ...base, prior: {}, repo: repo('1', 'org/web'), connectedRepos: [{ id: '1', path: 'org/web' }] });
+  assert.match(p, /Repositories connected:\nOnly this repository is connected \(`org\/web`\), so every part stays here/);
+  assert.doesNotMatch(p, /\(this run\)/);
+});
+
+test('an older api with no connectedRepos renders a fallback, never a blank list', async () => {
+  const p = await renderPrompt('planner', 'run_old', { ...base, prior: {}, repo: repo('1', 'org/web') });
+  assert.match(p, /Repositories connected:\nThe factory could not list the connected repositories/);
+  assert.ok(!p.includes('{{'));
+});
+
+test('an older chat task\'s body has its appended repository list stripped, so it shows once', async () => {
+  const chatTicket = { ...ticket, id: 'adhoc:0123456789abcdef', body: 'Fix the login.\n\nRepositories connected:\n- org/stale-one' };
+  const p = await renderPrompt('planner', 'run_chat', { ...base, ticket: chatTicket, prior: {}, repo: repo('1', 'org/web'),
+    connectedRepos: [{ id: '1', path: 'org/web' }, { id: '2', path: 'org/api' }] });
+  assert.doesNotMatch(p, /org\/stale-one/);
+  assert.equal(p.split('Repositories connected:').length - 1, 1, 'one list, from the run context');
+  assert.match(p, /Fix the login\.\n/);
+  // A tracker ticket that happens to contain the phrase keeps its body untouched.
+  const jira = { ...ticket, body: 'Notes.\n\nRepositories connected:\n- written by a person' };
+  const q = await renderPrompt('planner', 'run_jira', { ...base, ticket: jira, prior: {} });
+  assert.match(q, /written by a person/);
+});

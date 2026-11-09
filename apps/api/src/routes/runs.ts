@@ -7,6 +7,18 @@ import { computeRunAuth, computeRunAuths, describeAgentAuth } from '../agent-aut
 import { cfg } from '../settings.js';
 import { ticketsFor } from '../tickets/route.js';
 import { adhocTickets } from '../providers/tickets/index.js';
+import { startReadiness } from '../start-readiness.js';
+
+/**
+ * Every repository source control can reach, for the planner's split hand-offs. Paths and
+ * default branches only (no clone URL). A failed lookup leaves the field out: the run still
+ * starts, and the planner is told it doesn't know which other repositories exist.
+ */
+export async function computeConnectedRepos(scm: ScmProvider): Promise<RunContext['connectedRepos']> {
+  const ready = await startReadiness(scm).catch(() => null);
+  if (!ready?.ok) return undefined;
+  return ready.repos.map((r) => ({ id: r.id, path: r.path, defaultBranch: r.defaultBranch }));
+}
 
 /** Org-tier worker knobs, resolved NOW (env > org > default) so a /admin change reaches the next task. */
 export function computeWorkerSettings(): WorkerSettings {
@@ -95,6 +107,9 @@ export function registerRunRoutes(app: FastifyInstance, deps: { tickets: TicketP
         .then((r) => r.skills.filter((s) => s.enabled))
         .catch((e) => { req.log.warn({ err: e }, 'listSkills failed; delivering no third-party skills'); return []; }),
     };
+    const connectedRepos = await computeConnectedRepos(deps.scm);
+    if (connectedRepos) context.connectedRepos = connectedRepos;
+    else req.log.warn({ runId: run.id }, 'could not list the connected repositories; the planner gets no list');
     return runContextSchema.parse(context);
   });
 

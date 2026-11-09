@@ -58,7 +58,7 @@ const file = (name: string, mime: string, bytes: Buffer) => ({ name, mime, conte
 
 test('POST /api/adhoc stores the task and returns its adhoc: id', async () => {
   const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const a = await app((x) => registerAdhocRoutes(x));
   const res = await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'Fix the login page', body: 'It **breaks**.', files: [file('../../etc/shot.png', 'image/png', BYTES), file('shot.png', 'image/png', BYTES)] } });
   assert.equal(res.statusCode, 201);
   assert.equal(res.json().task.id, TASK.id);
@@ -69,42 +69,31 @@ test('POST /api/adhoc stores the task and returns its adhoc: id', async () => {
   await a.close();
 });
 
-test('POST /api/adhoc from the chat appends the connected repositories; without chat the body is unchanged', async () => {
+test('POST /api/adhoc stores the body as typed, from the chat too (the run context lists the repositories now)', async () => {
   const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const a = await app((x) => registerAdhocRoutes(x));
   const sentBody = () => (calls.filter((c) => c.op === 'createAdhoc').pop()!.input as { body: string }).body;
 
   assert.equal((await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: 'Do it.', chat: true } })).statusCode, 201);
-  assert.equal(sentBody(), 'Do it.\n\nRepositories connected:\n- example/app');
+  assert.equal(sentBody(), 'Do it.');
 
   await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: 'Do it.' } });
   assert.equal(sentBody(), 'Do it.');
   await a.close();
-
-  // No repository reachable: the task is still created, just without the list.
-  const b = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider('') }));
-  assert.equal((await b.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: 'Do it.', chat: true } })).statusCode, 201);
-  assert.equal(sentBody(), 'Do it.');
-  await b.close();
 });
 
-test('withoutRepoList gives back what was typed before the chat added the repositories', async () => {
-  const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+test('withoutRepoList gives back what was typed before an older api added the repositories', () => {
   const typed = 'Fix it.\n\nAlso the footer.';
-  await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', body: typed, chat: true } });
-  const stored = (calls.find((c) => c.op === 'createAdhoc')!.input as { body: string }).body;
-  assert.notEqual(stored, typed);
+  const stored = `${typed}\n\nRepositories connected:\n- org/web\n- org/api`;
   assert.equal(withoutRepoList(stored), typed);
   assert.equal(withoutRepoList(typed), typed, 'a body with no list is unchanged');
-  await a.close();
 });
 
 test('POST /api/adhoc refuses a missing title, a disallowed type, too many files and an oversized file', async () => {
   process.env.ADHOC_MAX_ATTACHMENTS = '2';
   process.env.ADHOC_MAX_ATTACHMENT_MB = '1';
   const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const a = await app((x) => registerAdhocRoutes(x));
   const post = (payload: unknown) => a.inject({ method: 'POST', url: '/api/adhoc', payload: payload as object });
 
   assert.equal((await post({ title: '  ', body: 'x' })).statusCode, 400);
@@ -128,7 +117,7 @@ test('POST /api/adhoc refuses a missing title, a disallowed type, too many files
 
 test('GET /api/adhoc lists stored tasks; DELETE removes one then 404s', async () => {
   const calls = stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const a = await app((x) => registerAdhocRoutes(x));
 
   const list = await a.inject({ method: 'GET', url: '/api/adhoc' });
   assert.equal(list.statusCode, 200);
@@ -145,7 +134,7 @@ test('GET /api/adhoc lists stored tasks; DELETE removes one then 404s', async ()
 
 test('POST /api/adhoc accepts a body above the default 1 MiB limit (route-level bodyLimit)', async () => {
   stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const a = await app((x) => registerAdhocRoutes(x));
   const res = await a.inject({ method: 'POST', url: '/api/adhoc', payload: { title: 'T', files: [file('a.png', 'image/png', Buffer.alloc(3 * 1024 * 1024, 7))] } });
   assert.equal(res.statusCode, 201);
   await a.close();
@@ -153,7 +142,7 @@ test('POST /api/adhoc accepts a body above the default 1 MiB limit (route-level 
 
 test('GET /api/runs/:id/attachments/:name needs X-Run-Secret and returns the raw bytes', async () => {
   stubRegistry();
-  const a = await app((x) => registerAdhocRoutes(x, { scm: new MockScmProvider() }));
+  const a = await app((x) => registerAdhocRoutes(x));
   const noSecret = await a.inject({ method: 'GET', url: '/api/runs/run_a/attachments/shot.png' });
   assert.equal(noSecret.statusCode, 401);
 
@@ -221,6 +210,27 @@ test('the run context carries only enabled third-party skills', async () => {
   assert.equal(res.statusCode, 200, res.body);
   const ctx = res.json();
   assert.deepEqual(ctx.thirdPartySkills.map((s: { id: string }) => s.id), ['pdf-tools']);
+  await a.close();
+});
+
+test('the run context lists the connected repositories, for a tracker ticket too', async () => {
+  stubRegistry();
+  const a = await app((x) => registerRunRoutes(x, { tickets: new MockTicketProvider(), scm: new MockScmProvider() }));
+  for (const id of ['run_a', 'run_tracker']) {
+    const res = await a.inject({ method: 'GET', url: `/api/runs/${id}/context`, headers: { 'x-run-secret': process.env.RUN_EVENT_SECRET ?? '' } });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.deepEqual(res.json().connectedRepos, [{ id: '1', path: 'example/app', defaultBranch: 'main' }], id);
+    assert.equal(JSON.stringify(res.json().connectedRepos).includes('cloneUrl'), false, 'no clone URL in the list');
+  }
+  await a.close();
+});
+
+test('a failed repository lookup still returns a context, without connectedRepos', async () => {
+  stubRegistry();
+  const a = await app((x) => registerRunRoutes(x, { tickets: untouchableTracker(), scm: new MockScmProvider('') }));
+  const res = await a.inject({ method: 'GET', url: '/api/runs/run_a/context', headers: { 'x-run-secret': process.env.RUN_EVENT_SECRET ?? '' } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal('connectedRepos' in res.json(), false);
   await a.close();
 });
 

@@ -65,7 +65,6 @@ export function Backlog() {
 
   // Discover scopes + statuses once, then restore the persisted selection (validated against what exists now).
   useEffect(() => {
-    void api.ticketStatuses().then(setStatuses).catch(() => setStatuses([]));
     void api.ticketScopes().then((sc) => {
       setScopes(sc);
       const r = restoreScope(saved, sc);
@@ -74,6 +73,21 @@ export function Backlog() {
     }).catch(() => setScopes([])); // the tracker didn't answer: keep the saved board for next time
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The status choices follow the board selection: one board offers only the
+  // statuses on its columns; no single board (all, or a team) offers the union
+  // over the configured boards. A checked status the new list doesn't have is
+  // dropped, so a hidden filter can't silently empty the board.
+  useEffect(() => {
+    if (!scopeRestored) return;
+    let alive = true;
+    void api.ticketStatuses(scope || undefined).then((st) => {
+      if (!alive) return;
+      setStatuses(st);
+      if (st.length) setStatusSel((cur) => { const kept = [...cur].filter((x) => st.includes(x)); return kept.length === cur.size ? cur : new Set(kept); });
+    }).catch(() => { if (alive) setStatuses([]); });
+    return () => { alive = false; };
+  }, [scope, scopeRestored]);
 
   // Load the sprint list for a Scrum board; drop a persisted sprint id that no longer exists back to 'active'.
   useEffect(() => {

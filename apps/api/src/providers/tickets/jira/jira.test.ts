@@ -355,15 +355,53 @@ test('listSprints maps sprint state and pages a board', async () => {
   } finally { s.restore(); }
 });
 
-test('listStatuses returns unique status names, sorted', async () => {
+const ALL_STATUSES = [
+  { id: '1', name: 'To Do' }, { id: '2', name: 'In Progress' }, { id: '3', name: 'Done' },
+  { id: '4', name: 'In Review' }, { id: '5', name: 'Blocked' }, { id: '6', name: 'Some Other Team Status' },
+];
+const boardConfig = (cols: Array<[string, string[]]>) => ({
+  columnConfig: { columns: cols.map(([name, ids]) => ({ name, statuses: ids.map((id) => ({ id })) })) },
+});
+
+test('listStatuses with boards: only statuses mapped to the boards\' columns, union across boards, sorted', async () => {
   const s = stubFetch([
-    { m: 'GET', re: /\/rest\/api\/3\/status$/, json: [
-      { name: 'In Review' }, { name: 'To Do' }, { name: 'In Review' }, { name: 'Done' },
-    ] },
+    { m: 'GET', re: /\/rest\/agile\/1\.0\/board\/42\/configuration$/, json: boardConfig([['Todo', ['1']], ['Doing', ['2']], ['Done', ['3']]]) },
+    { m: 'GET', re: /\/rest\/agile\/1\.0\/board\/43\/configuration$/, json: boardConfig([['Review', ['4']], ['Done', ['3']]]) },
+    { m: 'GET', re: /\/rest\/api\/3\/status$/, json: ALL_STATUSES },
   ]);
   try {
-    const statuses = await new JiraTicketProvider(cfg()).listStatuses();
-    assert.deepEqual(statuses, ['Done', 'In Review', 'To Do']);
+    const statuses = await new JiraTicketProvider(cfg({ boards: ['42', '43'] })).listStatuses();
+    assert.deepEqual(statuses, ['Done', 'In Progress', 'In Review', 'To Do']);
+  } finally { s.restore(); }
+});
+
+test('listStatuses with a board scope: only that board\'s statuses; an unconfigured id falls back to all boards', async () => {
+  const s = stubFetch([
+    { m: 'GET', re: /\/rest\/agile\/1\.0\/board\/42\/configuration$/, json: boardConfig([['Todo', ['1']], ['Blocked', ['5']]]) },
+    { m: 'GET', re: /\/rest\/agile\/1\.0\/board\/43\/configuration$/, json: boardConfig([['Review', ['4']]]) },
+    { m: 'GET', re: /\/rest\/api\/3\/status$/, json: ALL_STATUSES },
+  ]);
+  try {
+    const p = new JiraTicketProvider(cfg({ boards: ['42', '43'] }));
+    assert.deepEqual(await p.listStatuses('42'), ['Blocked', 'To Do']);
+    assert.ok(!s.calls.some((c) => c.url.includes('/board/43/')), 'only the scoped board is read');
+    assert.deepEqual(await p.listStatuses('SWL'), ['Blocked', 'In Review', 'To Do']);
+  } finally { s.restore(); }
+});
+
+test('listStatuses without boards: the configured projects\' workflow statuses, deduped and sorted', async () => {
+  const s = stubFetch([
+    { m: 'GET', re: /\/rest\/api\/3\/project\/SWL\/statuses$/, json: [
+      { statuses: [{ name: 'To Do' }, { name: 'In Progress' }, { name: 'Done' }] },
+      { statuses: [{ name: 'To Do' }, { name: 'Done' }] },
+    ] },
+    { m: 'GET', re: /\/rest\/api\/3\/project\/OO\/statuses$/, json: [{ statuses: [{ name: 'In Review' }] }] },
+  ]);
+  try {
+    const p = new JiraTicketProvider(cfg());
+    assert.deepEqual(await p.listStatuses(), ['Done', 'In Progress', 'In Review', 'To Do']);
+    assert.deepEqual(await p.listStatuses('OO'), ['In Review']);
+    assert.ok(!s.calls.some((c) => /\/rest\/api\/3\/status$/.test(c.url)), 'never lists every status in the instance');
   } finally { s.restore(); }
 });
 

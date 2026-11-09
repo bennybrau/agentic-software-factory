@@ -71,7 +71,11 @@ interface JiraSprint { id: number; name: string; state?: string | null; originBo
 // The Agile /board and /sprint listings paginate with startAt/total/isLast and wrap rows in `values`.
 interface JiraAgilePage<T> { values?: T[]; startAt?: number | null; total?: number | null; isLast?: boolean | null }
 interface JiraProject { key: string; name?: string | null }
-interface JiraStatusEntry { name?: string | null }
+interface JiraStatusEntry { id?: string | null; name?: string | null }
+// GET /rest/agile/1.0/board/{id}/configuration: each column lists the status ids mapped to it.
+interface JiraBoardConfig { columnConfig?: { columns?: Array<{ name?: string; statuses?: Array<{ id?: string | null }> }> } | null }
+// GET /rest/api/3/project/{key}/statuses: the statuses each issue type's workflow uses.
+interface JiraProjectIssueTypeStatuses { statuses?: JiraStatusEntry[] | null }
 interface JiraComment { id: string; author?: JiraUser | null; body?: unknown; created?: string | null }
 
 /** status=bucket,status=bucket → rules. Mirrors parseBucketMap for GitHub. */
@@ -535,14 +539,36 @@ export class JiraTicketProvider implements TicketProvider {
   }
 
   /**
-   * The status names for the status multi-select. Jira has no board-scoped status
-   * endpoint, so this returns the instance's status names (deduped, sorted);
-   * scopeId is accepted for the seam but not used here.
+   * The status names for the status multi-select, limited to what the scoped
+   * work actually uses rather than every status in the Jira instance:
+   *  - boards configured: the statuses mapped to the board's columns (its
+   *    configuration), for `scopeId` when it is one of the configured boards,
+   *    else the union over all configured boards. A status not mapped to any
+   *    column is not on the board, so it is not offered.
+   *  - project fallback: the statuses used by the project's workflows, for
+   *    `scopeId` when it is a configured project, else all configured projects.
+   * Deduped by name and sorted.
    */
-  async listStatuses(): Promise<string[]> {
-    const all = await this.jira<JiraStatusEntry[]>('GET', '/rest/api/3/status');
+  async listStatuses(scopeId?: string): Promise<string[]> {
     const names = new Set<string>();
-    for (const s of all) if (s.name) names.add(s.name);
+    if (this.cfg.boards.length) {
+      const boards = scopeId && this.cfg.boards.includes(scopeId) ? [scopeId] : this.cfg.boards;
+      const ids = new Set<string>();
+      for (const id of boards) {
+        const conf = await this.jira<JiraBoardConfig>('GET', `/rest/agile/1.0/board/${encodeURIComponent(id)}/configuration`);
+        for (const col of conf.columnConfig?.columns ?? []) for (const st of col.statuses ?? []) if (st.id) ids.add(String(st.id));
+      }
+      if (!ids.size) return [];
+      // The board configuration carries status ids only; resolve them to names.
+      const all = await this.jira<JiraStatusEntry[]>('GET', '/rest/api/3/status');
+      for (const s of all) if (s.id && s.name && ids.has(String(s.id))) names.add(s.name);
+    } else {
+      const projects = scopeId && this.cfg.projects.includes(scopeId) ? [scopeId] : this.cfg.projects;
+      for (const key of projects) {
+        const types = await this.jira<JiraProjectIssueTypeStatuses[]>('GET', `/rest/api/3/project/${encodeURIComponent(key)}/statuses`);
+        for (const t of types) for (const s of t.statuses ?? []) if (s.name) names.add(s.name);
+      }
+    }
     return [...names].sort((a, b) => a.localeCompare(b));
   }
 }

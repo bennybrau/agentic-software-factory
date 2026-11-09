@@ -1,6 +1,6 @@
 import type { CreateRecurringTaskInput, RecurringTask, UpdateRecurringTaskInput, SplitFamilyWire, AdhocLimits, AdhocTask, AdhocFileInput, ActiveThemeWire, ThemeSummaryWire, ThemeImageRef, ArtifactWire, ArtifactVersionWire, TaskProgressWire, GateWire, RunMessageWire, Run, RunTask, RunEvent, SettingView, FleetWire, TodayWire, WorkQueueEntry, NotificationWire, TicketScope, TicketSprint, LocalWorkerStatus, UpdateStatus, ThirdPartySkill, SkillRole, VertexCheckState, OllamaSource, OllamaModelsResult, OllamaCheck } from '@asf/shared';
 
-export interface TicketRow { id: string; key: string; title: string; bucket: string; priority: number | null; status: string; url: string; body: string; }
+export interface TicketRow { id: string; key: string; title: string; bucket: string; priority: number | null; status: string; url: string; body: string; updatedAt?: string; }
 export interface RunDetail { run: Run; tasks: RunTask[]; gates: GateWire[]; artifacts: ArtifactWire[]; artifactVersions?: ArtifactVersionWire[]; taskProgress?: Record<string, TaskProgressWire>; messages?: RunMessageWire[]; split?: SplitFamilyWire | null;
   /** The schedule that created this run's ad-hoc task (#188); title is null once the schedule is deleted. */
   recurring?: { id: string; title: string | null } | null;

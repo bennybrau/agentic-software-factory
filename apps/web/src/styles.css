@@ -122,6 +122,10 @@ a { color: var(--accent); text-decoration: none; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+/* Planned tasks: only the title wraps; ticket numbers, pills and dates stay on one line. */
+.ticket-table th, .ticket-table td:not(:nth-child(3)) { white-space: nowrap; }
+.th-sort { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; white-space: nowrap; }
+.th-sort:hover, th[aria-sort="ascending"] .th-sort, th[aria-sort="descending"] .th-sort { color: var(--text); }
 a, summary, button:not(:disabled) { cursor: pointer; }
 .clickable { cursor: pointer; }
 tr.clickable:hover { background: var(--panel2); }

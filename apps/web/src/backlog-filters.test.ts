@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TicketScope } from '@asf/shared';
-import { BACKLOG_FILTERS_KEY, loadBacklogFilters, NO_FILTERS, restoreScope, saveBacklogFilters, type FilterStore, latestOnly } from './backlog-filters';
+import { BACKLOG_FILTERS_KEY, loadBacklogFilters, NO_FILTERS, restoreScope, saveBacklogFilters, type FilterStore, latestOnly, nextSort, sortTickets } from './backlog-filters';
 
 function memStore(init?: string): FilterStore & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -16,7 +16,7 @@ const scopes = [board('b1', 'Payments', 'scrum'), board('b2', 'Payments', 'kanba
 
 test('every filter round-trips', () => {
   const s = memStore();
-  const f = { team: 'Payments', scope: 'b1', sprint: '42', status: ['To Do', 'In Review'], bucket: 'inflight', showDone: true };
+  const f = { team: 'Payments', scope: 'b1', sprint: '42', status: ['To Do', 'In Review'], bucket: 'inflight', showDone: true, sortBy: 'priority' as const, sortDir: 'desc' as const };
   saveBacklogFilters(f, s);
   assert.deepEqual(loadBacklogFilters(s), f);
 });
@@ -33,12 +33,12 @@ test('nothing saved, garbage, or no storage loads as no filters', () => {
 
 test('filters saved by the previous version (no bucket/showDone) still load', () => {
   const f = loadBacklogFilters(memStore(JSON.stringify({ team: 'Payments', scope: 'b2', sprint: '', status: ['Done'] })));
-  assert.deepEqual(f, { team: 'Payments', scope: 'b2', sprint: '', status: ['Done'], bucket: '', showDone: false });
+  assert.deepEqual(f, { team: 'Payments', scope: 'b2', sprint: '', status: ['Done'], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' });
 });
 
 test('malformed fields are dropped one by one', () => {
-  const f = loadBacklogFilters(memStore(JSON.stringify({ team: 7, scope: 'b1', status: ['ok', 3, null], bucket: 'done', showDone: 'yes' })));
-  assert.deepEqual(f, { team: '', scope: 'b1', sprint: '', status: ['ok'], bucket: '', showDone: false });
+  const f = loadBacklogFilters(memStore(JSON.stringify({ team: 7, scope: 'b1', status: ['ok', 3, null], bucket: 'done', showDone: 'yes', sortBy: 'title', sortDir: 'up' })));
+  assert.deepEqual(f, { team: '', scope: 'b1', sprint: '', status: ['ok'], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' });
 });
 
 test('saving to storage that throws is ignored', () => {
@@ -75,4 +75,49 @@ test('latestOnly: each new load supersedes the one before', () => {
   const b = next();
   assert.equal(a(), false);
   assert.equal(b(), true);
+});
+
+test('a saved sort column without a direction gets that column’s default', () => {
+  assert.equal(loadBacklogFilters(memStore(JSON.stringify({ sortBy: 'priority' }))).sortDir, 'asc');
+  assert.equal(loadBacklogFilters(memStore(JSON.stringify({ sortBy: 'updated' }))).sortDir, 'desc');
+});
+
+test('nextSort: the same column flips, a new column starts at its default direction', () => {
+  assert.deepEqual(nextSort({ sortBy: 'updated', sortDir: 'desc' }, 'updated'), { sortBy: 'updated', sortDir: 'asc' });
+  assert.deepEqual(nextSort({ sortBy: 'updated', sortDir: 'desc' }, 'priority'), { sortBy: 'priority', sortDir: 'asc' });
+  assert.deepEqual(nextSort({ sortBy: 'priority', sortDir: 'asc' }, 'key'), { sortBy: 'key', sortDir: 'asc' });
+  assert.deepEqual(nextSort({ sortBy: 'key', sortDir: 'asc' }, 'updated'), { sortBy: 'updated', sortDir: 'desc' });
+});
+
+const row = (key: string, priority: number | null, updatedAt?: string) => ({ key, priority, updatedAt });
+const keys = (rows: { key: string }[]) => rows.map((r) => r.key);
+
+test('sortTickets: ticket numbers sort naturally, not as text', () => {
+  const rows = [row('DCP-100', 1), row('DCP-9', 1), row('DCP-15976', 1), row('ABC-2', 1)];
+  assert.deepEqual(keys(sortTickets(rows, 'key', 'asc')), ['ABC-2', 'DCP-9', 'DCP-100', 'DCP-15976']);
+  assert.deepEqual(keys(sortTickets(rows, 'key', 'desc')), ['DCP-15976', 'DCP-100', 'DCP-9', 'ABC-2']);
+});
+
+test('sortTickets: priority 1 is first ascending, and no priority is last either way', () => {
+  const rows = [row('A-1', 3), row('A-2', null), row('A-3', 1), row('A-4', 2)];
+  assert.deepEqual(keys(sortTickets(rows, 'priority', 'asc')), ['A-3', 'A-4', 'A-1', 'A-2']);
+  assert.deepEqual(keys(sortTickets(rows, 'priority', 'desc')), ['A-1', 'A-4', 'A-3', 'A-2']);
+});
+
+test('sortTickets: dates compare as times across zones; missing or bad dates go last', () => {
+  const rows = [
+    row('A-1', 1, '2026-11-09T16:12:24.533-0500'), // 21:12Z
+    row('A-2', 1, '2026-11-09T21:30:00Z'),
+    row('A-3', 1),
+    row('A-4', 1, 'not a date'),
+    row('A-5', 1, '2026-11-01T00:00:00Z'),
+  ];
+  assert.deepEqual(keys(sortTickets(rows, 'updated', 'desc')), ['A-2', 'A-1', 'A-5', 'A-3', 'A-4']);
+  assert.deepEqual(keys(sortTickets(rows, 'updated', 'asc')), ['A-5', 'A-1', 'A-2', 'A-3', 'A-4']);
+});
+
+test('sortTickets: ties keep the tracker order, and the input is not changed', () => {
+  const rows = [row('B-2', 2), row('B-1', 2), row('B-3', 1)];
+  assert.deepEqual(keys(sortTickets(rows, 'priority', 'asc')), ['B-3', 'B-2', 'B-1']);
+  assert.deepEqual(keys(rows), ['B-2', 'B-1', 'B-3']);
 });

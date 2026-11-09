@@ -5,7 +5,8 @@ import { keyPrefixes, looksLikeTicketRef, ticketMatches } from '@asf/shared/ui';
 import { api, encodeTicketId, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
 import { addedBy, removeAdhoc } from '../new-task';
-import { BUCKETS, latestOnly, loadBacklogFilters, restoreScope, saveBacklogFilters } from '../backlog-filters';
+import { BUCKETS, latestOnly, loadBacklogFilters, nextSort, restoreScope, saveBacklogFilters, sortTickets, type SortKey } from '../backlog-filters';
+import { checkedAgo } from '../updates-view';
 import { NoRepo } from './Dispatch';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
 
@@ -23,6 +24,7 @@ export function Backlog() {
   const [search, setSearch] = useState('');
   const [bucket, setBucket] = useState(saved.bucket); // '' = all active buckets
   const [page, setPage] = useState(0);
+  const [sort, setSort] = useState({ sortBy: saved.sortBy, sortDir: saved.sortDir });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Nothing can start until there is a repository to put the work in (the api refuses too).
   const { data: readiness } = useQuery({ queryKey: ['start-readiness'], queryFn: api.startReadiness, refetchInterval: 30_000 });
@@ -109,8 +111,8 @@ export function Backlog() {
   // Save the filters whenever they change.
   useEffect(() => {
     const where = scopeRestored ? { team, scope, sprint } : { team: saved.team, scope: saved.scope, sprint: saved.sprint };
-    saveBacklogFilters({ ...where, status: [...statusSel], bucket, showDone });
-  }, [scopeRestored, team, scope, sprint, statusSel, bucket, showDone, saved]);
+    saveBacklogFilters({ ...where, status: [...statusSel], bucket, showDone, ...sort });
+  }, [scopeRestored, team, scope, sprint, statusSel, bucket, showDone, sort, saved]);
 
   const statusKey = useMemo(() => [...statusSel].sort().join(','), [statusSel]);
   const scopeQuery = useMemo(() => ({
@@ -162,8 +164,9 @@ export function Backlog() {
   // Search + bucket filter the already-loaded active set — no round trip per keystroke.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return tickets.filter((t) => (!bucket || t.bucket === bucket) && (!q || ticketMatches(t, q)));
-  }, [tickets, search, bucket]);
+    const rows = tickets.filter((t) => (!bucket || t.bucket === bucket) && (!q || ticketMatches(t, q)));
+    return sortTickets(rows, sort.sortBy, sort.sortDir);
+  }, [tickets, search, bucket, sort]);
 
   // A ticket number that isn't in the loaded list (another board/sprint, done, or past
   // the first 200) is looked up in the tracker directly, after a short pause in typing.
@@ -183,7 +186,19 @@ export function Backlog() {
     }, 300);
     return () => { alive = false; clearTimeout(timer); };
   }, [search, tickets]);
-  useEffect(() => { setPage(0); }, [search, bucket]);
+  useEffect(() => { setPage(0); }, [search, bucket, sort]);
+
+  // A sortable column header: click to sort by it, click again to flip the direction.
+  const sortHeader = (by: SortKey, label: string) => {
+    const on = sort.sortBy === by;
+    return (
+      <th aria-sort={on ? (sort.sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        <button type="button" className="th-sort" onClick={() => setSort((s) => nextSort(s, by))} title={`Sort by ${label.toLowerCase()}`}>
+          {label}<span aria-hidden="true">{on ? (sort.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</span>
+        </button>
+      </th>
+    );
+  };
 
   const total = filtered.length;
   const from = total === 0 ? 0 : page * PAGE + 1;
@@ -302,8 +317,8 @@ export function Backlog() {
         </span>
       </div>
       <div className="card table-wrap" style={{ padding: 0 }}>
-        <table>
-          <thead><tr><th></th><th>Ticket</th><th>Title</th><th>Where it is</th><th>Priority</th></tr></thead>
+        <table className="ticket-table">
+          <thead><tr><th></th>{sortHeader('key', 'Ticket')}<th>Title</th><th>Where it is</th>{sortHeader('priority', 'Priority')}{sortHeader('updated', 'Updated')}</tr></thead>
           <tbody>
             {pageRows.map((t) => {
               const open = () => navigate(`/dispatch/${encodeTicketId(t.id)}`);
@@ -315,6 +330,7 @@ export function Backlog() {
                   <td>{t.title}</td>
                   <td><span className="pill">{bucketLabel(t.bucket)}</span></td>
                   <td className="muted">{t.priority ?? '—'}</td>
+                  <td className="muted" title={t.updatedAt ? new Date(t.updatedAt).toLocaleString() : undefined}>{t.updatedAt ? checkedAgo(t.updatedAt) : '—'}</td>
                 </tr>
               );
             })}
@@ -328,11 +344,12 @@ export function Backlog() {
                   <td>{t.title} <span className="muted">(not in this view)</span></td>
                   <td><span className={t.bucket === 'done' ? 'pill done' : 'pill'}>{t.bucket === 'done' ? t.status : bucketLabel(t.bucket)}</span></td>
                   <td className="muted">{t.priority ?? '—'}</td>
+                  <td className="muted">{t.updatedAt ? checkedAgo(t.updatedAt) : '—'}</td>
                 </tr>
               );
             })}
             {total === 0 && elsewhere.length === 0 && (
-              <tr><td colSpan={5} className="muted" style={{ padding: 32, textAlign: 'center' }}>
+              <tr><td colSpan={6} className="muted" style={{ padding: 32, textAlign: 'center' }}>
                 {loading || finding ? <span className="spinner lg" aria-label="Loading" />
                   : search.trim() ? `No ticket matches “${search.trim()}”.` : 'No open tickets.'}
               </td></tr>

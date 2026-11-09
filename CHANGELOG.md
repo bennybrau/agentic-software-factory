@@ -8,6 +8,11 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Fixed
+- **Planned tasks stays filtered when you come back to it.** After opening a task and going
+  back, the board and status filters still showed your choices, but the list could show every
+  board's tickets. On load, the page fetched all boards before your saved board was applied,
+  and that slower answer arrived after the filtered one and replaced it. Tickets now load only
+  once the saved board is applied, and only the newest load can update the list.
 - **An agent can no longer kill the worker.** In the worker container, agents now run as their
   own user (`agent`, uid 1001) instead of the worker's (`node`), and Linux only lets a process
   signal its own user's processes. Before, an implementer stopping its own test server with a

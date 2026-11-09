@@ -130,6 +130,14 @@ export const MAX_TURNS_ORG_SETTING_KEYS = [
   'MAX_TURNS_PLANNER', 'MAX_TURNS_IMPLEMENTER', 'MAX_TURNS_TESTER', 'MAX_TURNS_REVIEWER',
 ] as const;
 
+/** One connected repository as the worker sees it: no clone URL, nothing secret. */
+export const connectedRepoSchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  defaultBranch: z.string().optional(),
+});
+export type ConnectedRepo = z.infer<typeof connectedRepoSchema>;
+
 export const runContextSchema = z.object({
   runId: z.string(),
   ticket: z.object({
@@ -156,5 +164,9 @@ export const runContextSchema = z.object({
   /** The enabled third-party skills; the worker picks the ones given to its role. Defaults to []
    * so an older api still parses. */
   thirdPartySkills: z.array(thirdPartySkillSchema).default([]),
+  /** Every repository source control can reach, so the planner knows where an `asf-split` part
+   * may be handed off to. The run's own is `repo`. Absent when the lookup failed or the api is
+   * older; the worker then says it doesn't know the list. */
+  connectedRepos: z.array(connectedRepoSchema).optional(),
 });
 export type RunContext = z.infer<typeof runContextSchema>;

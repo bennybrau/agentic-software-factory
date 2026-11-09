@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { SKILL_ENTRY_FILE, type RunContext } from '@asf/shared';
+import { SKILL_ENTRY_FILE, isAdhocId, withoutRepoList, type RunContext } from '@asf/shared';
 import { splitSkillMd, type FallbackSkill } from './skills.js';
 
 const PROMPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../prompts/roles');
@@ -22,6 +22,24 @@ export interface PromptVars {
   thirdPartySkills?: FallbackSkill[];  // skills written to the run dir for a runtime that doesn't load skill folders; empty/absent = no section
   env?: NodeJS.ProcessEnv;  // the environment the agent inherits (default process.env); read for the test-database note
   review?: { url: string; number: number; headBranch: string; baseBranch: string };  // a review-only run's PR: the reviewer renders reviewer-pr.md
+  connectedRepos?: RunContext['connectedRepos'];  // every repository source control reaches; absent = the api couldn't say (or is older)
+  repo?: RunContext['repo'];  // the run's own repository, marked "(this run)" in {{repos.connected}}
+}
+
+/**
+ * {{repos.connected}}: the repositories an `asf-split` part may be handed off to, with this
+ * run's own marked. One repository says so plainly, so the planner doesn't look for another;
+ * an unknown list says that too, so it asks rather than invents a path.
+ */
+export function renderConnectedRepos(connected: PromptVars['connectedRepos'], own: PromptVars['repo']): string {
+  if (!connected) return 'The factory could not list the connected repositories for this run. Keep every part in this repository; if the work belongs in another one, reply with `NEEDS_HUMAN:` and ask which.';
+  const isOwn = (r: { id: string; path: string }) => !!own && (r.id === own.id || r.path === own.path);
+  const repos = own && !connected.some(isOwn) ? [{ id: own.id, path: own.path }, ...connected] : connected;
+  if (repos.length <= 1) {
+    const only = repos[0] ?? own;
+    return `Only this repository is connected${only ? ` (\`${only.path}\`)` : ''}, so every part stays here: don't set \`"repo"\`.`;
+  }
+  return repos.map((r) => `- \`${r.path}\`${isOwn(r) ? ' (this run)' : ''}`).join('\n');
 }
 
 /** Variables naming a scratch test database the operator gave the agents (ASF_TEST_DB, docker-compose.testdb.yml). */
@@ -127,7 +145,9 @@ export const attachmentsDir = (runDir: string) => join(runDir, 'attachments');
  * path so the role can open them (images included — the agent's Read tool views them).
  */
 export function ticketBodyWithAttachments(ticket: RunContext['ticket'], runDir: string): string {
-  const body = ticket.body || '(no description)';
+  // An older chat-started task has the connected repositories appended to its body; the
+  // prompt lists them from the run context now ({{repos.connected}}), so drop the old copy.
+  const body = (isAdhocId(ticket.id) ? withoutRepoList(ticket.body) : ticket.body) || '(no description)';
   const files = ticket.attachments ?? [];
   if (!files.length) return body;
   const dir = attachmentsDir(runDir);
@@ -181,6 +201,7 @@ export async function renderPrompt(role: string, runId: string, vars: PromptVars
     // 0 turns = no ceiling: give the planner a concrete number anyway so it can size the work.
     'budget.implementerTurns': String(vars.budget?.implementerTurns || 150),
     'budget.timeoutMinutes': String(vars.budget?.timeoutMinutes || 45),
+    'repos.connected': renderConnectedRepos(vars.connectedRepos, vars.repo),
   };
   if (vars.review) {
     flat['review.url'] = vars.review.url;

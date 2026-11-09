@@ -1,24 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { ADHOC_ALLOWED_MIME, adhocBodyLimitBytes, attachmentProblem, createAdhocRequestSchema, isAdhocId, safeAttachmentName } from '@asf/shared';
-import type { AdhocFileInput, AdhocLimits, ScmProvider } from '@asf/shared';
+import type { AdhocFileInput, AdhocLimits } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { cfg } from '../settings.js';
 import { resolveIdentity } from '../identity.js';
-import { startReadiness } from '../start-readiness.js';
 
 export function adhocLimits(): AdhocLimits {
   return { maxFiles: cfg('ADHOC_MAX_ATTACHMENTS'), maxFileMb: cfg('ADHOC_MAX_ATTACHMENT_MB') };
 }
 
-// The chat path lists the connected repositories under this heading, after what was typed.
-const REPO_LIST_HEADING = '\n\nRepositories connected:\n';
-
-/** A chat-started task's body without the repository list the chat appended: what the person typed. */
-export function withoutRepoList(body: string): string {
-  const at = body.lastIndexOf(REPO_LIST_HEADING);
-  return at < 0 ? body : body.slice(0, at);
-}
+// Older chat-started tasks carry the connected repositories at the end of their body; the run
+// view strips them so the chat shows what was typed.
+export { withoutRepoList } from '@asf/shared';
 
 /** Sanitised, de-duplicated names: the worker writes each file to disk under this name. */
 function uniqueNames(files: AdhocFileInput[]): AdhocFileInput[] {
@@ -40,7 +34,7 @@ function uniqueNames(files: AdhocFileInput[]): AdhocFileInput[] {
  * ordinary /dispatch screen then starts. The worker fetches the files back
  * through the secret-guarded attachments route.
  */
-export function registerAdhocRoutes(app: FastifyInstance, deps: { scm: ScmProvider }): void {
+export function registerAdhocRoutes(app: FastifyInstance): void {
   const limits = adhocLimits();
 
   app.addHook('onRequest', async (req, reply) => {
@@ -56,18 +50,13 @@ export function registerAdhocRoutes(app: FastifyInstance, deps: { scm: ScmProvid
   app.post('/api/adhoc', { bodyLimit: adhocBodyLimitBytes(limits) }, async (req, reply) => {
     const parsed = createAdhocRequestSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'bad_request', reason: parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ') });
-    const { title, chat } = parsed.data;
-    let { body } = parsed.data;
+    const { title, body } = parsed.data;
     const files = uniqueNames(parsed.data.files);
     // The declared size is the decoded size, so a lying client cannot slip a big file past the check.
     const problem = attachmentProblem(files.map((f) => ({ name: f.name, mime: f.mime, size: Buffer.byteLength(f.contentBase64, 'base64') })), limits);
     if (problem) return reply.code(400).send({ error: 'bad_attachment', reason: problem });
-    // From the chat: list the connected repositories so the planner can hand a part off to one.
-    // If the lookup fails the task is still created, just without the list.
-    if (chat) {
-      const ready = await startReadiness(deps.scm);
-      if (ready.ok) body = `${body}${REPO_LIST_HEADING}${ready.repos.map((r) => `- ${r.path}`).join('\n')}`;
-    }
+    // The body is stored as typed. The planner learns the connected repositories from the run
+    // context (RunContext.connectedRepos), for every run and not only chat-started ones.
     const { task } = await registry.createAdhoc({ title, body, createdBy: resolveIdentity(req).user || null, attachments: files });
     return reply.code(201).send({ task });
   });

@@ -72,6 +72,13 @@ test('pickChatRepo prefers the suggested repo, else the first, else none', () =>
   assert.equal(pickChatRepo({ suggestedRepoId: null, repos: [] }), null);
 });
 
+test('a chat message that names a repository starts there, not in the first one', () => {
+  // The api suggests the repository the message names (suggestedRepoId), with the reason.
+  const preview = { suggestedRepoId: 'a/web/shared-ui', suggestedRepoReason: 'The ticket description mentions shared-ui.', mentionedRepoIds: ['a/web/shared-ui'],
+    repos: [{ id: 'a/web/billing' }, { id: 'a/web/shared-ui' }] };
+  assert.equal(chatDispatchBody('fix the header in shared-ui', preview, 'ann').repoId, 'a/web/shared-ui');
+});
+
 test('a review request dispatches the whole message as reviewOf, with no repository', () => {
   const preview = { suggestedRepoId: 'r1', repos: [{ id: 'r1' }] };
   const text = 'review this https://github.com/o/r/pull/3';

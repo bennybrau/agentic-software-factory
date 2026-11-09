@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { isAdhocId } from '@asf/shared/ui';
 import { api, decodeTicketId, type TicketRow } from '../api';
-import { gatesFor, isCustomised, modelsFor, overridesDiff, reconcileModel, roleLock, runtimeOptions, skipRolesPayload } from '../dispatch-roles';
+import { gatesFor, isCustomised, modelsFor, overridesDiff, reconcileModel, repoHint, roleLock, runtimeOptions, skipRolesPayload } from '../dispatch-roles';
 import { setupFlags } from '../setup-flags';
 import { useMe } from '../useMe';
 import { GATE_MODE_LABEL, PAGE, runtimeLabel } from '../words';
@@ -56,7 +56,8 @@ export function Dispatch() {
     setPreview(null); setErr(null);
     api.dispatchPreview(ticketId).then((p) => {
       setPreview(p);
-      // Prefer the repo the ticket names (GitHub issue → its own repo); else the first known repo.
+      // Prefer the suggested repo (a GitHub issue's own repo, or one the ticket names); else the first.
+      // Only preselected: the person confirms it with Start.
       setRepoId(p.suggestedRepoId ?? p.repos[0]?.id ?? '');
       setGates(Object.fromEntries(Object.entries(p.gates).map(([k, v]) => [k, v.mode])));
       setModels({ ...p.defaultModels });
@@ -84,6 +85,8 @@ export function Dispatch() {
   // Header falls back to the preview's ticket (id/key/title) until the full ticket loads.
   const key = ticket?.key ?? preview?.ticket.key ?? '';
   const title = ticket?.title ?? preview?.ticket.title ?? '';
+  // Why the selected repository was preselected (and what else the ticket names), while it still is.
+  const repoNote = preview ? repoHint(preview, repoId, isAdhocId(preview.ticket.id)) : null;
 
   return (
     <div>
@@ -121,11 +124,7 @@ export function Dispatch() {
           <select value={repoId} onChange={(e) => setRepoId(e.target.value)} style={{ width: '100%', marginBottom: 4 }}>
             {preview.repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
           </select>
-          {preview.suggestedRepoId && repoId === preview.suggestedRepoId && (
-            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-              {isAdhocId(preview.ticket.id) ? 'Suggested: the repository the run that added it was working in' : 'Suggested — the issue\'s own repository.'}
-            </div>
-          )}
+          {repoNote && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>{repoNote}</div>}
 
           <details className="advanced" style={{ marginBottom: 10 }}>
           <summary>Advanced: {isCustomised({ models, runtimes, efforts, gates, off }, preview) ? 'changed for this job' : 'using your defaults'}</summary>

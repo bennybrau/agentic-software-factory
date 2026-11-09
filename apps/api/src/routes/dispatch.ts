@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { STANDARD_TEAM, GatePolicyError, resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, parseReviewRequest, PipelineConfigError } from '@asf/shared';
-import type { GateConfig, Repo, ScmProvider, TeamTemplate, TicketProvider } from '@asf/shared';
+import { STANDARD_TEAM, GatePolicyError, reposMentioned, isAdhocId, resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, parseReviewRequest, PipelineConfigError } from '@asf/shared';
+import type { GateConfig, Repo, ScmProvider, TeamTemplate, Ticket, TicketProvider } from '@asf/shared';
 import { registry, RunConflict } from '../registry/client.js';
 import type { RunWithTasks } from '@asf/shared';
 import { cfg, orgValues } from '../settings.js';
@@ -12,6 +12,7 @@ import { computeRoleSkills } from './runs.js';
 import { EFFORT_LEVELS } from '@asf/shared';
 import type { Role } from '@asf/shared';
 import { startReadiness, pickRepo, type RepoBlocker } from '../start-readiness.js';
+import { withoutRepoList } from './adhoc.js';
 import { resolveRoleModels, applyRoleSkills, defaultRoleModels, catalogue, BadModelError, BadEffortError, type OrgRoleModels, type OrgRoleEfforts, type OrgRoleRuntimes } from '../models.js';
 
 /** A dispatch that a caller can act on: `ok` runs are created; the rest carry a machine reason. */
@@ -198,6 +199,22 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
   }
 }
 
+/** Why the tracker's own suggestion is the repository, for the dispatch page. */
+function providerReason(ticket: Ticket, path: string): string {
+  if (isAdhocId(ticket.id)) return `The run that added this to-do worked in ${path}.`;
+  return `This ticket belongs to ${path}.`;
+}
+
+/**
+ * The connected repositories a ticket names, best first. A chat-started task carries the
+ * list of every connected repository at the end of its body; that list names them all,
+ * so it is left out.
+ */
+function mentionedRepos(ticket: Ticket, repos: Array<{ id: string; path: string }>) {
+  const body = isAdhocId(ticket.id) ? withoutRepoList(ticket.body ?? '') : (ticket.body ?? '');
+  return reposMentioned({ title: ticket.title ?? '', body }, repos);
+}
+
 const HTTP_STATUS: Record<DispatchFailure, number> = {
   scm_not_connected: 409, no_repos: 409, repo_not_found: 400, repo_ambiguous: 400,
   not_found: 404, ticket_done: 409, bad_model: 400, bad_effort: 400, cost_cap: 400, over_budget: 400, gate_policy: 400, pipeline_config: 400, run_conflict: 409, no_worker_for_runtime: 400, bad_review_target: 400,
@@ -231,11 +248,18 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     if (ticket.bucket === 'done') whyNot.push('This ticket is already done. Re-open it to dispatch.');
 
     let suggestedRepoId: string | null = null;
+    let suggestedRepoReason: string | null = null;
     const wanted = tickets.suggestedRepo?.(ticket) ?? null;
     if (wanted) {
-      const match = repos.find((r) => r.path === wanted || r.id === wanted);
-      if (match) suggestedRepoId = match.id;
-      else suggestedRepoId = await deps.scm.getRepo(wanted).then((r) => r.id).catch(() => null);
+      const match = repos.find((r) => r.path === wanted || r.id === wanted) ?? await deps.scm.getRepo(wanted).catch(() => null);
+      if (match) { suggestedRepoId = match.id; suggestedRepoReason = providerReason(ticket, match.path); }
+    }
+    // The repositories the ticket names. The tracker's own link (above) wins; otherwise the
+    // first one named is preselected, and the person confirms it before anything starts.
+    const mentioned = mentionedRepos(ticket, repos);
+    if (!suggestedRepoId && mentioned[0]) {
+      suggestedRepoId = mentioned[0].id;
+      suggestedRepoReason = `The ticket ${mentioned[0].where === 'title' ? 'title' : 'description'} mentions ${mentioned[0].name}.`;
     }
 
     // The merged catalogue, narrowed to what the live fleet can run (all of it when no worker is up).
@@ -264,6 +288,10 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
       gates: STANDARD_TEAM.gates,
       repos: repos.map((r) => ({ id: r.id, path: r.path })),
       suggestedRepoId,
+      // Why suggestedRepoId was picked, in words the page can show; null when nothing was suggested.
+      suggestedRepoReason,
+      // Every connected repository the ticket names, best first (title before description).
+      mentionedRepoIds: mentioned.map((m) => m.id),
       whyNot,
       blocker,
       // What the modal pre-selects per role, and what it may switch each role to.

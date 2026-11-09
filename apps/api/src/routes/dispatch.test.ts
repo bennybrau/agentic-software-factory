@@ -269,6 +269,80 @@ test('preview suggests the repository of the run that added an agent to-do', asy
   await a.close();
 });
 
+// --- A repository the ticket names is preselected, with the reason ---
+import type { Repo } from '@asf/shared';
+
+/** Mock source control with several GitLab-style repositories (id === path). */
+class ManyReposScm extends MockScmProvider {
+  constructor(private list: Repo[]) { super(); }
+  override async searchRepos() { return this.list; }
+  override async getRepo(idOrPath: string) { const r = this.list.find((x) => x.id === idOrPath || x.path === idOrPath); if (!r) throw new Error('no repo'); return r; }
+}
+const glRepo = (path: string): Repo => ({ id: path, path, url: `https://gitlab.com/${path}`, defaultBranch: 'main', cloneUrl: `https://gitlab.com/${path}.git` });
+const manyRepos = [glRepo('acme/platform/web/shared-components-web'), glRepo('acme/platform/web/shared-ui'), glRepo('acme/platform/api/billing')];
+
+async function previewFor(tickets: MockTicketProvider, id: string, repos = manyRepos) {
+  const a = Fastify();
+  registerDispatchRoutes(a, { tickets, scm: new ManyReposScm(repos) });
+  await a.ready();
+  const res = await a.inject({ method: 'GET', url: `/api/tickets/${encodeURIComponent(id)}/dispatch` });
+  await a.close();
+  assert.equal(res.statusCode, 200);
+  return res.json() as { suggestedRepoId: string | null; suggestedRepoReason: string | null; mentionedRepoIds: string[] };
+}
+
+test('preview preselects the repository the ticket title names, and says why', async () => {
+  const tickets = new MockTicketProvider();
+  await tickets.update('asf-1', { title: 'Header overlaps in shared-ui', body: 'Also check acme/platform/web/shared-components-web.' });
+  const p = await previewFor(tickets, 'asf-1');
+  assert.equal(p.suggestedRepoId, 'acme/platform/web/shared-ui');
+  assert.equal(p.suggestedRepoReason, 'The ticket title mentions shared-ui.');
+  assert.deepEqual(p.mentionedRepoIds, ['acme/platform/web/shared-ui', 'acme/platform/web/shared-components-web']);
+});
+
+test('preview falls back to a repository the description names', async () => {
+  const tickets = new MockTicketProvider();
+  await tickets.update('asf-1', { body: 'See https://gitlab.com/acme/platform/api/billing/-/merge_requests/4' });
+  const p = await previewFor(tickets, 'asf-1');
+  assert.equal(p.suggestedRepoId, 'acme/platform/api/billing');
+  assert.equal(p.suggestedRepoReason, 'The ticket description mentions acme/platform/api/billing.');
+});
+
+test('preview with no repository named suggests none (the page falls back to the first)', async () => {
+  const p = await previewFor(new MockTicketProvider(), 'asf-1');
+  assert.equal(p.suggestedRepoId, null);
+  assert.equal(p.suggestedRepoReason, null);
+  assert.deepEqual(p.mentionedRepoIds, []);
+});
+
+function stubAdhoc(task: Record<string, unknown>) {
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
+    return json({ ok: true, result: body.op === 'getAdhoc' ? { task } : {} });
+  }) as unknown as typeof fetch;
+}
+const adhocTask = { id: 'adhoc:0123456789abcdef', key: 'ADHOC-01234567', title: 'Make the buttons rounder', createdBy: 'ann', attachments: [], createdAt: '2026-11-01T00:00:00.000Z' };
+
+test('a chat task\'s appended list of connected repositories is not a mention', async () => {
+  const list = '\n\nRepositories connected:\n' + manyRepos.map((r) => `- ${r.path}`).join('\n');
+  stubAdhoc({ ...adhocTask, body: `Do it in shared-components-web please.${list}` });
+  const named = await previewFor(new MockTicketProvider(), adhocTask.id);
+  assert.equal(named.suggestedRepoId, 'acme/platform/web/shared-components-web');
+  assert.deepEqual(named.mentionedRepoIds, ['acme/platform/web/shared-components-web']);
+  stubAdhoc({ ...adhocTask, body: `Round them everywhere.${list}` });
+  const none = await previewFor(new MockTicketProvider(), adhocTask.id);
+  assert.equal(none.suggestedRepoId, null);
+  assert.deepEqual(none.mentionedRepoIds, []);
+});
+
+test('the tracker\'s own repository wins over a mention, with its reason', async () => {
+  stubAdhoc({ ...adhocTask, body: 'Follow up in shared-ui', sourceRepoId: 'acme/platform/api/billing' });
+  const p = await previewFor(new MockTicketProvider(), adhocTask.id);
+  assert.equal(p.suggestedRepoId, 'acme/platform/api/billing');
+  assert.equal(p.suggestedRepoReason, 'The run that added this to-do worked in acme/platform/api/billing.');
+  assert.deepEqual(p.mentionedRepoIds, ['acme/platform/web/shared-ui']);
+});
+
 // --- M8 WP D: model catalogue as data, filtered by what the live fleet runs ---
 import { registerAdminRoutes } from './admin.js';
 import { TicketProviderRegistry } from '../providers/tickets/registry.js';

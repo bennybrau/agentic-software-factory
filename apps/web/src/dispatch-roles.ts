@@ -54,3 +54,34 @@ export function isCustomised({ models, runtimes, efforts, gates, off }: Dispatch
 
 /** The check-ins worth asking about: no "after the plan" check-in when nobody writes a plan. */
 export const gatesFor = (gates: string[], plannerOff: boolean): string[] => (plannerOff ? gates.filter((g) => g !== 'after_plan') : gates);
+
+/** What the dispatch preview says about the repository it suggests. Older servers send only `suggestedRepoId`. */
+export interface RepoSuggestion {
+  repos: { id: string; path: string }[];
+  suggestedRepoId: string | null;
+  suggestedRepoReason?: string | null;
+  mentionedRepoIds?: string[];
+}
+
+/** A repo's short name (its last path segment), or the full path when another connected repo shares that name. */
+function shortRepoName(repos: { path: string }[], path: string): string {
+  const last = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+  return repos.filter((r) => last(r.path) === last(path)).length > 1 ? path : last(path);
+}
+
+/**
+ * The muted line under the Repository select: why it is preselected, and which
+ * other repositories the ticket names. Shown only while the suggested repository
+ * is the one selected; null otherwise (nothing to explain).
+ */
+export function repoHint(preview: RepoSuggestion, selected: string, isAdhoc: boolean): string | null {
+  if (!preview.suggestedRepoId || selected !== preview.suggestedRepoId) return null;
+  const reason = preview.suggestedRepoReason
+    ?? (isAdhoc ? 'Suggested: the repository the run that added it was working in.' : 'Suggested: the issue\u2019s own repository.');
+  const others = (preview.mentionedRepoIds ?? [])
+    .filter((id) => id !== selected)
+    .map((id) => preview.repos.find((r) => r.id === id))
+    .filter((r): r is { id: string; path: string } => Boolean(r))
+    .map((r) => shortRepoName(preview.repos, r.path));
+  return others.length ? `${reason} Also mentioned: ${others.join(', ')}.` : reason;
+}

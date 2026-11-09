@@ -13,6 +13,12 @@ publishes a `vX.Y.Z` release of the GHCR images
   an `asf-split` off to another repository, not only a task started from the chat. With one
   repository connected the planner is told every part stays there. Chat tasks no longer get the
   repository list appended to their body; older ones are shown and planned without the old copy.
+- **The Start page preselects the repository a ticket names, and says why.** When a ticket's
+  title or description names a connected repository, by its full path (also in a link or
+  backticks) or by its own name (`shared-ui`), that repository is selected on the Start page,
+  with a note such as "The ticket title mentions shared-ui." and any other repositories the
+  ticket mentions. You still confirm before work starts. Before, a Jira ticket always started
+  with the first repository selected. A chat message that names a repository now starts there too.
 - **Sort Planned tasks by ticket, priority or last update.** Click a column header to sort by
   it, and click again to flip the direction. A new **Updated** column shows how long ago each
   ticket changed (hover for the exact time). Columns start in their natural direction: newest

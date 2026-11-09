@@ -54,6 +54,16 @@ A planner can end its plan with an `asf-split` block: 2–8 parts, each a `title
 
 A part may also set `repo` to the path of another connected repository. That part is queued for that repository; a part without `repo` goes into the parent run's repository. A single part is allowed only when it sets `repo`, which hands the work off to another repository. The repository is not checked when you approve: if the queue can't reach it, the entry fails with the reason when it is dispatched. Every planner's prompt lists the connected repositories, with the run's own marked, whatever the ticket came from (a Jira or GitHub ticket, the chat, an ad-hoc task), so it knows which paths it can use. The api sends the list with the run context (`connectedRepos`); with only one repository connected the prompt says so, and if the list can't be fetched the planner is told to keep every part in its own repository. A part of a split can't be split or handed off again.
 
+## Which repository a run works in
+
+Every run works in one repository, chosen on the Start page (`/dispatch/<ticket>`). The page preselects one, and you confirm or change it before you press **Start work**:
+
+1. **The tracker's own repository**, when it has one (`suggestedRepo` in [PROVIDERS.md](PROVIDERS.md)): a GitHub issue's repository, or the repository an agent to-do's run was working in.
+2. Otherwise, **a connected repository the ticket names** in its title or description: its full path (`acme/platform/web/shared-ui`, also inside a URL or backticks) or its last segment (`shared-ui`). Matching is plain text, not AI: case-insensitive and whole names only (`shared-ui` doesn't match `shared-ui-themes`). A last segment two repositories share, or one shorter than 4 characters, only counts as the full path. A title mention beats a description mention; then the earliest wins. The list of connected repositories a chat task carries at the end of its body is ignored.
+3. Otherwise, the first connected repository.
+
+Under the select, the page says why the repository was preselected (for example "The ticket title mentions shared-ui.") and names any other repositories the ticket mentions. A chat message that names a repository starts in it. The preview (`GET /api/tickets/:id/dispatch`) returns this as `suggestedRepoId`, `suggestedRepoReason` and `mentionedRepoIds`.
+
 ## Invariants (the server enforces these; the UI mirrors them)
 
 - **`before_merge` (the Merge gate) can only be relaxed from "Human approves" at the org tier** — here in Settings (the Merge step's choice), never from a per-dispatch request. Landing on the default branch without a person is a project policy, not a per-run choice.

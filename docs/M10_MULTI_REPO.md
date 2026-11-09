@@ -115,6 +115,13 @@ merged. A real multi-repo run (N worktrees, linked MRs) is out of scope.
    CONFIGURATION/INSTALL docs, and a recorded run in `docs/runs/` with 10 real tickets,
    noting how often the top suggestion was right.
 
+**Partial step toward WP3/WP4 (done):** a non-AI, mention-based suggestion. When the
+ticket names a connected repository (full path or a unique last segment) in its title or
+description, the dispatch page preselects it and shows why (`suggestedRepoReason`,
+`mentionedRepoIds`; see [PIPELINE.md](PIPELINE.md#which-repository-a-run-works-in)). There is
+still no catalog, choice history, components signal or AI ranking, and a ticket that names no
+repository still falls back to the first one.
+
 WP1 and WP2 alone make such a project usable by hand. WP3 and WP4 add the suggestion. WP5 and WP6 are
 independent and can come later.
 

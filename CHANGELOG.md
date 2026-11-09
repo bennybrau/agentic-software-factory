@@ -7,6 +7,13 @@ publishes a `vX.Y.Z` release of the GHCR images
 
 ## [Unreleased]
 
+### Added
+- **Sort Planned tasks by ticket, priority or last update.** Click a column header to sort by
+  it, and click again to flip the direction. A new **Updated** column shows how long ago each
+  ticket changed (hover for the exact time). Columns start in their natural direction: newest
+  first, priority 1 first, ticket numbers counting up (DCP-9 before DCP-10). Tickets with no
+  priority or date go last. The sort is kept with the other filters.
+
 ### Fixed
 - **Planned tasks stays filtered when you come back to it.** After opening a task and going
   back, the board and status filters still showed your choices, but the list could show every

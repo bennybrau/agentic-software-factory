@@ -22,3 +22,14 @@ test('a context carries its third-party skills', () => {
   };
   assert.deepEqual(runContextSchema.parse({ ...payload, thirdPartySkills: [skill] }).thirdPartySkills.map((s) => s.id), ['pdf-tools']);
 });
+
+test('referenceRepos is optional: an older api parses without it, and the field round-trips', () => {
+  assert.equal('referenceRepos' in runContextSchema.parse(payload), false);
+  const ref = {
+    repo: { id: '2', path: 'acme/platform/web/shared-ui', url: 'https://example.test/acme/platform/web/shared-ui', defaultBranch: 'main', cloneUrl: 'https://example.test/acme/platform/web/shared-ui.git' },
+    cloneCredential: { url: 'https://example.test/acme/platform/web/shared-ui.git' },
+    reason: 'The ticket description mentions shared-ui.',
+  };
+  assert.deepEqual(runContextSchema.parse({ ...payload, referenceRepos: [ref] }).referenceRepos, [ref]);
+  assert.throws(() => runContextSchema.parse({ ...payload, referenceRepos: [{ ...ref, reason: undefined }] }));
+});

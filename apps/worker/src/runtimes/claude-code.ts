@@ -40,6 +40,9 @@ export function buildArgs(spawnReq: AgentSpawn, settingsPath: string | undefined
   if (spawnReq.maxTurns && spawnReq.maxTurns > 0) args.push('--max-turns', String(spawnReq.maxTurns));
   // Continue an earlier session (the planner chat's next turn): -p is then just the new message.
   if (spawnReq.resumeSessionId) args.push('--resume', spawnReq.resumeSessionId);
+  // Read-only copies of other repositories the ticket names (segment.ts): readable outside cwd.
+  // Writes there are still refused by the PreToolUse hook (outside the worktree and run dir).
+  if (spawnReq.env.ASF_REFS_DIR) args.push('--add-dir', spawnReq.env.ASF_REFS_DIR);
   args.push(...extraArgs);
   return args;
 }

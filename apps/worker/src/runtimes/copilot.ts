@@ -33,6 +33,8 @@ export function buildCopilotArgs(spawnReq: AgentSpawn): string[] {
   if (excluded.length) args.push(`--excluded-tools=${excluded.join(',')}`);
   args.push('--deny-tool', 'shell(git push)');
   if (spawnReq.env.ASF_RUN_DIR) args.push('--add-dir', spawnReq.env.ASF_RUN_DIR);
+  // Read-only copies of other repositories the ticket names; discarded after the step.
+  if (spawnReq.env.ASF_REFS_DIR) args.push('--add-dir', spawnReq.env.ASF_REFS_DIR);
   if (spawnReq.model) args.push('--model', spawnReq.model);
   return args;
 }

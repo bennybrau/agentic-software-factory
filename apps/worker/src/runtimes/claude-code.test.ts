@@ -126,3 +126,10 @@ test('parseResult surfaces num_turns and subtype as turns/terminalReason (M11 WP
   const nometa = parseResult(envelope({ result: 'done' }));
   assert.equal(nometa?.turns, null, 'absent num_turns -> null, not undefined');
 });
+
+test('argv: the read-only copies dir is added with --add-dir only when there are copies', () => {
+  const none = buildArgs(spawn({}), undefined, []);
+  assert.ok(!none.includes('--add-dir'));
+  const withRefs = buildArgs(spawn({ env: { ASF_REFS_DIR: '/wt/refs/run_1/task_1' } }), undefined, []);
+  assert.equal(withRefs[withRefs.indexOf('--add-dir') + 1], '/wt/refs/run_1/task_1');
+});

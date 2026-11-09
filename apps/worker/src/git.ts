@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, rm, stat } from 'node:fs/promises';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CloneCredential, Repo, Run } from '@asf/shared';
 import { isForbiddenBranch, formatMergeConflict } from '@asf/shared';
@@ -33,17 +33,26 @@ export const NO_REPO_HOOKS: Readonly<Record<string, string>> = {
   GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', HUSKY: '0',
 };
 
-async function git(cwd: string, args: string[], env: Record<string, string> = {}): Promise<string> {
+async function git(cwd: string, args: string[], env: Record<string, string> = {}, signal?: AbortSignal): Promise<string> {
   try {
-    const { stdout } = await exec('git', args, { cwd, env: { ...process.env, ...NO_REPO_HOOKS, ...env }, maxBuffer: 32 * 1024 * 1024 });
+    const { stdout } = await exec('git', args, { cwd, env: { ...process.env, ...NO_REPO_HOOKS, ...env }, maxBuffer: 32 * 1024 * 1024, signal });
     return stdout;
   } catch (err) {
     const e = err as { stderr?: string; message?: string };
     // Name the subcommand, not a leading `-c key=value` option.
     let i = 0;
     while (args[i] === '-c' || args[i] === '-C') i += 2;
-    throw new GitError(`git ${args[i] ?? args[0]} failed: ${(e.stderr || e.message || '').trim()}`);
+    throw new GitError(`git ${args[i] ?? args[0]} failed: ${redactUrlCredentials((e.stderr || e.message || '').trim())}`);
   }
+}
+
+/**
+ * Strip the user:token part from every URL in `text`. A failed command's message names the
+ * command it ran, clone URL and credential included, and these messages reach logs, run
+ * events and the UI (a skipped read-only copy shows its reason).
+ */
+export function redactUrlCredentials(text: string): string {
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, '$1***@');
 }
 
 /** origin/<default> if it exists (live clone), else the local <default> ref (bare clone of a local origin). */
@@ -88,31 +97,31 @@ export function branchFor(run: Run): string {
   return `agent/${run.ticketKey}-${short}`;
 }
 
-/**
- * A bare clone cached per repo (fetched if already present), then a worktree
- * per run branched from the repo's default branch. Refuses a forbidden branch
- * before creating anything. Reuses an existing worktree on resume so an
- * interrupted run continues from its own commits.
- *
- * A review-only run (team.reviewTarget) branches from the PR head instead, and its
- * base is the PR's base. Its branch is never pushed.
- */
-export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredential, log: (m: string) => void): Promise<Workspace> {
-  const branchName = branchFor(run);
-  const review = run.team.reviewTarget ?? null;
-  const baseBranch = review?.baseBranch ?? repo.defaultBranch;
-  if (isForbiddenBranch(branchName) || isForbiddenBranch(repo.defaultBranch === branchName ? branchName : '')) {
-    throw new GitError(`refusing to work on protected branch ${branchName}`);
-  }
-  const bareDir = join(config.worktreeRoot, 'repos', `${repo.id}.git`);
-  const worktreePath = join(config.worktreeRoot, 'runs', run.id);
-  await mkdir(join(config.worktreeRoot, 'repos'), { recursive: true });
-  await mkdir(join(config.worktreeRoot, 'runs'), { recursive: true });
+/** The cached bare clone of a repo, shared by every run (and every read-only copy) of it. */
+export const bareDirFor = (repo: Pick<Repo, 'id'>) => join(config.worktreeRoot, 'repos', `${repo.id}.git`);
 
+/**
+ * Make sure the repo's bare clone exists, scrub the credential from its stored remote, and
+ * fetch every branch into refs/remotes/origin/*. A failed fetch is logged and the cached
+ * state used. Returns the bare clone's path. Shared by ensureWorkspace (the run's own
+ * worktree) and addReferenceCheckout (read-only copies of other repos).
+ */
+export async function syncBareClone(repo: Repo, cred: CloneCredential, log: (m: string) => void, signal?: AbortSignal): Promise<string> {
+  const bareDir = bareDirFor(repo);
+  await mkdir(join(config.worktreeRoot, 'repos'), { recursive: true });
   const cloneUrl = cred.url;
   if (!(await exists(bareDir))) {
     log(`cloning ${repo.path} (bare)`);
-    await git(config.worktreeRoot, ['clone', '--bare', cloneUrl, bareDir]);
+    // Clone beside it and move it into place, so a clone cut short (an error, or a read-only
+    // copy's timeout) leaves no half-made directory the next call would take for a cached
+    // clone, and two tasks cloning the same repo at once don't trip over each other.
+    const tmp = `${bareDir}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await git(config.worktreeRoot, ['clone', '--bare', cloneUrl, tmp], {}, signal);
+      await rename(tmp, bareDir).catch(async (e) => { if (!(await exists(bareDir))) throw e; });
+    } finally {
+      await rm(tmp, { recursive: true, force: true }).catch(() => {});
+    }
   }
   // A `git clone --bare` maps refs into refs/heads, NOT refs/remotes/origin/*, so
   // `origin/<default>` never resolves and a cached clone silently works off a stale
@@ -129,9 +138,32 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
   await git(bareDir, ['config', 'remote.origin.url', credentialLessUrl(cloneUrl)]);
   // #68: the agent runs as its own user and commits into this clone's object store; keep what git writes group-writable.
   await git(bareDir, ['config', 'core.sharedRepository', 'group']);
-  await git(bareDir, ['fetch', '--prune', cloneUrl, '+refs/heads/*:refs/remotes/origin/*'], {}).catch((e) => {
+  await git(bareDir, ['fetch', '--prune', cloneUrl, '+refs/heads/*:refs/remotes/origin/*'], {}, signal).catch((e) => {
     log(`fetch failed (${(e as Error).message}); using cached clone — the base may be stale`);
   });
+  return bareDir;
+}
+
+/**
+ * A bare clone cached per repo (fetched if already present), then a worktree
+ * per run branched from the repo's default branch. Refuses a forbidden branch
+ * before creating anything. Reuses an existing worktree on resume so an
+ * interrupted run continues from its own commits.
+ *
+ * A review-only run (team.reviewTarget) branches from the PR head instead, and its
+ * base is the PR's base. Its branch is never pushed.
+ */
+export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredential, log: (m: string) => void): Promise<Workspace> {
+  const branchName = branchFor(run);
+  const review = run.team.reviewTarget ?? null;
+  const baseBranch = review?.baseBranch ?? repo.defaultBranch;
+  if (isForbiddenBranch(branchName) || isForbiddenBranch(repo.defaultBranch === branchName ? branchName : '')) {
+    throw new GitError(`refusing to work on protected branch ${branchName}`);
+  }
+  const worktreePath = join(config.worktreeRoot, 'runs', run.id);
+  await mkdir(join(config.worktreeRoot, 'runs'), { recursive: true });
+  const bareDir = await syncBareClone(repo, cred, log);
+  const cloneUrl = cred.url;
 
   if (await exists(worktreePath)) {
     log(`reusing worktree ${worktreePath}`);
@@ -180,6 +212,51 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
   }
   log(`worktree ${worktreePath} on ${branchName}`);
   return { worktreePath, branchName, baseBranch, resumed: false, unborn: !born };
+}
+
+/** Where a task's read-only copies of other repositories live: outside the run's worktree and run dir. */
+export const referenceRootFor = (runId: string, taskId: string) => join(config.worktreeRoot, 'refs', runId, taskId);
+
+/** A read-only copy of another repository, checked out for one step. */
+export interface ReferenceCheckout {
+  /** The repository's path as the provider spells it (`acme/platform/web/shared-ui`). */
+  path: string;
+  /** Where it is checked out. */
+  dir: string;
+  branch: string;
+  sha: string;
+  reason: string;
+  /** The bare clone it is a worktree of, for removal. */
+  bareDir: string;
+}
+
+/**
+ * A detached checkout of `repo`'s default branch tip at `dir`, from the cached bare clone
+ * (fetched first, best-effort, like ensureWorkspace). Detached so it creates no branch in the
+ * shared clone. Throws when the repository can't be cloned or has no default branch yet.
+ */
+export async function addReferenceCheckout(
+  repo: Repo, cred: CloneCredential, dir: string, reason: string, log: (m: string) => void, signal?: AbortSignal,
+): Promise<ReferenceCheckout> {
+  const bareDir = await syncBareClone(repo, cred, log, signal);
+  if (!(await baseBranchExists(bareDir, repo.defaultBranch))) throw new GitError(`${repo.path} has no ${repo.defaultBranch} branch yet`);
+  const start = await resolveStart(bareDir, repo.defaultBranch);
+  await rm(dir, { recursive: true, force: true });
+  await git(bareDir, ['worktree', 'prune'], {}, signal);
+  await git(bareDir, ['worktree', 'add', '--detach', dir, start], {}, signal);
+  const sha = (await git(dir, ['rev-parse', 'HEAD'], {}, signal)).trim();
+  // Readable, not writable, for the agent user (#68: it shares the worker's group, which the
+  // worker's umask 002 makes writable). The worker owns the files, so it can still remove them.
+  await exec('chmod', ['-R', 'go-w', dir], { signal }).catch((e) => log(`could not make ${dir} read-only: ${(e as Error).message}`));
+  log(`read-only copy of ${repo.path} at ${dir} (${repo.defaultBranch} @ ${sha.slice(0, 7)})`);
+  return { path: repo.path, dir, branch: repo.defaultBranch, sha, reason, bareDir };
+}
+
+/** Remove a read-only copy: its worktree registration and its directory. Never throws. */
+export async function removeReferenceCheckout(bareDir: string, dir: string): Promise<void> {
+  await git(bareDir, ['worktree', 'remove', '--force', dir]).catch(() => {});
+  await rm(dir, { recursive: true, force: true }).catch(() => {});
+  await git(bareDir, ['worktree', 'prune']).catch(() => {});
 }
 
 const TRAILER_AUTHOR = 'Agentic Software Factory <factory@users.noreply.github.com>';

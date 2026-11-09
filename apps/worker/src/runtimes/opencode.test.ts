@@ -109,3 +109,13 @@ test('stream: an error event fails the segment; no events at all is no result', 
 test('capabilities: hookless, streamed, and it cannot confine its own writes', () => {
   assert.deepEqual(new OpencodeRuntime().capabilities, { toolHooks: false, eventStream: true, reportsCost: false, listsModels: false, confinesWrites: false });
 });
+
+test('permission map: the read-only copies are readable outside the project and never editable', () => {
+  const writer = opencodePermissions(policyFor(true), '/runs/r1', '/wt/refs/r1/t1');
+  assert.deepEqual(writer.external_directory, { '*': 'deny', '/runs/r1/**': 'allow', '/wt/refs/r1/t1/**': 'allow' });
+  assert.deepEqual(writer.edit, { '*': 'allow', '/wt/refs/r1/t1/**': 'deny' });
+  const reader = opencodePermissions(policyFor(false), '/runs/r1', '/wt/refs/r1/t1');
+  assert.deepEqual(reader.edit, { '*': 'deny', '/runs/r1/**': 'allow' });
+  assert.deepEqual(opencodeConfig(spawn({ env: { ASF_RUN_DIR: '/runs/r1', ASF_REFS_DIR: '/wt/refs/r1/t1' } }), '/runs/r1').agent,
+    { 'asf-writer': { mode: 'primary', description: 'ASF writing role', permission: writer }, 'asf-reader': { mode: 'primary', description: 'ASF read-only role', permission: reader } });
+});

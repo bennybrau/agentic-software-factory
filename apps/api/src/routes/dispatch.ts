@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { STANDARD_TEAM, GatePolicyError, reposMentioned, isAdhocId, resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, parseReviewRequest, PipelineConfigError } from '@asf/shared';
+import { STANDARD_TEAM, GatePolicyError, ticketReposMentioned, isAdhocId, resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, parseReviewRequest, PipelineConfigError } from '@asf/shared';
 import type { GateConfig, Repo, ScmProvider, TeamTemplate, Ticket, TicketProvider } from '@asf/shared';
 import { registry, RunConflict } from '../registry/client.js';
 import type { RunWithTasks } from '@asf/shared';
@@ -12,7 +12,6 @@ import { computeRoleSkills } from './runs.js';
 import { EFFORT_LEVELS } from '@asf/shared';
 import type { Role } from '@asf/shared';
 import { startReadiness, pickRepo, type RepoBlocker } from '../start-readiness.js';
-import { withoutRepoList } from './adhoc.js';
 import { resolveRoleModels, applyRoleSkills, defaultRoleModels, catalogue, BadModelError, BadEffortError, type OrgRoleModels, type OrgRoleEfforts, type OrgRoleRuntimes } from '../models.js';
 
 /** A dispatch that a caller can act on: `ok` runs are created; the rest carry a machine reason. */
@@ -210,10 +209,6 @@ function providerReason(ticket: Ticket, path: string): string {
  * list of every connected repository at the end of its body; that list names them all,
  * so it is left out.
  */
-function mentionedRepos(ticket: Ticket, repos: Array<{ id: string; path: string }>) {
-  const body = isAdhocId(ticket.id) ? withoutRepoList(ticket.body ?? '') : (ticket.body ?? '');
-  return reposMentioned({ title: ticket.title ?? '', body }, repos);
-}
 
 const HTTP_STATUS: Record<DispatchFailure, number> = {
   scm_not_connected: 409, no_repos: 409, repo_not_found: 400, repo_ambiguous: 400,
@@ -256,7 +251,7 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     }
     // The repositories the ticket names. The tracker's own link (above) wins; otherwise the
     // first one named is preselected, and the person confirms it before anything starts.
-    const mentioned = mentionedRepos(ticket, repos);
+    const mentioned = ticketReposMentioned(ticket, repos);
     if (!suggestedRepoId && mentioned[0]) {
       suggestedRepoId = mentioned[0].id;
       suggestedRepoReason = `The ticket ${mentioned[0].where === 'title' ? 'title' : 'description'} mentions ${mentioned[0].name}.`;

@@ -35,6 +35,8 @@ A part may set `"repo"` to a path from the connected repositories below when its
 Repositories connected:
 {{repos.connected}}
 
+{{repos.reference}}
+
 After writing the plan, end your reply with one or two sentences for the person: what you're proposing (say so plainly if it is a split, and into how many parts), and anything you'd like them to confirm.
 
 **Write no code** — not a scaffold, not a stub. Only the plan file, or your questions.

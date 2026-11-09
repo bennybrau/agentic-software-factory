@@ -30,15 +30,20 @@ export function opencodeAgent(policy: ToolPolicy): OpencodeAgent {
  * plugin hooks may not fire under `opencode run`, which is why this runtime is
  * container-only (docs/RUNTIMES.md).
  */
-export function opencodePermissions(policy: ToolPolicy, runDir: string): Record<string, Action | Record<string, Action>> {
+export function opencodePermissions(policy: ToolPolicy, runDir: string, refsDir?: string): Record<string, Action | Record<string, Action>> {
   const runDirOnly: Record<string, Action> = { '*': 'deny', [`${runDir}/**`]: 'allow' };
+  // Read-only copies of other repositories the ticket names: reachable outside the project, never editable.
+  const external: Record<string, Action> = refsDir ? { ...runDirOnly, [`${refsDir}/**`]: 'allow' } : runDirOnly;
+  const edit: Action | Record<string, Action> = policy.fileWrite === 'worktree'
+    ? (refsDir ? { '*': 'allow', [`${refsDir}/**`]: 'deny' } : 'allow')
+    : runDirOnly;
   return {
     read: 'allow',
-    edit: policy.fileWrite === 'worktree' ? 'allow' : runDirOnly,
+    edit,
     bash: policy.shell ? { '*': 'allow', 'git push': 'deny', 'git push *': 'deny' } : 'deny',
     webfetch: policy.network ? 'allow' : 'deny',
     websearch: policy.network ? 'allow' : 'deny',
-    external_directory: runDirOnly,
+    external_directory: external,
     task: 'deny',
     doom_loop: 'deny',
   };
@@ -49,7 +54,7 @@ export function opencodeConfig(spawnReq: AgentSpawn, runDir: string): Record<str
   const agent = (writes: boolean) => ({
     mode: 'primary',
     description: writes ? 'ASF writing role' : 'ASF read-only role',
-    permission: opencodePermissions({ ...spawnReq.policy, fileWrite: writes ? 'worktree' : 'run-dir-only' }, runDir),
+    permission: opencodePermissions({ ...spawnReq.policy, fileWrite: writes ? 'worktree' : 'run-dir-only' }, runDir, spawnReq.env.ASF_REFS_DIR),
   });
   const { provider } = opencodeAuthConfig(spawnReq.auth, spawnReq.model);
   return {

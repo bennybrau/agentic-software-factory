@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { renderPrompt, loadPriorArtifacts, readArtifact } from './prompt.js';
+import { renderPrompt, renderReferenceRepos, loadPriorArtifacts, readArtifact } from './prompt.js';
 
 const ticket = { id: 't1', key: 'ASF-1', title: 'Add a thing', body: 'Do the thing.', url: 'http://x/ASF-1', links: [{ title: 'Figma', url: 'http://f', kind: 'figma' }] };
 const base = { ticket, cwd: '/wt', branch: 'agent/ASF-1-abc', artifacts: '/run' };
@@ -264,4 +264,37 @@ test('an older chat task\'s body has its appended repository list stripped, so i
   const jira = { ...ticket, body: 'Notes.\n\nRepositories connected:\n- written by a person' };
   const q = await renderPrompt('planner', 'run_jira', { ...base, ticket: jira, prior: {} });
   assert.match(q, /written by a person/);
+});
+
+// {{repos.reference}}: read-only copies of the other repositories the ticket names.
+const REF = { path: 'acme/platform/web/shared-ui', dir: '/wt/refs/run_r/task_t/shared-ui', branch: 'main', sha: 'abc1234def5678', reason: 'The ticket description mentions shared-ui.' };
+
+test('{{repos.reference}} with no copies renders nothing, and leaves no stray blank paragraph', async () => {
+  assert.equal(renderReferenceRepos(undefined, 'planner'), '');
+  assert.equal(renderReferenceRepos([], 'implementer'), '');
+  for (const role of ['planner', 'implementer', 'reviewer']) {
+    const p = await renderPrompt(role, 'run_noref', { ...base, prior: priorsFor[role], referenceRepos: [] });
+    assert.doesNotMatch(p, /checked out read-only/, role);
+    assert.doesNotMatch(p, /\n\n\n/, `${role}: no empty paragraph where the section would be`);
+  }
+});
+
+test('the planner is told where the read-only copies are, and that their work goes in a split part', async () => {
+  const p = await renderPrompt('planner', 'run_ref', { ...base, prior: {}, referenceRepos: [REF] });
+  assert.match(p, /Repositories connected:\n[^\n]+\n\nOther repositories this ticket names are checked out read-only/);
+  assert.match(p, /never edit them\. Changes there are discarded\. Work that belongs in one of them goes in a split part with `"repo"` set\.\n- `acme\/platform\/web\/shared-ui` at \/wt\/refs\/run_r\/task_t\/shared-ui \(main @ abc1234\): The ticket description mentions shared-ui\./);
+});
+
+test('the implementer is told those repositories are another part\'s job; the reviewer to check usage against them', async () => {
+  const i = await renderPrompt('implementer', 'run_ref', { ...base, prior: priorsFor.implementer, referenceRepos: [REF] });
+  assert.match(i, /checked out read-only/);
+  assert.match(i, /another part's job/);
+  assert.doesNotMatch(i, /split part/);
+  assert.ok(i.indexOf('checked out read-only') > i.indexOf('THE PLAN'), 'after the plan');
+  const r = await renderPrompt('reviewer', 'run_ref', { ...base, prior: priorsFor.reviewer, referenceRepos: [REF] });
+  assert.match(r, /check the names, types and calls against what is really there/);
+  assert.match(r, /\(main @ abc1234\)/);
+  // The tester's template doesn't include the section.
+  const t = await renderPrompt('tester', 'run_ref', { ...base, prior: priorsFor.tester, referenceRepos: [REF] });
+  assert.doesNotMatch(t, /checked out read-only/);
 });

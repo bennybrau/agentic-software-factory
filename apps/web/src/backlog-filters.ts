@@ -55,6 +55,21 @@ export function saveBacklogFilters(f: BacklogFilters, store: FilterStore | null 
 }
 
 /**
+ * Keeps only the newest of overlapping loads. Each call to the returned function
+ * starts a load and hands back `isLatest()`, true until another load starts.
+ * The Planned tasks list is refetched whenever a filter changes, and an older,
+ * wider request (e.g. all boards) can answer after a newer, narrower one; without
+ * this check the stale answer would replace the filtered list.
+ */
+export function latestOnly(): () => () => boolean {
+  let current = 0;
+  return () => {
+    const id = ++current;
+    return () => id === current;
+  };
+}
+
+/**
  * The saved team/board/sprint, checked against the boards the tracker has now:
  * a board that's gone falls back to all boards (keeping the team if it still
  * exists), and a board's team always wins over a saved team.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TicketScope } from '@asf/shared';
-import { BACKLOG_FILTERS_KEY, loadBacklogFilters, NO_FILTERS, restoreScope, saveBacklogFilters, type FilterStore } from './backlog-filters';
+import { BACKLOG_FILTERS_KEY, loadBacklogFilters, NO_FILTERS, restoreScope, saveBacklogFilters, type FilterStore, latestOnly } from './backlog-filters';
 
 function memStore(init?: string): FilterStore & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -54,4 +54,25 @@ test('a board that is gone falls back to its team, else to everything', () => {
   assert.deepEqual(restoreScope({ team: 'Payments', scope: 'gone', sprint: '9' }, scopes), { team: 'Payments', scope: '', sprint: '' });
   assert.deepEqual(restoreScope({ team: 'Gone team', scope: 'gone', sprint: '9' }, scopes), { team: '', scope: '', sprint: '' });
   assert.deepEqual(restoreScope({ team: 'Payments', scope: '', sprint: '' }, []), { team: '', scope: '', sprint: '' });
+});
+
+test('latestOnly: a slower, older load answering last is ignored', async () => {
+  const next = latestOnly();
+  const list: string[][] = [];
+  const load = (rows: string[], ms: number) => {
+    const isLatest = next();
+    return new Promise<void>((r) => setTimeout(r, ms)).then(() => { if (isLatest()) list.push(rows); });
+  };
+  // All boards (slow) starts first, then the saved board (fast) replaces it.
+  await Promise.all([load(['all-1', 'all-2'], 20), load(['board-1'], 5)]);
+  assert.deepEqual(list, [['board-1']]);
+});
+
+test('latestOnly: each new load supersedes the one before', () => {
+  const next = latestOnly();
+  const a = next();
+  assert.equal(a(), true);
+  const b = next();
+  assert.equal(a(), false);
+  assert.equal(b(), true);
 });

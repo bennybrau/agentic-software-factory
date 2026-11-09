@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { AdhocTask, TicketScope, TicketSprint } from '@asf/shared';
 import { keyPrefixes, looksLikeTicketRef, ticketMatches } from '@asf/shared/ui';
 import { api, encodeTicketId, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
 import { addedBy, removeAdhoc } from '../new-task';
-import { BUCKETS, loadBacklogFilters, restoreScope, saveBacklogFilters } from '../backlog-filters';
+import { BUCKETS, latestOnly, loadBacklogFilters, restoreScope, saveBacklogFilters } from '../backlog-filters';
 import { NoRepo } from './Dispatch';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
 
@@ -51,6 +51,10 @@ export function Backlog() {
   // False until the saved team/board/sprint are applied: saving before then would
   // overwrite them with the blank starting values.
   const [scopeRestored, setScopeRestored] = useState(false);
+  // True once the tracker's boards have been checked (restored, or the tracker
+  // didn't answer). Tickets aren't loaded before then: a load with the blank
+  // starting board would fetch every board and could answer after the filtered one.
+  const [scopesChecked, setScopesChecked] = useState(false);
 
   const selectedScope = useMemo(() => scopes.find((s) => s.id === scope), [scopes, scope]);
   const isScrum = selectedScope?.kind === 'board' && selectedScope.boardType === 'scrum';
@@ -70,7 +74,8 @@ export function Backlog() {
       const r = restoreScope(saved, sc);
       setTeam(r.team); setScope(r.scope); setSprint(r.sprint);
       setScopeRestored(true);
-    }).catch(() => setScopes([])); // the tracker didn't answer: keep the saved board for next time
+    }).catch(() => setScopes([])) // the tracker didn't answer: keep the saved board for next time
+      .finally(() => setScopesChecked(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -116,19 +121,24 @@ export function Backlog() {
 
   // Active work only — done is excluded server-side so the board doesn't pay to fetch
   // (and ADF-convert) finished issues. Search/bucket/paging are client-side over this set.
+  // Only the newest load may update the list: an older one still in flight (an
+  // earlier filter) is ignored when it answers.
+  const nextLoad = useRef(latestOnly()).current;
   const load = () => {
+    const isLatest = nextLoad();
     setLoading(true); setErr(null);
     return api.tickets({ ...scopeQuery, excludeDone: true, limit: 200 })
-      .then((d) => { setTickets(d.tickets); setPage(0); })
-      .catch((e) => setErr(String(e)))
-      .finally(() => setLoading(false));
+      .then((d) => { if (isLatest()) { setTickets(d.tickets); setPage(0); } })
+      .catch((e) => { if (isLatest()) setErr(String(e)); })
+      .finally(() => { if (isLatest()) setLoading(false); });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [scope, team, sprint, statusKey, scopes]);
+  useEffect(() => { if (scopesChecked) load(); }, [scopesChecked, scope, team, sprint, statusKey, scopes]);
 
   // Done, fetched only when asked and only for the recent window.
   useEffect(() => {
     if (!showDone) { setDone([]); return; }
+    if (!scopesChecked) return;
     let alive = true;
     setDoneLoading(true);
     api.tickets({ ...scopeQuery, updatedWithinDays: DONE_WINDOW_DAYS, limit: 200 })
@@ -137,7 +147,7 @@ export function Backlog() {
       .finally(() => { if (alive) setDoneLoading(false); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDone, scope, team, sprint, statusKey, scopes]);
+  }, [showDone, scopesChecked, scope, team, sprint, statusKey, scopes]);
 
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleStatus = (name: string) => setStatusSel((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });

@@ -39,6 +39,11 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **A ticket no longer picks up another ticket's merge or pull request.** ASF found a ticket's
+  change requests by looking for its key anywhere in the title or branch, so PROJ-12 also matched
+  `PROJ-123: …` and `agent/PROJ-123-…`. The key now has to stand on its own, on GitLab and GitHub:
+  `PROJ-12: …` and `agent/PROJ-12-…` still match, a longer key that starts with it doesn't, and
+  the same goes for GitHub issue keys (`acme/web#42` vs `#420`) and ad-hoc keys.
 - **Planned tasks stays filtered when you come back to it.** After opening a task and going
   back, the board and status filters still showed your choices, but the list could show every
   board's tickets. On load, the page fetched all boards before your saved board was applied,

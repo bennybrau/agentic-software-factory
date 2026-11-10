@@ -178,6 +178,20 @@ test('listChangeRequests filters by ticket key in title or branch', async () => 
   } finally { s.restore(); }
 });
 
+test('listChangeRequests matches the whole ticket key, so PROJ-12 does not pick up PROJ-123', async () => {
+  const byTitle = { ...MR_JSON, iid: 7, title: 'PROJ-12: fix login', source_branch: 'feat/login' };
+  const byBranch = { ...MR_JSON, iid: 8, title: 'fix login', source_branch: 'agent/PROJ-12-abcd1234' };
+  const longer = { ...MR_JSON, iid: 9, title: 'PROJ-123: fix signup', source_branch: 'agent/PROJ-123-abcd1234' };
+  const s = stubFetch([
+    { m: 'GET', re: /\/merge_requests\?/, json: [byTitle, byBranch, longer] },
+    { m: 'GET', re: /\/merge_requests\/\d+\/approvals$/, json: { approved: false } },
+  ]);
+  try {
+    const crs = await new GitlabScmProvider(cfg()).listChangeRequests(REPO, { ticketKeys: ['PROJ-12'] });
+    assert.deepEqual(crs.map((c) => c.number), [7, 8]);
+  } finally { s.restore(); }
+});
+
 test('preflight returns username; fails on empty token and on below-Developer access', async () => {
   assert.deepEqual(await new GitlabScmProvider(cfg({ token: '' })).preflight(), { ok: false, reason: 'GITLAB_TOKEN is empty' });
   const s = stubFetch([

@@ -1,6 +1,6 @@
 # M12: Several ticket trackers and code hosts at once
 
-Status: PLANNED. Milestone and issues: see the links added when the milestone is created.
+Status: PLANNED. Milestone https://github.com/bennybrau/agentic-software-factory/milestone/4, issues #95 (WP1) to #101 (WP7); #12 and #16 carried over from M10 (WP7).
 
 ## The need
 

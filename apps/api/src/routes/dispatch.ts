@@ -11,7 +11,7 @@ import { ticketsFor } from '../tickets/route.js';
 import { computeRoleSkills } from './runs.js';
 import { EFFORT_LEVELS } from '@asf/shared';
 import type { Role } from '@asf/shared';
-import { startReadiness, pickRepo, type RepoBlocker } from '../start-readiness.js';
+import { startReadiness, pickRepo, previewRepo, mentionReason, type RepoBlocker, type RepoPreview } from '../start-readiness.js';
 import { resolveRoleModels, applyRoleSkills, defaultRoleModels, catalogue, BadModelError, BadEffortError, type OrgRoleModels, type OrgRoleEfforts, type OrgRoleRuntimes } from '../models.js';
 
 /** A dispatch that a caller can act on: `ok` runs are created; the rest carry a machine reason. */
@@ -229,6 +229,26 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     return ready.ok ? { ok: true, repos: ready.repos.map((r) => ({ id: r.id, path: r.path })) } : ready;
   });
 
+  // Where each of several tickets would start if queued now, so Planned tasks can show it
+  // (and ask for the ones that can't be told) before anything is queued. The same order
+  // as a queued dispatch (pickRepo with nothing requested), against the connected
+  // repositories only. A ticket that can't be read comes back with repoId null.
+  app.post<{ Body: { ids?: unknown } }>('/api/tickets/repo-preview', async (req, reply) => {
+    const ids = req.body?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100 || !ids.every((i) => typeof i === 'string' && i)) {
+      return reply.code(400).send({ error: 'bad_request', reason: 'ids must be a non-empty array of up to 100 ticket ids' });
+    }
+    const ready = await startReadiness(deps.scm);
+    if (!ready.ok) return reply.code(409).send({ error: ready.code, reason: ready.reason, link: ready.link });
+    const previews = await Promise.all((ids as string[]).map(async (id): Promise<RepoPreview> => {
+      const tickets = ticketsFor(deps.tickets, id);
+      const ticket = await tickets.get(id).catch(() => null);
+      if (!ticket) return { ticketId: id, repoId: null, reason: `Couldn't read ticket ${id}.`, mentionedRepoIds: [] };
+      return previewRepo(tickets, ticket, ready.repos);
+    }));
+    return { repos: ready.repos.map((r) => ({ id: r.id, path: r.path })), previews };
+  });
+
   app.get<{ Params: { id: string } }>('/api/tickets/:id/dispatch', async (req, reply) => {
     const tickets = ticketsFor(deps.tickets, req.params.id);
     const ticket = await tickets.get(req.params.id).catch(() => null);
@@ -254,7 +274,7 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     const mentioned = ticketReposMentioned(ticket, repos);
     if (!suggestedRepoId && mentioned[0]) {
       suggestedRepoId = mentioned[0].id;
-      suggestedRepoReason = `The ticket ${mentioned[0].where === 'title' ? 'title' : 'description'} mentions ${mentioned[0].name}.`;
+      suggestedRepoReason = mentionReason(mentioned[0]);
     }
 
     // The merged catalogue, narrowed to what the live fleet can run (all of it when no worker is up).

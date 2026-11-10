@@ -18,6 +18,8 @@ export interface SkippedFile { path: string; reason: string }
 /** What adding a link would store. Nothing is saved yet, so there's no id, enabled or roles. */
 export type SkillPreview = Pick<ThirdPartySkill, 'name' | 'description' | 'sourceUrl' | 'sourceRef' | 'commitSha' | 'files'>;
 
+import type { RepoPreview } from './queue-repos';
+
 async function j<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`);
   return res.json() as Promise<T>;
@@ -148,6 +150,10 @@ export const api = {
     return fetch(`/api/today?since=${encodeURIComponent(d.toISOString())}`).then(j<TodayWire>);
   },
   queue: () => fetch('/api/queue').then(j<{ entries: WorkQueueEntry[] }>),
+  // Where each ticket would start if queued now (repoId null: a person has to choose).
+  repoPreview: (ids: string[]) =>
+    fetch('/api/tickets/repo-preview', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) })
+      .then(j<{ repos: { id: string; path: string }[]; previews: RepoPreview[] }>),
   enqueue: (items: { ticketId: string; ticketKey: string; ticketProvider: string; repoId?: string | null; maxCostUsd?: number | null }[], mode: 'serial' | 'parallel') =>
     fetch('/api/queue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items, mode }) })
       .then(async (r) => ({ status: r.status, body: await r.json() as { added?: number; skipped?: number; reason?: string } })),

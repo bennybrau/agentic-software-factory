@@ -8,6 +8,7 @@ import { addedBy, removeAdhoc } from '../new-task';
 import { BUCKETS, latestOnly, loadBacklogFilters, nextSort, restoreScope, saveBacklogFilters, sortTickets, type SortKey } from '../backlog-filters';
 import { checkedAgo } from '../updates-view';
 import { NoRepo } from './Dispatch';
+import { chooseForAll, chooseRepo, initialChoices, needsRepoConfirm, queueItems, stillNeedRepo, type QueueChoice } from '../queue-repos';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
 
 // Done is excluded from the default load; the bucket sub-filter (BUCKETS) is over active work only.
@@ -207,15 +208,35 @@ export function Backlog() {
   const hasPrev = page > 0;
   const hasNext = (page + 1) * PAGE < total;
 
-  const queue = async (mode: 'serial' | 'parallel') => {
-    const items = filtered.filter((t) => selected.has(t.id)).map((t) => ({ ticketId: t.id, ticketKey: t.key, ticketProvider: '' }));
+  // With several repositories, each ticket's repository is shown (and the unclear ones
+  // chosen) before anything is queued: a queued run starts unattended, so it never guesses.
+  const [confirm, setConfirm] = useState<{ mode: 'serial' | 'parallel'; choices: QueueChoice[]; repos: { id: string; path: string }[] } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const enqueue = async (mode: 'serial' | 'parallel', items: ReturnType<typeof queueItems>) => {
     const res = await api.enqueue(items, mode);
     if (res.status === 201) {
       setMsg(`Added ${res.body.added ?? 0} to Up next, ${queueModeLabel(mode)}${res.body.skipped ? ` (${res.body.skipped} already there)` : ''}.`);
       setSelected(new Set());
+      setConfirm(null);
       load();
     } else setErr(res.body.reason ?? `Couldn’t add them (${res.status}).`);
   };
+  const queue = async (mode: 'serial' | 'parallel') => {
+    setErr(null); setMsg(null);
+    const picked = filtered.filter((t) => selected.has(t.id));
+    const repos = readiness?.ok ? readiness.repos : [];
+    if (!needsRepoConfirm(repos.length)) return enqueue(mode, queueItems(initialChoices(picked, [])));
+    setChecking(true);
+    try {
+      const p = await api.repoPreview(picked.map((t) => t.id));
+      setConfirm({ mode, repos: p.repos, choices: initialChoices(picked, p.previews) });
+    } catch (e) {
+      setErr(`Couldn’t check which repository each ticket goes to: ${(e as Error).message}`);
+    } finally { setChecking(false); }
+  };
+  // A changed selection makes the panel's list stale: ask again on the next Start.
+  useEffect(() => { setConfirm(null); }, [selected]);
+  const unresolved = confirm ? stillNeedRepo(confirm.choices).length : 0;
 
   return (
     <div>
@@ -277,10 +298,49 @@ export function Backlog() {
         <div className="card row between" style={{ marginBottom: 12, alignItems: 'center' }}>
           <span>{selected.size} selected</span>
           <span className="row">
-            <button className="btn" disabled={Boolean(blocked)} onClick={() => queue('parallel')} title={blocked ? 'Connect a repository first' : 'Work on all of them at the same time'}>Start all at once</button>
-            <button className="btn" disabled={Boolean(blocked)} onClick={() => queue('serial')} title={blocked ? 'Connect a repository first' : 'Finish each one before starting the next'}>Start one at a time</button>
-            <button className="btn ghost" onClick={() => setSelected(new Set())}>Clear</button>
+            <button className="btn" disabled={Boolean(blocked) || checking || Boolean(confirm)} onClick={() => queue('parallel')} title={blocked ? 'Connect a repository first' : 'Work on all of them at the same time'}>Start all at once</button>
+            <button className="btn" disabled={Boolean(blocked) || checking || Boolean(confirm)} onClick={() => queue('serial')} title={blocked ? 'Connect a repository first' : 'Finish each one before starting the next'}>Start one at a time</button>
+            <button className="btn ghost" onClick={() => { setSelected(new Set()); setConfirm(null); }}>Clear</button>
           </span>
+        </div>
+      )}
+
+      {confirm && (
+        <div className="card queue-confirm" style={{ marginBottom: 12 }}>
+          <div className="row between" style={{ alignItems: 'center', marginBottom: 8 }}>
+            <b>Which repository each one works in</b>
+            <label className="row" style={{ gap: 6 }}>
+              <span className="muted">Use one for all:</span>
+              <select value="" onChange={(e) => e.target.value && setConfirm({ ...confirm, choices: chooseForAll(confirm.choices, e.target.value) })}>
+                <option value="">Choose…</option>
+                {confirm.repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
+              </select>
+            </label>
+          </div>
+          <table>
+            <tbody>
+              {confirm.choices.map((c) => (
+                <tr key={c.ticketId}>
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{c.ticketKey}</td>
+                  <td>{c.title}<div className="muted" style={{ fontSize: '0.85em' }}>{c.reason}</div></td>
+                  <td style={{ width: '45%' }}>
+                    <select style={{ width: '100%' }} value={c.repoId} aria-label={`Repository for ${c.ticketKey}`}
+                      onChange={(e) => setConfirm({ ...confirm, choices: chooseRepo(confirm.choices, c.ticketId, e.target.value) })}>
+                      <option value="">Choose a repository…</option>
+                      {confirm.repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="row" style={{ marginTop: 8, gap: 8, alignItems: 'center' }}>
+            <button className="btn" disabled={unresolved > 0} onClick={() => enqueue(confirm.mode, queueItems(confirm.choices))}>
+              Start {confirm.mode === 'parallel' ? 'all at once' : 'one at a time'}
+            </button>
+            <button className="btn ghost" onClick={() => setConfirm(null)}>Cancel</button>
+            {unresolved > 0 && <span className="muted">Choose a repository for {unresolved === 1 ? '1 ticket' : `${unresolved} tickets`} first.</span>}
+          </div>
         </div>
       )}
 

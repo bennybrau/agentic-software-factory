@@ -292,7 +292,7 @@ async function runSegmentWith(claim: ClaimResponse & object, ctx: RunContext, lo
     ticket: ctx.ticket, cwd, branch: ws?.branchName ?? '(none)', artifacts: runDir, prior, revision, wip, skill, conversation, todos, budget, thirdPartySkills,
     conflict: resolvingConflict ? { base: ws?.baseBranch ?? 'main', files: conflictFiles } : undefined,
     review: run.team.reviewTarget ?? undefined,
-    connectedRepos: ctx.connectedRepos, repo: ctx.repo,
+    connectedRepos: ctx.connectedRepos, repo: ctx.repo, hiveBrief: ctx.hiveBrief,
     referenceRepos: refs?.ready.map((c) => ({ path: c.path, dir: c.dir, branch: c.branch, sha: c.sha, reason: c.reason })),
   });
   await writeFile(join(runDir, `${task.role}.prompt.md`), prompt, 'utf8');

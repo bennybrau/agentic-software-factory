@@ -73,6 +73,29 @@ Hive can never block or fail a run.
 What has been sent is kept in memory only. After an api restart the last day is
 sent again; Hive dedupes it.
 
+## What the planner reads
+
+When `HIVE_URL` is set, the api also asks Hive for a briefing on the ticket
+(`POST <HIVE_URL>/v1/brief`) when a worker fetches a step's context, and the
+**planner** and **implementer** get it as a `## TEAM MEMORY (Hive)` section just
+above their role skill. The tester and reviewer get nothing.
+
+- **What is asked:** the ticket title and body (cut to 4,000 characters), the
+  run's repo as `repo_key`, the other repositories the ticket names as
+  `also_repos` (only when there are any), and `budget_tokens: 800`.
+- **What the agent sees:** the best-matching playbook (numbered steps, then
+  pitfalls), gotchas, facts, where to look, past runs and tests. Every fact ends
+  with `[hive:<first 8 characters of its id>]`, and the agent is asked to cite the
+  ones it relies on and to say so when the ticket contradicts one.
+- **Cached** in memory per run, so every step of a run gets the same briefing. A
+  chat reply to the planner (a re-plan) fetches it again.
+- **Timeout:** 2 s. If Hive is down, answers an error or is slower than that, the
+  step runs without a briefing and the api logs one warning. A failure is not
+  cached, so the next step asks again. A run with no repo, or an empty briefing,
+  gets no section, and the prompt is the same as without Hive.
+- **Off switch:** `HIVE_BRIEF=off` (in `.env`, or as an org setting) stops the
+  briefing. Sending episodes is not affected.
+
 ## Backfill
 
 Runs that merged, and dialog written, before the hook was on (or more than a

@@ -170,6 +170,8 @@ export const SETTINGS = {
     description: 'Hive base URL. When set, the api sends each merged run (ticket, PR link, plan, review and changed paths), and each gate note and chat message a person writes, to <HIVE_URL>/v1/episodes about a minute later; see docs/HIVE.md. Blank = off. Set in Settings → Hive.' }),
   HIVE_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Hive', readBy: ['api'],
     description: 'Hive API token, sent as Authorization: Bearer. Blank = no Authorization header.' }),
+  HIVE_BRIEF: S({ type: 'boolean', default: true, tiers: ['env', 'org'], group: 'Hive', readBy: ['api'],
+    description: 'When HIVE_URL is set, ask Hive for a briefing on the ticket (POST <HIVE_URL>/v1/brief, 2 s timeout) and give it to the planner and implementer as a TEAM MEMORY section. Off = never ask; sending episodes is unchanged.' }),
 
   // ---------------------------------------------------------- identity/auth
   AUTH_MODE: S({ type: 'enum', values: ['none', 'header'], default: 'none', tiers: ['env'], group: 'Identity', readBy: ['api'],

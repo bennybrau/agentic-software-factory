@@ -185,5 +185,8 @@ export const runContextSchema = z.object({
    * at most a few). The worker checks each out next to the run's worktree for the step and
    * discards it after. Absent when the ticket names none, or from an older api. */
   referenceRepos: z.array(referenceRepoSchema).optional(),
+  /** Hive's briefing on the ticket, already formatted (formatHiveBrief), for the planner and
+   * implementer. Absent when Hive is off, failed or had nothing, or the api is older. */
+  hiveBrief: z.string().optional(),
 });
 export type RunContext = z.infer<typeof runContextSchema>;

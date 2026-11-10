@@ -8,6 +8,7 @@ import { cfg } from '../settings.js';
 import { ticketsFor } from '../tickets/route.js';
 import { adhocTickets } from '../providers/tickets/index.js';
 import { startReadiness } from '../start-readiness.js';
+import { fetchHiveBrief } from '../hive.js';
 
 /**
  * Every repository source control can reach, for the planner's split hand-offs. Paths and
@@ -147,15 +148,18 @@ export function registerRunRoutes(app: FastifyInstance, deps: { tickets: TicketP
     // One lookup serves both the planner's hand-off list and the read-only copies of the other
     // repositories the ticket names.
     const connected = await connectedRepoList(deps.scm);
+    let referenceRepos: ReferenceRepo[] = [];
     if (connected) {
       context.connectedRepos = toConnectedRepos(connected);
-      const referenceRepos = await computeReferenceRepos(ticket, repo, connected, deps.scm,
+      referenceRepos = await computeReferenceRepos(ticket, repo, connected, deps.scm,
         (detail, msg) => req.log.warn({ runId: run.id, ...detail }, msg)).catch((e) => {
         req.log.warn({ runId: run.id, err: e }, 'could not work out the repositories the ticket names; no read-only copies');
         return [];
       });
       if (referenceRepos.length) context.referenceRepos = referenceRepos;
     } else req.log.warn({ runId: run.id }, 'could not list the connected repositories; the planner gets no list');
+    const hiveBrief = await fetchHiveBrief(got, ticket, referenceRepos, req.log);
+    if (hiveBrief) context.hiveBrief = hiveBrief;
     return runContextSchema.parse(context);
   });
 

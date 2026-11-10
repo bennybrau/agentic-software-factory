@@ -2,6 +2,7 @@ import type {
   ChangeRequest, Preflight, Repo, ReviewComment, ScmProvider,
 } from '@asf/shared';
 import { credentialRejected } from '../rejected.js';
+import { changeRequestMentionsKey } from './ticket-key.js';
 
 /**
  * GitLab as an ScmProvider, purpose-built to the neutral interface (mirrors
@@ -208,9 +209,10 @@ export class GitlabScmProvider implements ScmProvider {
     const mrs = await this.gl<GlMergeRequest[]>('GET', `/projects/${this.pid(repo.path)}/merge_requests?${params}`);
     let filtered = mrs;
     if (q.ticketKeys?.length) {
-      // Match by ticket key appearing in title or source branch (agent branches embed the key).
+      // Match by ticket key appearing in title or source branch (agent branches embed the key),
+      // as a whole key so PROJ-12 doesn't pick up PROJ-123's merge request.
       filtered = filtered.filter((m) =>
-        q.ticketKeys!.some((k) => m.title.includes(k) || m.source_branch.includes(k.replace(/[^\w-]/g, '-'))),
+        q.ticketKeys!.some((k) => changeRequestMentionsKey({ title: m.title, branch: m.source_branch }, k)),
       );
     }
     return Promise.all(filtered.map((m) => this.toChangeRequest(repo, m)));

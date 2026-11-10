@@ -2,6 +2,7 @@ import type {
   ChangeRequest, Preflight, Repo, ReviewComment, ScmProvider,
 } from '@asf/shared';
 import { credentialRejected } from '../rejected.js';
+import { changeRequestMentionsKey } from './ticket-key.js';
 
 /**
  * GitHub as an ScmProvider. Shares GITHUB_TOKEN with the ticket provider (one
@@ -172,9 +173,10 @@ export class GithubScmProvider implements ScmProvider {
     let filtered = pulls;
     if (q.since) filtered = filtered.filter((p) => p.updated_at >= q.since!);
     if (q.ticketKeys?.length) {
-      // Match by ticket key appearing in title or head branch (agent branches embed the key).
+      // Match by ticket key appearing in title or head branch (agent branches embed the key),
+      // as a whole key so PROJ-12 doesn't pick up PROJ-123's pull request.
       filtered = filtered.filter((p) =>
-        q.ticketKeys!.some((k) => p.title.includes(k) || p.head.ref.includes(k.replace(/[^\w-]/g, '-'))),
+        q.ticketKeys!.some((k) => changeRequestMentionsKey({ title: p.title, branch: p.head.ref }, k)),
       );
     }
     return Promise.all(filtered.map((p) => this.toChangeRequest(repo, p)));

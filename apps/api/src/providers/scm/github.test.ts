@@ -166,6 +166,33 @@ test('listChangeRequests filters by ticket key in title or branch', async () => 
   } finally { s.restore(); }
 });
 
+test('listChangeRequests matches the whole ticket key, so PROJ-12 does not pick up PROJ-123', async () => {
+  const byTitle = { ...PR_JSON, number: 7, title: 'PROJ-12: fix login', head: { ref: 'feat/login', sha: 's' }, node_id: 'PR_7' };
+  const byBranch = { ...PR_JSON, number: 8, title: 'fix login', head: { ref: 'agent/PROJ-12-abcd1234', sha: 's' }, node_id: 'PR_8' };
+  const longer = { ...PR_JSON, number: 9, title: 'PROJ-123: fix signup', head: { ref: 'agent/PROJ-123-abcd1234', sha: 's' }, node_id: 'PR_9' };
+  const s = stubFetch([
+    { m: 'GET', re: /\/pulls\?state=all/, json: [byTitle, byBranch, longer] },
+    { m: 'GET', re: /\/pulls\/\d+\/reviews/, json: [] },
+  ]);
+  try {
+    const crs = await new GithubScmProvider(cfg()).listChangeRequests(REPO, { ticketKeys: ['PROJ-12'] });
+    assert.deepEqual(crs.map((c) => c.number), [7, 8]);
+  } finally { s.restore(); }
+});
+
+test('listChangeRequests finds a GitHub issue key by its branch form, but not #42 inside #420', async () => {
+  const mine = { ...PR_JSON, number: 7, title: 'fix', head: { ref: 'agent/acme-web-42-abcd1234', sha: 's' }, node_id: 'PR_7' };
+  const other = { ...PR_JSON, number: 8, title: 'acme/web#420: fix', head: { ref: 'agent/acme-web-420-abcd1234', sha: 's' }, node_id: 'PR_8' };
+  const s = stubFetch([
+    { m: 'GET', re: /\/pulls\?state=all/, json: [mine, other] },
+    { m: 'GET', re: /\/pulls\/\d+\/reviews/, json: [] },
+  ]);
+  try {
+    const crs = await new GithubScmProvider(cfg()).listChangeRequests(REPO, { ticketKeys: ['acme/web#42'] });
+    assert.deepEqual(crs.map((c) => c.number), [7]);
+  } finally { s.restore(); }
+});
+
 test('preflight returns login; fails on empty token and on no-push permission', async () => {
   assert.deepEqual(await new GithubScmProvider(cfg({ token: '' })).preflight(), { ok: false, reason: 'GITHUB_TOKEN is empty' });
   const s = stubFetch([

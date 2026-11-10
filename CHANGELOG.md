@@ -8,6 +8,10 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **The planner and implementer read Hive's briefing.** With `HIVE_URL` set, they get a
+  `TEAM MEMORY (Hive)` section with what the team already settled for the ticket's repo (playbook,
+  gotchas, facts, where to look, past runs, tests), and cite `[hive:<id>]`. 2 s timeout; turn it off
+  with `HIVE_BRIEF=off`. See [docs/HIVE.md](docs/HIVE.md#what-the-planner-reads).
 - **The planner splits library work first.** For a ticket that changes a shared library and an app
   that uses it, the planner now splits it library first: a part for the library, then one part per
   consuming repository that waits for it to merge. It checks how the consumer gets the library first.

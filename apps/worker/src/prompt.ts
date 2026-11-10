@@ -25,6 +25,18 @@ export interface PromptVars {
   connectedRepos?: RunContext['connectedRepos'];  // every repository source control reaches; absent = the api couldn't say (or is older)
   repo?: RunContext['repo'];  // the run's own repository, marked "(this run)" in {{repos.connected}}
   referenceRepos?: ReferencePromptRepo[];  // read-only copies of other repositories the ticket names; empty/absent = {{repos.reference}} renders ''
+  hiveBrief?: string;  // Hive's briefing on the ticket (RunContext.hiveBrief), for the planner and implementer; empty/absent = no section
+}
+
+/**
+ * Hive's briefing on the ticket (#93): what the team has already settled about this repo, so
+ * the planner doesn't re-ask it and the implementer follows it. Planner and implementer only;
+ * no brief = '' (the prompt is unchanged).
+ */
+export function renderHiveBrief(brief: string | undefined, role: string): string {
+  if (!brief || !brief.trim() || (role !== 'planner' && role !== 'implementer')) return '';
+  const where = role === 'planner' ? 'say so in the plan (or ask)' : 'say so';
+  return `\n\n---\n\n## TEAM MEMORY (Hive)\n\nThese are decisions and gotchas the team has already settled. Follow them. When the ticket contradicts one, ${where} instead of silently picking. Cite \`[hive:<id>]\` for any you rely on.\n\n${brief.trim()}`;
 }
 
 /** A read-only copy of another repository, as {{repos.reference}} describes it. */
@@ -262,7 +274,7 @@ export async function renderPrompt(role: string, runId: string, vars: PromptVars
   const skillSection = vars.skill && vars.skill.trim()
     ? `\n\n---\n\n## ROLE SKILL\n\nStanding guidance for the ${role} on this factory. Follow it unless the ticket or the approved plan explicitly overrides it:\n\n${vars.skill.trim()}`
     : '';
-  return conflictBanner + banner + rendered.trimEnd() + renderConversation(vars.conversation) + wipNote + skillSection + renderThirdPartySkills(vars.thirdPartySkills) + renderTestDb(role, vars.env) + renderTodos(vars.todos) + '\n' + TRAILER(runId, vars.cwd, role);
+  return conflictBanner + banner + rendered.trimEnd() + renderConversation(vars.conversation) + wipNote + renderHiveBrief(vars.hiveBrief, role) + skillSection + renderThirdPartySkills(vars.thirdPartySkills) + renderTestDb(role, vars.env) + renderTodos(vars.todos) + '\n' + TRAILER(runId, vars.cwd, role);
 }
 
 /** Which prior artifacts a role reads, by convention. Missing files are simply absent. */

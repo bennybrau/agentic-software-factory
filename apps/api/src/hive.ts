@@ -1,4 +1,5 @@
-import type { ArtifactWire, HiveDialogItem, Run, ScmProvider, TicketProvider } from '@asf/shared';
+import { formatHiveBrief } from '@asf/shared';
+import type { ArtifactWire, HiveBrief, HiveDialogItem, ReferenceRepo, Run, RunTask, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import { registry } from './registry/client.js';
 import { cfg } from './settings.js';
 import { ticketsFor } from './tickets/route.js';
@@ -103,21 +104,84 @@ export async function episodeFor(deps: HiveDeps, run: MergedRun): Promise<HiveRu
   return buildEpisode(run, artifacts, title, paths);
 }
 
+/** HIVE_URL without trailing slashes; '' = Hive is off. */
+const hiveBase = () => String(cfg('HIVE_URL') ?? '').trim().replace(/\/+$/, '');
+
+/** JSON headers, plus Authorization: Bearer when HIVE_TOKEN resolves to something. */
+async function hiveHeaders(): Promise<Record<string, string>> {
+  const token = (await resolveProviderSecret(String(cfg('HIVE_TOKEN') ?? ''))).trim();
+  return { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) };
+}
+
 /** POST one episode to Hive. Throws on a network error or a non-2xx answer. */
 export async function sendEpisode(episode: HiveEpisode): Promise<void> {
-  const base = String(cfg('HIVE_URL') ?? '').trim().replace(/\/+$/, '');
+  const base = hiveBase();
   if (!base) throw new Error('HIVE_URL is blank');
-  const token = (await resolveProviderSecret(String(cfg('HIVE_TOKEN') ?? ''))).trim();
-  const res = await fetch(`${base}/v1/episodes`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify(episode),
-  });
+  const res = await fetch(`${base}/v1/episodes`, { method: 'POST', headers: await hiveHeaders(), body: JSON.stringify(episode) });
   if (!res.ok) throw new Error(`Hive answered ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
 }
 
 export function hiveEnabled(): boolean {
-  return String(cfg('HIVE_URL') ?? '').trim() !== '';
+  return hiveBase() !== '';
+}
+
+/** How long the context call waits for a briefing before going on without one. */
+export const HIVE_BRIEF_TIMEOUT_MS = 2000;
+/** Hive's limit on `task`. */
+export const HIVE_BRIEF_MAX_TASK = 4000;
+export const HIVE_BRIEF_BUDGET_TOKENS = 800;
+/** Runs whose brief is remembered; the oldest is forgotten past this. */
+const HIVE_BRIEF_CACHE_MAX = 500;
+
+/**
+ * The worker asks for the context on every step, so a run's brief is kept in memory, keyed
+ * by how many chat re-plans the run has had: a reply to the planner fetches it again. Only a
+ * successful answer is kept (an empty one too); a failure is tried again next step.
+ */
+const briefCache = new Map<string, { key: number; text: string }>();
+/** Tests only. */
+export function clearHiveBriefCache(): void { briefCache.clear(); }
+
+/**
+ * Hive's briefing on the ticket (#93), formatted for the planner's and implementer's prompt.
+ * Undefined when Hive or HIVE_BRIEF is off, the run has no repo, or Hive fails or is slower
+ * than HIVE_BRIEF_TIMEOUT_MS (one warning; the context is served without it).
+ */
+export async function fetchHiveBrief(
+  got: { run: Pick<Run, 'id' | 'repoId'>; tasks: Pick<RunTask, 'role' | 'queuedBy'>[] },
+  ticket: Pick<Ticket, 'title' | 'body'>,
+  referenceRepos: ReferenceRepo[],
+  log: { warn: (o: unknown, m?: string) => void },
+  opts: { timeoutMs?: number } = {},
+): Promise<string | undefined> {
+  const base = hiveBase();
+  const repo_key = repoKey(got.run);
+  if (!base || !cfg('HIVE_BRIEF') || !repo_key) return undefined;
+  const key = got.tasks.filter((t) => t.role === 'planner' && t.queuedBy === 'chat').length;
+  const hit = briefCache.get(got.run.id);
+  if (hit && hit.key === key) return hit.text || undefined;
+  const also_repos = referenceRepos.map((r) => repoKey({ repoId: r.repo.path })).filter((k): k is string => !!k);
+  const body = {
+    task: `${ticket.title}\n\n${ticket.body}`.slice(0, HIVE_BRIEF_MAX_TASK),
+    repo_key,
+    ...(also_repos.length ? { also_repos } : {}),
+    budget_tokens: HIVE_BRIEF_BUDGET_TOKENS,
+  };
+  try {
+    const res = await fetch(`${base}/v1/brief`, {
+      method: 'POST', headers: await hiveHeaders(), body: JSON.stringify(body),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? HIVE_BRIEF_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`Hive answered ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+    const text = formatHiveBrief((await res.json()) as HiveBrief);
+    briefCache.delete(got.run.id);
+    briefCache.set(got.run.id, { key, text });
+    if (briefCache.size > HIVE_BRIEF_CACHE_MAX) briefCache.delete(briefCache.keys().next().value!);
+    return text || undefined;
+  } catch (err) {
+    log.warn({ runId: got.run.id, err: (err as Error).message }, 'hive: no briefing for this step');
+    return undefined;
+  }
 }
 
 /** Every merged run (merged at or after `since`, if given), oldest merge first, a page at a time. */

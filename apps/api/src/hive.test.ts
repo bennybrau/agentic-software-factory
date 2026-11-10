@@ -1,13 +1,13 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { backfillHive, buildDialogEpisode, buildEpisode, newHiveHookState, tickHive, HIVE_MAX_ATTEMPTS } from './hive.js';
+import { backfillHive, buildDialogEpisode, buildEpisode, clearHiveBriefCache, fetchHiveBrief, newHiveHookState, tickHive, HIVE_BRIEF_TIMEOUT_MS, HIVE_MAX_ATTEMPTS } from './hive.js';
 import type { MergedRun } from './hive.js';
-import type { ArtifactWire, HiveDialogItem, Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
+import type { ArtifactWire, HiveDialogItem, ReferenceRepo, Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 
 // One fake fetch plays both sides: the registry RPC (hiveMergedRuns, hiveDialog, listArtifacts) and
 // Hive's POST /v1/episodes, which we record (or fail on demand).
 const realFetch = global.fetch;
-afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'SCM_PROVIDER']) delete process.env[k]; });
+afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'HIVE_BRIEF', 'SCM_PROVIDER']) delete process.env[k]; clearHiveBriefCache(); });
 
 const logs: string[] = [];
 const log = { info: () => {}, error: (_o: unknown, m?: string) => { logs.push(m ?? ''); } };
@@ -253,4 +253,100 @@ test('backfill --dry-run: counts dialog messages too', async () => {
   const dlg = [item(), item({ kind: 'msg', id: 'msg_1' })].map((d) => Buffer.byteLength(JSON.stringify(buildDialogEpisode(d))));
   assert.equal(sent.length, 0);
   assert.deepEqual({ runs: r.runs, dialog: r.dialog, bytes: r.bytes }, { runs: 1, dialog: 2, bytes: run1 + dlg[0] + dlg[1] });
+});
+
+// ---------------------------------------------------------------- the briefing (#93)
+
+const BRIEF = { playbook: [], gotchas: [], facts: [{ id: 'eeeeeeee5555', text: 'Only the registry talks to Postgres', kind: 'decision', scope: 'repo:gh/example/app' }], locations: [], runs: [], tests: [] };
+const briefRun = { run: { id: 'run_b', repoId: 'example/app' }, tasks: [{ role: 'planner' as const, queuedBy: 'plan' }] };
+const briefTicket = { title: 'Fix the thing', body: 'It is broken.' };
+const sharedUi = { repo: { id: '2', path: 'example/shared-ui' }, cloneCredential: { url: 'x' }, reason: 'r' } as ReferenceRepo;
+
+/** Stub Hive's /v1/brief: `answer` is a status (200 = BRIEF), 'throw' for a network error, or 'hang' until aborted. */
+function stubBrief(answer: number | 'throw' | 'hang' = 200) {
+  const calls: { url: string; auth: string | null; body: Record<string, unknown> }[] = [];
+  global.fetch = (async (url: string, init?: { body?: string; headers?: Record<string, string>; signal?: AbortSignal }) => {
+    calls.push({ url: String(url), auth: init?.headers?.authorization ?? null, body: JSON.parse(init?.body ?? '{}') });
+    if (answer === 'throw') throw new Error('connect ECONNREFUSED');
+    if (answer === 'hang') return new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+    return answer === 200 ? new Response(JSON.stringify(BRIEF), { status: 200 }) : new Response('boom', { status: answer });
+  }) as unknown as typeof fetch;
+  return calls;
+}
+const warnLog = () => { const warns: string[] = []; return { warns, log: { warn: (_o: unknown, m?: string) => { warns.push(m ?? ''); } } }; };
+
+test('fetchHiveBrief: asks Hive with the ticket and the run\'s repo, and formats the answer', async () => {
+  process.env.HIVE_URL = 'http://hive.test/';
+  process.env.HIVE_TOKEN = 'tok';
+  const calls = stubBrief();
+  const { warns, log } = warnLog();
+  const text = await fetchHiveBrief(briefRun, briefTicket, [], log);
+  assert.equal(text, 'Facts:\n- Only the registry talks to Postgres (repo:gh/example/app, decision) [hive:eeeeeeee]');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.url, 'http://hive.test/v1/brief');
+  assert.equal(calls[0]!.auth, 'Bearer tok');
+  assert.deepEqual(calls[0]!.body, { task: 'Fix the thing\n\nIt is broken.', repo_key: 'gh/example/app', budget_tokens: 800 });
+  assert.equal('also_repos' in calls[0]!.body, false, 'no reference repos, no also_repos');
+  assert.deepEqual(warns, []);
+});
+
+test('fetchHiveBrief: also_repos only when the ticket names other repositories; task is cut to 4000', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  const calls = stubBrief();
+  await fetchHiveBrief(briefRun, { title: 'T', body: 'x'.repeat(5000) }, [sharedUi], warnLog().log);
+  assert.deepEqual(calls[0]!.body.also_repos, ['gh/example/shared-ui']);
+  assert.equal((calls[0]!.body.task as string).length, 4000);
+  assert.equal(calls[0]!.auth, null, 'no token, no Authorization header');
+});
+
+test('fetchHiveBrief: Hive down, a 500, or slower than the timeout -> no brief and one warning', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  for (const answer of ['throw', 500] as const) {
+    stubBrief(answer);
+    const { warns, log } = warnLog();
+    assert.equal(await fetchHiveBrief(briefRun, briefTicket, [], log), undefined);
+    assert.equal(warns.length, 1, `one warning for ${answer}`);
+  }
+});
+
+test('fetchHiveBrief: a Hive that never answers is cut off at the timeout', { timeout: 3000 }, async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  assert.equal(HIVE_BRIEF_TIMEOUT_MS, 2000);
+  stubBrief('hang');
+  const { warns, log } = warnLog();
+  const keepAlive = setTimeout(() => {}, 5000); // AbortSignal.timeout's timer is unref'd
+  try { assert.equal(await fetchHiveBrief(briefRun, briefTicket, [], log, { timeoutMs: 20 }), undefined); }
+  finally { clearTimeout(keepAlive); }
+  assert.equal(warns.length, 1);
+  // A failure is not cached: the next step asks again.
+  const calls = stubBrief();
+  assert.ok(await fetchHiveBrief(briefRun, briefTicket, [], log));
+  assert.equal(calls.length, 1);
+});
+
+test('fetchHiveBrief: the same run is a cache hit; a chat re-plan fetches again', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  const calls = stubBrief();
+  const { log } = warnLog();
+  const first = await fetchHiveBrief(briefRun, briefTicket, [], log);
+  assert.equal(await fetchHiveBrief(briefRun, briefTicket, [], log), first);
+  assert.equal(calls.length, 1, 'second step for the same run is served from memory');
+  const replanned = { ...briefRun, tasks: [...briefRun.tasks, { role: 'planner' as const, queuedBy: 'chat' }, { role: 'implementer' as const, queuedBy: 'chat' }] };
+  assert.equal(await fetchHiveBrief(replanned, briefTicket, [], log), first);
+  assert.equal(calls.length, 2, 'a chat re-plan asks Hive again');
+  await fetchHiveBrief(replanned, briefTicket, [], log);
+  assert.equal(calls.length, 2);
+});
+
+test('fetchHiveBrief: HIVE_BRIEF off, HIVE_URL blank or no repo -> never asks', async () => {
+  const calls = stubBrief();
+  const { warns, log } = warnLog();
+  assert.equal(await fetchHiveBrief(briefRun, briefTicket, [], log), undefined, 'HIVE_URL blank');
+  process.env.HIVE_URL = 'http://hive.test';
+  process.env.HIVE_BRIEF = 'off';
+  assert.equal(await fetchHiveBrief(briefRun, briefTicket, [], log), undefined, 'HIVE_BRIEF off');
+  delete process.env.HIVE_BRIEF;
+  assert.equal(await fetchHiveBrief({ ...briefRun, run: { id: 'run_n', repoId: null } }, briefTicket, [], log), undefined, 'no repo');
+  assert.equal(calls.length, 0);
+  assert.deepEqual(warns, []);
 });

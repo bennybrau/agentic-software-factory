@@ -310,3 +310,26 @@ test('the planner is told to split library work first and to wait for a pinned v
   const impl = await renderPrompt('implementer', 'run_lib', { ...base, prior: priorsFor.implementer });
   assert.ok(!impl.includes('Library part first'));
 });
+
+test('the Hive brief renders a TEAM MEMORY section above ROLE SKILL, for the planner and implementer only', async () => {
+  const hiveBrief = 'Facts:\n- Only the registry talks to Postgres (repo, decision) [hive:eeeeeeee]';
+  for (const role of ['planner', 'implementer']) {
+    const p = await renderPrompt(role, 'run_hive', { ...base, prior: priorsFor[role], skill: 'role guidance', hiveBrief });
+    assert.match(p, /## TEAM MEMORY \(Hive\)/, `${role} gets the section`);
+    assert.ok(p.includes('[hive:eeeeeeee]'), `${role} gets the brief text`);
+    assert.match(p, /already settled\. Follow them\./);
+    assert.ok(p.indexOf('## TEAM MEMORY (Hive)') < p.indexOf('## ROLE SKILL'), 'the brief sits above the role skill');
+  }
+  for (const role of ['tester', 'reviewer']) {
+    const p = await renderPrompt(role, 'run_hive', { ...base, prior: priorsFor[role], hiveBrief });
+    assert.doesNotMatch(p, /TEAM MEMORY|hive:eeeeeeee/, `${role} gets nothing`);
+  }
+});
+
+test('without a Hive brief the prompt is byte-identical', async () => {
+  for (const role of ['planner', 'implementer', 'tester', 'reviewer']) {
+    const without = await renderPrompt(role, 'run_hive0', { ...base, prior: priorsFor[role], skill: 'g' });
+    assert.equal(await renderPrompt(role, 'run_hive0', { ...base, prior: priorsFor[role], skill: 'g', hiveBrief: undefined }), without);
+    assert.equal(await renderPrompt(role, 'run_hive0', { ...base, prior: priorsFor[role], skill: 'g', hiveBrief: '' }), without);
+  }
+});

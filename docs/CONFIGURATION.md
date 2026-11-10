@@ -109,6 +109,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 |---|---|---|---|---|---|
 | `HIVE_URL` | string | *(blank)* | env, org | api | Hive base URL. When set, the api sends each merged run (ticket, PR link, plan, review and changed paths), and each gate note and chat message a person writes, to <HIVE_URL>/v1/episodes about a minute later; see docs/HIVE.md. Blank = off. Set in Settings → Hive. |
 | `HIVE_TOKEN` | string | *(secret)* | env, org | api | Hive API token, sent as Authorization: Bearer. Blank = no Authorization header. |
+| `HIVE_BRIEF` | boolean | `true` | env, org | api | When HIVE_URL is set, ask Hive for a briefing on the ticket (POST <HIVE_URL>/v1/brief, 2 s timeout) and give it to the planner and implementer as a TEAM MEMORY section. Off = never ask; sending episodes is unchanged. |
 
 ## Identity
 

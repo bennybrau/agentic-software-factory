@@ -57,6 +57,7 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   EVENT_RETENTION_DAYS: 'operator tuning',
   QUEUE_ENABLED: 'operator switch',
   MERGE_WATCH_ENABLED: 'operator switch',
+  HIVE_BRIEF: 'operator switch (Hive briefing for the planner and implementer; on by default)',
   UPDATE_CHECK_ENABLED: 'operator switch (a Settings section comes with the updates UI, ADHOC-CDBC5883)',
   SEGMENT_TIMEOUT_MS: 'operator tuning',
   WORKER_MAX_TURNS: 'operator tuning',

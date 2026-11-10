@@ -8,6 +8,12 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Roles can read the other repositories a ticket names.** When a ticket names other connected
+  repositories (for example the `shared-ui` library an app uses), the planner, implementer and
+  reviewer get a read-only copy of each one's default branch next to their own checkout, up to 3,
+  and their prompt says where. A planner can now read the library's real components and types
+  before it plans the split instead of guessing them. The copies are thrown away after each step,
+  and a repository that can't be fetched is skipped without failing the step.
 - **Any ticket can be split across repositories.** The planner now sees the connected
   repositories on every run, with its own marked, so a Jira or GitHub ticket can hand parts of
   an `asf-split` off to another repository, not only a task started from the chat. With one

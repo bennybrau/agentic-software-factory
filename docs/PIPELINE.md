@@ -64,6 +64,10 @@ Every run works in one repository, chosen on the Start page (`/dispatch/<ticket>
 
 Under the select, the page says why the repository was preselected (for example "The ticket title mentions shared-ui.") and names any other repositories the ticket mentions. A chat message that names a repository starts in it. The preview (`GET /api/tickets/:id/dispatch`) returns this as `suggestedRepoId`, `suggestedRepoReason` and `mentionedRepoIds`.
 
+### Read-only copies of the other repositories a ticket names
+
+A run still works in one repository, but its roles can read the others the ticket names. When the ticket's title or description names other connected repositories (matched the same way as above, never the run's own, at most 3), the api sends them with the run context (`referenceRepos`, each with its own short-lived clone credential). Before each step the worker checks out each one's default branch tip, detached, under `<WORKTREE_ROOT>/refs/<run>/<task>/<name>`, outside the run's worktree and run dir, from the same cached bare clone a run in that repository would use (fetched first). The planner, implementer and reviewer prompts list the copies with where they are and the commit, so a planner in an app can read the library it uses before it plans a split, and the implementer and reviewer can check the real names and types. The copies are removed when the step ends, however it ends, so an edit there never persists; Claude Code's hook also refuses writes there, and OpenCode's permission map denies them. A repository that can't be cloned or fetched in time (3 minutes) is skipped and reported in the `refs:ready` event; the step goes on without it.
+
 ## Invariants (the server enforces these; the UI mirrors them)
 
 - **`before_merge` (the Merge gate) can only be relaxed from "Human approves" at the org tier** — here in Settings (the Merge step's choice), never from a per-dispatch request. Landing on the default branch without a person is a project policy, not a per-run choice.

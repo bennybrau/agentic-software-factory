@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { appendEventInputSchema, runContextSchema, ROLE_SKILL_ORG_SETTING_KEYS, MAX_TURNS_ORG_SETTING_KEYS, isAdhocId } from '@asf/shared';
-import type { RunContext, ScmProvider, TicketProvider, WorkerSettings } from '@asf/shared';
+import { appendEventInputSchema, runContextSchema, ROLE_SKILL_ORG_SETTING_KEYS, MAX_TURNS_ORG_SETTING_KEYS, isAdhocId, ticketReposMentioned } from '@asf/shared';
+import type { ReferenceRepo, Repo, RunContext, ScmProvider, Ticket, TicketProvider, WorkerSettings } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { computeRunAuth, computeRunAuths, describeAgentAuth } from '../agent-auth.js';
@@ -15,9 +15,46 @@ import { startReadiness } from '../start-readiness.js';
  * starts, and the planner is told it doesn't know which other repositories exist.
  */
 export async function computeConnectedRepos(scm: ScmProvider): Promise<RunContext['connectedRepos']> {
+  const repos = await connectedRepoList(scm);
+  return repos ? toConnectedRepos(repos) : undefined;
+}
+
+/** Every repository source control reaches, as full Repo objects; null when the lookup failed. */
+async function connectedRepoList(scm: ScmProvider): Promise<Repo[] | null> {
   const ready = await startReadiness(scm).catch(() => null);
-  if (!ready?.ok) return undefined;
-  return ready.repos.map((r) => ({ id: r.id, path: r.path, defaultBranch: r.defaultBranch }));
+  return ready?.ok ? ready.repos : null;
+}
+
+const toConnectedRepos = (repos: Repo[]): NonNullable<RunContext['connectedRepos']> =>
+  repos.map((r) => ({ id: r.id, path: r.path, defaultBranch: r.defaultBranch }));
+
+/** How many other repositories a run gets read-only copies of. Each is a fetch and a checkout per step. */
+export const MAX_REFERENCE_REPOS = 3;
+
+/**
+ * The other connected repositories the ticket names, with a clone credential each, so the worker
+ * can check them out read-only next to the run's own (a planner in an app reading the library it
+ * uses). Best match first, never the run's own, at most MAX_REFERENCE_REPOS. A repository whose
+ * credential can't be minted is left out with a warning; this never fails the context.
+ */
+export async function computeReferenceRepos(
+  ticket: Pick<Ticket, 'id' | 'title' | 'body'>, own: Repo | null, connected: Repo[], scm: ScmProvider,
+  warn: (detail: Record<string, unknown>, msg: string) => void,
+): Promise<ReferenceRepo[]> {
+  const isOwn = (r: { id: string; path: string }) => !!own && (r.id === own.id || r.path === own.path);
+  const mentioned = ticketReposMentioned(ticket, connected).filter((m) => !isOwn(m)).slice(0, MAX_REFERENCE_REPOS);
+  const out: ReferenceRepo[] = [];
+  for (const m of mentioned) {
+    const repo = connected.find((r) => r.id === m.id);
+    if (!repo) continue;
+    try {
+      const cloneCredential = await scm.cloneCredential(repo);
+      out.push({ repo, cloneCredential, reason: `The ticket ${m.where === 'title' ? 'title' : 'description'} mentions ${m.name}.` });
+    } catch (e) {
+      warn({ repo: repo.path, reason: (e as Error).message }, 'no clone credential for a repository the ticket names; leaving out its read-only copy');
+    }
+  }
+  return out;
 }
 
 /** Org-tier worker knobs, resolved NOW (env > org > default) so a /admin change reaches the next task. */
@@ -107,9 +144,18 @@ export function registerRunRoutes(app: FastifyInstance, deps: { tickets: TicketP
         .then((r) => r.skills.filter((s) => s.enabled))
         .catch((e) => { req.log.warn({ err: e }, 'listSkills failed; delivering no third-party skills'); return []; }),
     };
-    const connectedRepos = await computeConnectedRepos(deps.scm);
-    if (connectedRepos) context.connectedRepos = connectedRepos;
-    else req.log.warn({ runId: run.id }, 'could not list the connected repositories; the planner gets no list');
+    // One lookup serves both the planner's hand-off list and the read-only copies of the other
+    // repositories the ticket names.
+    const connected = await connectedRepoList(deps.scm);
+    if (connected) {
+      context.connectedRepos = toConnectedRepos(connected);
+      const referenceRepos = await computeReferenceRepos(ticket, repo, connected, deps.scm,
+        (detail, msg) => req.log.warn({ runId: run.id, ...detail }, msg)).catch((e) => {
+        req.log.warn({ runId: run.id, err: e }, 'could not work out the repositories the ticket names; no read-only copies');
+        return [];
+      });
+      if (referenceRepos.length) context.referenceRepos = referenceRepos;
+    } else req.log.warn({ runId: run.id }, 'could not list the connected repositories; the planner gets no list');
     return runContextSchema.parse(context);
   });
 

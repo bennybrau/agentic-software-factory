@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reposMentioned } from './repo-mentions.js';
+import { reposMentioned, ticketReposMentioned } from './repo-mentions.js';
 
 const SHARED_UI = { id: 'acme/platform/web/shared-ui', path: 'acme/platform/web/shared-ui' };
 const COMPONENTS = { id: 'acme/platform/web/shared-components-web', path: 'acme/platform/web/shared-components-web' };
@@ -75,4 +75,11 @@ test('no mentions, no repos or empty text give nothing', () => {
   assert.deepEqual(ids('Make the login button blue', 'Nothing about repositories here.'), []);
   assert.deepEqual(ids('shared-ui', '', []), []);
   assert.deepEqual(ids('', ''), []);
+});
+
+test('ticketReposMentioned ignores the repository list an older api appended to a chat task', () => {
+  const body = 'Use the button from shared-ui.\n\nRepositories connected:\n- bennybrau/hive';
+  assert.deepEqual(ticketReposMentioned({ id: 'adhoc:0123', title: 'T', body }, repos).map((m) => m.id), [SHARED_UI.id]);
+  // A tracker ticket's body is read as written.
+  assert.deepEqual(ticketReposMentioned({ id: 'ASF-1', title: 'T', body }, repos).map((m) => m.id), [SHARED_UI.id, HIVE.id]);
 });

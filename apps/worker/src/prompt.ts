@@ -24,6 +24,30 @@ export interface PromptVars {
   review?: { url: string; number: number; headBranch: string; baseBranch: string };  // a review-only run's PR: the reviewer renders reviewer-pr.md
   connectedRepos?: RunContext['connectedRepos'];  // every repository source control reaches; absent = the api couldn't say (or is older)
   repo?: RunContext['repo'];  // the run's own repository, marked "(this run)" in {{repos.connected}}
+  referenceRepos?: ReferencePromptRepo[];  // read-only copies of other repositories the ticket names; empty/absent = {{repos.reference}} renders ''
+}
+
+/** A read-only copy of another repository, as {{repos.reference}} describes it. */
+export interface ReferencePromptRepo { path: string; dir: string; branch: string; sha: string; reason: string }
+
+/**
+ * {{repos.reference}}: the other repositories the ticket names, checked out read-only for this
+ * step, so a role reads the library's real names, types and APIs instead of guessing them. The
+ * planner is pointed at a split part for work that belongs there; the implementer is told that
+ * work is another part's job. No copies = '' (the prompt is unchanged for a one-repo ticket).
+ */
+export function renderReferenceRepos(refs: PromptVars['referenceRepos'], role: string): string {
+  if (!refs || !refs.length) return '';
+  const lead = 'Other repositories this ticket names are checked out read-only for you to read (their default branch, as of now). Read them to get names, types and APIs right; never edit them. Changes there are discarded.';
+  const tail = role === 'planner'
+    ? ' Work that belongs in one of them goes in a split part with `"repo"` set.'
+    : role === 'implementer'
+      ? ' Changes to those repositories are another part\'s job, not yours: build against what they have today.'
+      : role === 'reviewer'
+        ? ' Where the change uses their code, check the names, types and calls against what is really there.'
+        : '';
+  const lines = refs.map((r) => `- \`${r.path}\` at ${r.dir} (${r.branch} @ ${r.sha.slice(0, 7)}): ${r.reason}`);
+  return `${lead}${tail}\n${lines.join('\n')}`;
 }
 
 /**
@@ -202,6 +226,7 @@ export async function renderPrompt(role: string, runId: string, vars: PromptVars
     'budget.implementerTurns': String(vars.budget?.implementerTurns || 150),
     'budget.timeoutMinutes': String(vars.budget?.timeoutMinutes || 45),
     'repos.connected': renderConnectedRepos(vars.connectedRepos, vars.repo),
+    'repos.reference': renderReferenceRepos(vars.referenceRepos, role),
   };
   if (vars.review) {
     flat['review.url'] = vars.review.url;
@@ -213,7 +238,10 @@ export async function renderPrompt(role: string, runId: string, vars: PromptVars
   flat['prior.plan.md'] = `No plan for this run, work from the ticket.\n\n**${vars.ticket.title}**\n\n${flat['ticket.body']}`;
   for (const [name, body] of Object.entries(vars.prior)) flat[`prior.${name}`] = body;
 
-  const rendered = template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_m, key: string) => {
+  // {{repos.reference}} sits on a paragraph of its own; when it renders empty (a one-repo
+  // ticket) it takes its paragraph break with it, so the prompt is exactly as before.
+  const withoutEmpty = flat['repos.reference'] ? template : template.replace(/\n\n\{\{\s*repos\.reference\s*\}\}(?=\n)/g, '');
+  const rendered = withoutEmpty.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_m, key: string) => {
     if (key in flat) return flat[key];
     // A prior artifact that a role expects but that is genuinely absent (an upstream role
     // did not produce it) must not crash this role — render a placeholder so the run can

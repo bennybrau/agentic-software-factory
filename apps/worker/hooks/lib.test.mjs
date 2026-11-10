@@ -73,3 +73,13 @@ test('a writing role may write both the worktree and the run dir, nothing else',
   assert.equal(rw.writeAllowed('/work/other/x.ts'), false);
   assert.equal(rw.writeAllowed('relative/inside.ts'), true, 'relative paths resolve against the worktree');
 });
+
+test('the read-only copies of other repositories (<worktreeRoot>/refs/...) are outside every write scope', async () => {
+  process.env.ASF_SCOPE_ROOT = '/data/worktrees/runs/run_1';
+  process.env.ASF_RUN_DIR = '/data/runs/run_1';
+  process.env.ASF_WRITES = '1';
+  const rw = await import(`./lib.mjs?refs=${Date.now()}`);
+  assert.equal(rw.writeScope('/data/worktrees/refs/run_1/task_1/shared-ui/src/button.ts'), null);
+  assert.equal(rw.writeAllowed('/data/worktrees/refs/run_1/task_1/shared-ui/src/button.ts'), false, 'even a writing role may not edit them');
+  assert.equal(rw.writeAllowed('../../refs/run_1/task_1/shared-ui/x.ts'), false, 'nor through a relative path');
+});

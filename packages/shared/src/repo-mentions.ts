@@ -4,6 +4,8 @@
  * ticket mentions and say why. A person still confirms before anything starts.
  */
 
+import { isAdhocId, withoutRepoList } from './adhoc.js';
+
 export interface MentionableRepo { id: string; path: string }
 export interface RepoMention { id: string; path: string; where: 'title' | 'body'; /** The name as it is matched (the full path or the last segment), lower case. */ name: string }
 
@@ -84,4 +86,14 @@ export function reposMentioned(text: { title: string; body: string }, repos: Men
     out.push({ id: h.repo.id, path: h.repo.path, where: h.where, name: h.name });
   }
   return out;
+}
+
+/**
+ * The repositories a ticket names, as reposMentioned, reading what a person wrote: an older
+ * chat task's body ends with the connected-repository list an api appended, and every repo
+ * on that list would otherwise count as named.
+ */
+export function ticketReposMentioned(ticket: { id: string; title?: string | null; body?: string | null }, repos: MentionableRepo[]): RepoMention[] {
+  const body = isAdhocId(ticket.id) ? withoutRepoList(ticket.body ?? '') : (ticket.body ?? '');
+  return reposMentioned({ title: ticket.title ?? '', body }, repos);
 }

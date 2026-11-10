@@ -38,3 +38,8 @@ test('capabilities: silent (heartbeat), unpriced, cannot confine its own writes'
   assert.deepEqual(caps, { toolHooks: false, eventStream: false, reportsCost: false, listsModels: false, confinesWrites: false });
   assert.equal(needsHeartbeat(caps), true);
 });
+
+test('argv: the read-only copies dir is added after the run dir when there are copies', () => {
+  const args = buildCopilotArgs(spawn({ env: { ASF_RUN_DIR: '/runs/r1', ASF_REFS_DIR: '/wt/refs/r1/t1' } }));
+  assert.deepEqual(args.slice(args.indexOf('--add-dir')), ['--add-dir', '/runs/r1', '--add-dir', '/wt/refs/r1/t1']);
+});

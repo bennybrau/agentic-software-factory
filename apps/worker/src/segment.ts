@@ -1,11 +1,11 @@
-import { mkdir, writeFile, readFile, rename, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rename, stat, rm, rmdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { basename, dirname, join } from 'node:path';
 import type { AdhocTask, AgentOutcome, AgentSpawn, ClaimResponse, CreateAdhocInput, EventSink, Run, RunContext, RunTask, RuntimeCapabilities, TeamTemplate, ToolPolicy } from '@asf/shared';
 import { priceUsage, mergeCatalogue, CONFLICT_QUEUED_BY, isGoogleLoginFailure, googleLoginFix } from '@asf/shared';
 import { config } from './config.js';
 import { api } from './api.js';
-import { ensureWorkspace, commitPending, diffStat, wipAtHead, startConflictMerge, filesWithConflictMarkers, type Workspace } from './git.js';
+import { ensureWorkspace, commitPending, diffStat, wipAtHead, startConflictMerge, filesWithConflictMarkers, addReferenceCheckout, removeReferenceCheckout, bareDirFor, referenceRootFor, type Workspace, type ReferenceCheckout } from './git.js';
 import { renderPrompt, renderChatTurn, loadPriorArtifacts, readArtifact, attachmentsDir, type ChatTurn } from './prompt.js';
 import { loadRuntime } from './runtimes/index.js';
 import { authForTask, checkAuthConfig, taskModel } from './auth/index.js';
@@ -114,7 +114,88 @@ export const AGENT_GIT_IDENTITY = {
   GIT_COMMITTER_NAME: 'asf-bot', GIT_COMMITTER_EMAIL: 'factory@users.noreply.github.com',
 } as const;
 
+/** How long one read-only copy may take (a first clone included) before the step goes on without it. */
+export const REFERENCE_CHECKOUT_TIMEOUT_MS = 180_000;
+
+/** One directory name per repository, from its last path segment; a second `shared-ui` becomes `shared-ui-2`. */
+export function referenceDirNames(paths: string[]): string[] {
+  const used = new Set<string>();
+  return paths.map((p) => {
+    const base = (p.slice(p.lastIndexOf('/') + 1).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[._]+/, '') || 'repo').slice(0, 80);
+    let name = base;
+    for (let n = 2; used.has(name); n++) name = `${base}-${n}`;
+    used.add(name);
+    return name;
+  });
+}
+
+export interface ReferenceCheckouts {
+  ready: ReferenceCheckout[];
+  skipped: { path: string; reason: string }[];
+  /** Remove every copy (and the task's refs dir). Safe to call more than once; never throws. */
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Read-only copies of the other repositories the ticket names (RunContext.referenceRepos),
+ * one detached checkout of each default branch tip under <worktreeRoot>/refs/<run>/<task>/,
+ * outside the run's worktree and run dir. In parallel, each with a timeout; a repository that
+ * fails is skipped and reported, never failing the task. Emits `refs:ready` when there were any.
+ * The caller removes them with `cleanup` when the step ends, so an edit there never persists.
+ */
+export async function prepareReferenceCheckouts(
+  ctx: RunContext, runId: string, taskId: string, log: (m: string) => void,
+  emit: (kind: string, payload: Record<string, unknown>) => Promise<void> | void,
+  timeoutMs = REFERENCE_CHECKOUT_TIMEOUT_MS,
+): Promise<ReferenceCheckouts> {
+  const refs = ctx.referenceRepos ?? [];
+  const root = referenceRootFor(runId, taskId);
+  const attempted: { bareDir: string; dir: string }[] = [];
+  let cleaned = false;
+  const cleanup = async () => {
+    if (cleaned || !attempted.length) return;
+    cleaned = true;
+    for (const a of attempted) await removeReferenceCheckout(a.bareDir, a.dir);
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+    await rmdir(dirname(root)).catch(() => {});   // the run's refs dir, once no other task of the run has copies
+  };
+  if (!refs.length) return { ready: [], skipped: [], cleanup };
+  await mkdir(root, { recursive: true });
+  const names = referenceDirNames(refs.map((r) => r.repo.path));
+  const results = await Promise.all(refs.map(async (r, i) => {
+    const dir = join(root, names[i]);
+    attempted.push({ bareDir: bareDirFor(r.repo), dir });
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      return { ok: true as const, checkout: await addReferenceCheckout(r.repo, r.cloneCredential, dir, r.reason, log, ac.signal) };
+    } catch (e) {
+      const reason = ac.signal.aborted ? `timed out after ${Math.round(timeoutMs / 1000)}s` : (e as Error).message;
+      log(`no read-only copy of ${r.repo.path}: ${reason}`);
+      return { ok: false as const, path: r.repo.path, reason };
+    } finally {
+      clearTimeout(timer);
+    }
+  }));
+  const ready = results.flatMap((x) => (x.ok ? [x.checkout] : []));
+  const skipped = results.flatMap((x) => (x.ok ? [] : [{ path: x.path, reason: x.reason }]));
+  await Promise.resolve(emit('refs:ready', { repos: ready.map((c) => ({ path: c.path, dir: c.dir, sha: c.sha })), skipped })).catch(() => {});
+  return { ready, skipped, cleanup };
+}
+
 export async function runSegment(claim: ClaimResponse & object, ctx: RunContext, log: (m: string) => void): Promise<SegmentResult> {
+  // The read-only copies are made alongside the run's own workspace, and removed however the
+  // step ends (done, failed, timeout, or a throw).
+  const refs = prepareReferenceCheckouts(ctx, claim.run.id, claim.task.id, log,
+    (kind, payload) => api.event(claim.run.id, kind, payload, claim.task.id));
+  try {
+    return await runSegmentWith(claim, ctx, log, refs);
+  } finally {
+    await refs.then((r) => r.cleanup(), () => {});
+  }
+}
+
+async function runSegmentWith(claim: ClaimResponse & object, ctx: RunContext, log: (m: string) => void, refsReady: Promise<ReferenceCheckouts>): Promise<SegmentResult> {
   const { run, task, team } = claim;
   const runDir = join(config.runDataRoot, run.id);
   await mkdir(runDir, { recursive: true });
@@ -206,11 +287,13 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
     await api.event(run.id, 'skills:delivered', { ids: roleSkills.map((s) => s.id), mode: 'prompt', skipped: [] }, task.id);
   }
 
+  const refs = await refsReady.catch((e) => { log(`read-only copies failed: ${e}`); return null; });
   const prompt = prNote + await renderPrompt(String(task.role), run.id, {
     ticket: ctx.ticket, cwd, branch: ws?.branchName ?? '(none)', artifacts: runDir, prior, revision, wip, skill, conversation, todos, budget, thirdPartySkills,
     conflict: resolvingConflict ? { base: ws?.baseBranch ?? 'main', files: conflictFiles } : undefined,
     review: run.team.reviewTarget ?? undefined,
     connectedRepos: ctx.connectedRepos, repo: ctx.repo,
+    referenceRepos: refs?.ready.map((c) => ({ path: c.path, dir: c.dir, branch: c.branch, sha: c.sha, reason: c.reason })),
   });
   await writeFile(join(runDir, `${task.role}.prompt.md`), prompt, 'utf8');
   // Mirror the exact rendered prompt (with any REVISION / humanReply banner) to
@@ -240,6 +323,9 @@ export async function runSegment(claim: ClaimResponse & object, ctx: RunContext,
       ASF_RUN_ID: run.id, ASF_TASK_ID: task.id, ASF_ROLE: String(task.role),
       ASF_API_URL: config.bffUrl, ASF_RUN_SECRET: config.runEventSecret,
       ASF_RUN_DIR: runDir, ASF_SCOPE_ROOT: cwd, ASF_WRITES: writes ? '1' : '0',
+      // The read-only copies' root, for runtimes that must be told they may read outside cwd.
+      // Not a write scope: the Claude hook refuses writes there (outside the run dir and scope root).
+      ...(refs?.ready.length ? { ASF_REFS_DIR: referenceRootFor(run.id, task.id) } : {}),
       // The agent commits as it goes (implementer.md), and the image has no git identity:
       // without one Codex's `git commit` fails and it parks needs_human. Same bot identity
       // the worker's own commits use (git.ts).

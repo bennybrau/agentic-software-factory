@@ -138,6 +138,19 @@ export const connectedRepoSchema = z.object({
 });
 export type ConnectedRepo = z.infer<typeof connectedRepoSchema>;
 
+/**
+ * Another connected repository the ticket names, which the worker checks out read-only next to
+ * the run's own (its default branch tip) so a role can read its real code. Carries its own
+ * short-lived clone credential, like the run's repo; the agent never sees it.
+ */
+export const referenceRepoSchema = z.object({
+  repo: repoSchema,
+  cloneCredential: cloneCredentialSchema,
+  /** Why it is here, for the prompt: "The ticket description mentions shared-ui." */
+  reason: z.string(),
+});
+export type ReferenceRepo = z.infer<typeof referenceRepoSchema>;
+
 export const runContextSchema = z.object({
   runId: z.string(),
   ticket: z.object({
@@ -168,5 +181,9 @@ export const runContextSchema = z.object({
    * may be handed off to. The run's own is `repo`. Absent when the lookup failed or the api is
    * older; the worker then says it doesn't know the list. */
   connectedRepos: z.array(connectedRepoSchema).optional(),
+  /** Read-only copies of other connected repositories the ticket names (never the run's own,
+   * at most a few). The worker checks each out next to the run's worktree for the step and
+   * discards it after. Absent when the ticket names none, or from an older api. */
+  referenceRepos: z.array(referenceRepoSchema).optional(),
 });
 export type RunContext = z.infer<typeof runContextSchema>;

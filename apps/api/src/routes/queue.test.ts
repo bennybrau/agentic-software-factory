@@ -54,6 +54,15 @@ test('POST /api/queue stamps the provider server-side from the API provider (ign
   await a.close();
 });
 
+test('POST /api/queue keeps the repository chosen for each item', async () => {
+  const calls = stub();
+  const a = await app();
+  await a.inject({ method: 'POST', url: '/api/queue', payload: { items: [{ ticketId: 'asf-1', ticketKey: 'ASF-1', ticketProvider: '', repoId: 'acme/platform/web/shared-ui' }, { ticketId: 'asf-2', ticketKey: 'ASF-2', ticketProvider: '' }], mode: 'parallel' } });
+  const items = calls.find((c) => c.op === 'enqueue')!.body.items as Array<{ repoId?: string | null }>;
+  assert.deepEqual(items.map((i) => i.repoId ?? null), ['acme/platform/web/shared-ui', null]);
+  await a.close();
+});
+
 test('POST /api/queue rejects an empty items array', async () => {
   stub();
   const a = await app();

@@ -44,6 +44,14 @@ publishes a `vX.Y.Z` release of the GHCR images
   `PROJ-123: …` and `agent/PROJ-123-…`. The key now has to stand on its own, on GitLab and GitHub:
   `PROJ-12: …` and `agent/PROJ-12-…` still match, a longer key that starts with it doesn't, and
   the same goes for GitHub issue keys (`acme/web#42` vs `#420`) and ad-hoc keys.
+- **Tickets queued from Planned tasks start in the right repository.** With several repositories
+  connected, every ticket started with **Start all at once** or **Start one at a time** failed with
+  "Choose which repository … should change", because the queue never knew which one. Now a panel
+  shows the repository each ticket will start in and why (the tracker's own, or the one the ticket
+  names) before anything is queued. You can change any of them or use one for all, and **Start** waits until
+  every ticket has one. A queued ticket that names exactly one connected repository (or one in its
+  title) starts there; when it names several, the reason lists them. With one repository connected,
+  nothing changes. See [docs/PIPELINE.md](docs/PIPELINE.md#queued-tickets).
 - **Planned tasks stays filtered when you come back to it.** After opening a task and going
   back, the board and status filters still showed your choices, but the list could show every
   board's tickets. On load, the page fetched all boards before your saved board was applied,

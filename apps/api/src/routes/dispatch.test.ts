@@ -335,6 +335,25 @@ test('a chat task\'s appended list of connected repositories is not a mention', 
   assert.deepEqual(none.mentionedRepoIds, []);
 });
 
+test('POST /api/tickets/repo-preview says where each ticket would start if queued', async () => {
+  const tickets = new MockTicketProvider();
+  await tickets.update('asf-1', { title: 'Header overlaps in shared-ui' });
+  await tickets.update('asf-2', { title: 'Totals', body: 'billing and shared-ui both show it' });
+  const a = Fastify();
+  registerDispatchRoutes(a, { tickets, scm: new ManyReposScm(manyRepos) });
+  await a.ready();
+  const res = await a.inject({ method: 'POST', url: '/api/tickets/repo-preview', payload: { ids: ['asf-1', 'asf-2', 'nope'] } });
+  assert.equal(res.statusCode, 200);
+  const b = res.json() as { repos: { id: string }[]; previews: { ticketId: string; repoId: string | null; reason: string }[] };
+  assert.equal(b.repos.length, 3);
+  assert.deepEqual(b.previews.map((p) => p.repoId), ['acme/platform/web/shared-ui', null, null]);
+  assert.match(b.previews[1].reason, /It mentions acme\/platform\/api\/billing, acme\/platform\/web\/shared-ui/);
+  assert.match(b.previews[2].reason, /Couldn't read ticket nope/);
+  const bad = await a.inject({ method: 'POST', url: '/api/tickets/repo-preview', payload: { ids: [] } });
+  assert.equal(bad.statusCode, 400);
+  await a.close();
+});
+
 test('the tracker\'s own repository wins over a mention, with its reason', async () => {
   stubAdhoc({ ...adhocTask, body: 'Follow up in shared-ui', sourceRepoId: 'acme/platform/api/billing' });
   const p = await previewFor(new MockTicketProvider(), adhocTask.id);

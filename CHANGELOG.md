@@ -8,6 +8,13 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **The planner splits library work first.** For a ticket that changes a shared library and an app
+  that uses it, the planner now splits it library first: a part for the library, then one part per
+  consuming repository that waits for it to merge. It checks how the consumer gets the library first.
+  For a pinned, published package, the library part says how it releases (and is delivered as
+  `feat`/`fix` so the version bumps), and the consumer part bumps the dependency, checks that the
+  version is published, and asks instead of pointing at a branch or a local path if it isn't out
+  yet. See [docs/PIPELINE.md](docs/PIPELINE.md#splits-and-hand-offs).
 - **Roles can read the other repositories a ticket names.** When a ticket names other connected
   repositories (for example the `shared-ui` library an app uses), the planner, implementer and
   reviewer get a read-only copy of each one's default branch next to their own checkout, up to 3,

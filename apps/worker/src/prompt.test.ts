@@ -298,3 +298,15 @@ test('the implementer is told those repositories are another part\'s job; the re
   const t = await renderPrompt('tester', 'run_ref', { ...base, prior: priorsFor.tester, referenceRepos: [REF] });
   assert.doesNotMatch(t, /checked out read-only/);
 });
+
+test('the planner is told to split library work first and to wait for a pinned version to be published', async () => {
+  const p = await renderPrompt('planner', 'run_lib', { ...base, prior: {} });
+  assert.match(p, /Work across repositories: a library and the code that uses it/);
+  assert.match(p, /Library part first/);
+  assert.match(p, /check that version is published/);
+  assert.match(p, /`dependsOn` the library part/);
+  assert.ok(!p.includes('{{'), 'no unrendered template variables');
+  // Only the planner splits: the implementer is not given split guidance.
+  const impl = await renderPrompt('implementer', 'run_lib', { ...base, prior: priorsFor.implementer });
+  assert.ok(!impl.includes('Library part first'));
+});

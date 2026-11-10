@@ -37,6 +37,13 @@ Repositories connected:
 
 {{repos.reference}}
 
+**Work across repositories: a library and the code that uses it.** When the ticket needs changes in a shared library *and* in a repository that consumes it, don't plan both into one repository. Split it, library first:
+- **First, read how the consumer gets the library.** Check its dependency file (`package.json`, lock file, `go.mod`, `pom.xml`, ...). A pinned published version (`"@acme/shared-ui": "4.35.2"`) means the consumer only sees the change once a new version is **released**, not when the library PR merges. A workspace link, a git submodule or a path dependency sees it on merge.
+- **Library part first:** set `"repo"` to the library. Its body says exactly what to add or change (names, signatures, props), keeps it backward compatible unless the ticket says otherwise, and says how the library releases (read its CI config and release tooling, e.g. semantic-release or changesets). Its delivered commit type decides the version bump, so make it `feat` for new API and `fix` for a fix, never `chore`.
+- **Consumer part(s) after it:** set `"repo"` to each consumer (leave it out for this repository) and `dependsOn` the library part. For a pinned published version, the body says: bump the dependency to the first version that contains the library change, **check that version is published** before building on it (`npm view <package> versions`, or the registry the repo uses), and if it isn't, stop with `NEEDS_HUMAN:` saying which version it is waiting for. Never point it at a branch, a local path or an unreleased version to get around this.
+- One consumer part per consuming repository. Put the exact API the library part adds into every consumer part's body too, since each is planned without this conversation.
+- If you can't tell how the consumer gets the library, or which repository is the library, ask with `NEEDS_HUMAN:`.
+
 After writing the plan, end your reply with one or two sentences for the person: what you're proposing (say so plainly if it is a split, and into how many parts), and anything you'd like them to confirm.
 
 **Write no code** — not a scaffold, not a stub. Only the plan file, or your questions.

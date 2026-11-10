@@ -95,6 +95,14 @@ The live-run uniqueness becomes (ticket, repo). The same PROJ ticket can be star
 repo, giving one MR each. The Jira ticket moves to Done only when **all** of its runs have
 merged. A real multi-repo run (N worktrees, linked MRs) is out of scope.
 
+**Update (Jon, 2026-11-09): work across a library and its consumers.** Still one repository per
+run, but a ticket that names several connected repositories can now be planned across them: the
+dispatch page preselects the repository the ticket names, every planner sees the connected
+repositories, every role gets read-only copies of the other repositories the ticket names, and the
+planner splits library work first, with one consumer part per repository that waits for the library
+part to merge (and, for a pinned published package, checks the new version is released). See
+[PIPELINE.md](PIPELINE.md#splits-and-hand-offs). Linked MRs that merge together are still out of scope.
+
 ## Work packages, in order
 
 1. **WP1: GitLab group discovery.** `GITLAB_GROUPS`, `GITLAB_REPO_EXCLUDE`, paginated
@@ -128,4 +136,5 @@ independent and can come later.
 ## Out of scope
 
 Several ticket sources or several GitLab hosts at once (provider instances, namespaced ticket
-and repo ids); one run that changes several repos.
+and repo ids); one run that changes several repos (cross-repo work is a split, one PR per
+repository; see the update under "Rare two-repo tickets").

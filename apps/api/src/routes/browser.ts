@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import type { ScmProvider, TicketProvider, RunReportInput } from '@asf/shared';
+import type { HiveBriefFactView, ScmProvider, TicketProvider, RunReportInput } from '@asf/shared';
 import { isAdhocId, reviewComments, runReportMarkdown } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
+import { cfg } from '../settings.js';
 import { ticketsFor } from '../tickets/route.js';
 import { withoutRepoList } from './adhoc.js';
 
@@ -19,6 +20,18 @@ async function buildReportInput(runId: string): Promise<RunReportInput | null> {
     artifacts: versions.versions.map((v) => ({ name: v.name, taskId: v.taskId, attempt: v.attempt, source: v.source, content: v.content })),
   };
 }
+
+/** The facts the agents were given (hive-brief.json, #108) plus where they link to; null = no panel. */
+export function hiveBriefView(content: string | undefined): { facts: HiveBriefFactView[]; dashboardUrl: string | null } | null {
+  if (!content) return null;
+  let facts: unknown;
+  try { facts = JSON.parse(content); } catch { return null; }
+  if (!Array.isArray(facts) || !facts.length) return null;
+  const dashboardUrl = String(cfg('HIVE_DASHBOARD_URL') ?? '').trim().replace(/\/+$/, '') || null;
+  return { facts: facts as HiveBriefFactView[], dashboardUrl };
+}
+
+const HIVE_BRIEF_ARTIFACT = 'hive-brief.json';
 
 const ACTIVITY_KINDS = ['tool:pre', 'tool:post', 'tool:denied'];
 const ACTIVITY_DEFAULT_LIMIT = 50;
@@ -65,11 +78,15 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
     // The flat "Stage output" list is the role deliverables (plan.md, review.md, …).
     // Prompt mirrors and patches (M11 WP2) are large and per-task — keep them out of
     // that list; they ride in artifactVersions for the task panel to fetch on demand.
-    const stageArtifacts = artifacts.artifacts.filter((a) => !/\.(prompt\.md|patch)$/.test(a.name));
+    // hive-brief.json (#108) is the Team memory panel's data, not a deliverable: out of both
+    // lists, since the Stage output list takes its names from the versions too.
+    const stageArtifacts = artifacts.artifacts.filter((a) => !/\.(prompt\.md|patch)$/.test(a.name) && a.name !== HIVE_BRIEF_ARTIFACT);
+    const artifactVersions = versions.versions.filter((v) => v.name !== HIVE_BRIEF_ARTIFACT);
+    const hiveBrief = hiveBriefView(artifacts.artifacts.find((a) => a.name === HIVE_BRIEF_ARTIFACT)?.content);
     // Live progress for any running task (M11 WP5): tool-call count + last tool + ceiling.
     const runningIds = run.tasks.filter((t) => t.state === 'running').map((t) => t.id);
     const progress = runningIds.length ? (await registry.taskProgress(runningIds)).progress : {};
-    return { ...run, gates: gates.gates, artifacts: stageArtifacts, artifactVersions: versions.versions, taskProgress: progress, messages: chat.messages, split, recurring, request };
+    return { ...run, gates: gates.gates, artifacts: stageArtifacts, artifactVersions, taskProgress: progress, messages: chat.messages, split, recurring, request, hiveBrief };
   });
 
   // One task's tool activity (pre/post/denied), newest page first for scrolling back

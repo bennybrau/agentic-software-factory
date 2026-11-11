@@ -7,7 +7,7 @@ import type { ArtifactWire, HiveDialogItem, ReferenceRepo, Repo, ScmProvider, Ti
 // One fake fetch plays both sides: the registry RPC (hiveMergedRuns, hiveDialog, listArtifacts) and
 // Hive's POST /v1/episodes, which we record (or fail on demand).
 const realFetch = global.fetch;
-afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'HIVE_BRIEF', 'SCM_PROVIDER']) delete process.env[k]; clearHiveBriefCache(); });
+afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'HIVE_BRIEF', 'SCM_PROVIDER']) delete process.env[k]; clearHiveBriefCache(); saveFails = false; });
 
 const logs: string[] = [];
 const log = { info: () => {}, warn: (_o: unknown, m?: string) => { logs.push(m ?? ''); }, error: (_o: unknown, m?: string) => { logs.push(m ?? ''); } };
@@ -272,10 +272,23 @@ const briefRun = { run: { id: 'run_b', repoId: 'example/app' }, tasks: [{ role: 
 const briefTicket = { title: 'Fix the thing', body: 'It is broken.' };
 const sharedUi = { repo: { id: '2', path: 'example/shared-ui' }, cloneCredential: { url: 'x' }, reason: 'r' } as ReferenceRepo;
 
-/** Stub Hive's /v1/brief: `answer` is a status (200 = BRIEF), 'throw' for a network error, or 'hang' until aborted. */
+/** The registry saveArtifact calls stubBrief saw; `saveFails` makes the registry answer 500. */
+let saved: { runId: string; name: string; content: string; source: string }[] = [];
+let saveFails = false;
+
+/**
+ * Stub Hive's /v1/brief: `answer` is a status (200 = BRIEF), 'throw' for a network error, or 'hang' until aborted.
+ * Registry RPCs (saveArtifact) are recorded in `saved`, not in the returned calls.
+ */
 function stubBrief(answer: number | 'throw' | 'hang' = 200) {
   const calls: { url: string; auth: string | null; body: Record<string, unknown> }[] = [];
+  saved = [];
   global.fetch = (async (url: string, init?: { body?: string; headers?: Record<string, string>; signal?: AbortSignal }) => {
+    if (String(url).endsWith('/internal/rpc')) {
+      if (saveFails) return new Response(JSON.stringify({ ok: false, error: 'boom' }), { status: 500 });
+      saved.push(JSON.parse(init?.body ?? '{}'));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
     calls.push({ url: String(url), auth: init?.headers?.authorization ?? null, body: JSON.parse(init?.body ?? '{}') });
     if (answer === 'throw') throw new Error('connect ECONNREFUSED');
     if (answer === 'hang') return new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
@@ -368,6 +381,52 @@ test('repoKey: a bare and a qualified repoId give the same key', () => {
   assert.equal(repoKey({ repoId: 'gitlab:acme/platform/web' }), 'gl/acme/platform/web');
   assert.equal(repoKey({ repoId: 'acme/platform/web' }), 'gl/acme/platform/web');
   assert.equal(repoKey({ repoId: null }), null);
+});
+
+const SAVED_FACTS = [{ id: 'eeeeeeee5555', kind: 'decision', text: 'Only the registry talks to Postgres', scope: 'repo:gh/example/app' }];
+
+test('fetchHiveBrief: a fresh brief is saved as hive-brief.json for the run page; a cache hit does not save again', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  stubBrief();
+  const { warns, log } = warnLog();
+  await fetchHiveBrief(briefRun, briefTicket, [], log);
+  assert.equal(saved.length, 1);
+  assert.deepEqual({ ...saved[0], content: JSON.parse(saved[0]!.content) },
+    { op: 'saveArtifact', runId: 'run_b', name: 'hive-brief.json', content: SAVED_FACTS, taskId: null, source: 'connector' });
+  await fetchHiveBrief(briefRun, briefTicket, [], log);
+  assert.equal(saved.length, 1, 'served from memory: nothing saved');
+  assert.deepEqual(warns, []);
+});
+
+test('fetchHiveBrief: Hive down, a 500 or a timeout saves nothing and throws nothing', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  const keepAlive = setTimeout(() => {}, 5000); // AbortSignal.timeout's timer is unref'd
+  try {
+    for (const answer of ['throw', 500, 'hang'] as const) {
+      stubBrief(answer);
+      assert.equal(await fetchHiveBrief(briefRun, briefTicket, [], warnLog().log, { timeoutMs: 20 }), undefined);
+      assert.deepEqual(saved, [], `nothing saved for ${answer}`);
+    }
+  } finally { clearTimeout(keepAlive); }
+});
+
+test('fetchHiveBrief: a brief with no facts saves nothing', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  stubBrief();
+  global.fetch = (async (url: string) => String(url).endsWith('/internal/rpc')
+    ? (saved.push({} as never), new Response('{"ok":true}'))
+    : new Response(JSON.stringify({ playbook: [{ title: 'P', steps: [{ text: 'do it' }] }] }))) as unknown as typeof fetch;
+  assert.ok(await fetchHiveBrief(briefRun, briefTicket, [], warnLog().log));
+  assert.deepEqual(saved, []);
+});
+
+test('fetchHiveBrief: a registry that cannot save still gets the brief text back, with one warning', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  saveFails = true;
+  stubBrief();
+  const { warns, log } = warnLog();
+  assert.equal(await fetchHiveBrief(briefRun, briefTicket, [], log), 'Facts:\n- Only the registry talks to Postgres (repo:gh/example/app, decision) [hive:eeeeeeee]');
+  assert.equal(warns.length, 1);
 });
 
 // ---------------------------------------------------------------- the "sent to team memory" marker (#108)

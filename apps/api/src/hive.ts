@@ -1,4 +1,4 @@
-import { formatHiveBrief, nativeId } from '@asf/shared';
+import { formatHiveBrief, hiveBriefFacts, nativeId } from '@asf/shared';
 import type { ArtifactWire, HiveBrief, HiveDialogItem, ReferenceRepo, Run, RunTask, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import { registry } from './registry/client.js';
 import { cfg } from './settings.js';
@@ -176,10 +176,18 @@ export async function fetchHiveBrief(
       signal: AbortSignal.timeout(opts.timeoutMs ?? HIVE_BRIEF_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`Hive answered ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
-    const text = formatHiveBrief((await res.json()) as HiveBrief);
+    const brief = (await res.json()) as HiveBrief;
+    const text = formatHiveBrief(brief);
     briefCache.delete(got.run.id);
     briefCache.set(got.run.id, { key, text });
     if (briefCache.size > HIVE_BRIEF_CACHE_MAX) briefCache.delete(briefCache.keys().next().value!);
+    // The facts the agents were given, for the run page's Team memory panel (#108). Only on a
+    // fresh answer; a failure to save costs the panel, never the brief.
+    const facts = hiveBriefFacts(brief);
+    if (facts.length) {
+      try { await registry.saveArtifact(got.run.id, 'hive-brief.json', JSON.stringify(facts), { source: 'connector' }); }
+      catch (err) { log.warn({ runId: got.run.id, err: (err as Error).message }, 'hive: could not save the brief for the run page'); }
+    }
     return text || undefined;
   } catch (err) {
     log.warn({ runId: got.run.id, err: (err as Error).message }, 'hive: no briefing for this step');

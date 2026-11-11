@@ -8,6 +8,7 @@ import { PlanChat } from '../components/PlanChat';
 import { SplitCard } from '../components/SplitCard';
 import { MemberAvatar } from '../components/MemberAvatar';
 import { HiveStage } from '../components/HiveStage';
+import { TeamMemory } from '../components/TeamMemory';
 import { ActivityStrip } from '../components/ActivityStrip';
 import { useTheme } from '../useTheme';
 import type { RunEvent, RunTask } from '@asf/shared';
@@ -231,6 +232,8 @@ export function RunView() {
           </div>
         ))}
       </TeamWrap>
+
+      <TeamMemory brief={detail.hiveBrief} planMd={artifacts.find((a) => a.name === 'plan.md')?.content} />
 
       <ArtifactVersions artifacts={artifacts} versions={detail.artifactVersions ?? []} tasks={tasks} />
 

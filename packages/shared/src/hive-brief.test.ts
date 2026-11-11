@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatHiveBrief, parseTeamMemory } from './hive-brief.js';
+import { formatHiveBrief, hiveBriefFacts, parseTeamMemory } from './hive-brief.js';
 
 test('formatHiveBrief: playbook first, then gotchas, facts, where to look, past runs, tests', () => {
   const text = formatHiveBrief({
@@ -37,6 +37,20 @@ test('formatHiveBrief: playbook first, then gotchas, facts, where to look, past 
 test('formatHiveBrief: a brief with nothing in it is empty', () => {
   assert.equal(formatHiveBrief({}), '');
   assert.equal(formatHiveBrief({ playbook: [], gotchas: [], facts: [], locations: [], runs: [], tests: [] }), '');
+});
+
+test('hiveBriefFacts: gotchas then facts, with kind and scope defaulted', () => {
+  assert.deepEqual(hiveBriefFacts({
+    playbook: [{ title: 'P', steps: [{ text: 'step', fact_ids: ['aaaaaaaa'] }] }],
+    facts: [{ id: 'ffff0001', text: 'A decision', kind: 'decision', scope: 'global' }, { id: 'ffff0002', text: 'Plain' }],
+    gotchas: [{ id: 'gggg0001', text: 'Watch out', scope: 'repo:gh/acme/app', verify: 'drifted' }],
+    locations: [{ path: 'x.ts' }],
+  }), [
+    { id: 'gggg0001', kind: 'gotcha', text: 'Watch out', scope: 'repo:gh/acme/app' },
+    { id: 'ffff0001', kind: 'decision', text: 'A decision', scope: 'global' },
+    { id: 'ffff0002', kind: 'fact', text: 'Plain', scope: '' },
+  ]);
+  assert.deepEqual(hiveBriefFacts({}), []);
 });
 
 const plan = (section: string) => `# Plan\n\nDo the thing.\n\n## Team memory\n${section}\n\nNo open questions.\n\nChange-Type: feat\n`;

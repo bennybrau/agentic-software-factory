@@ -36,7 +36,7 @@ export const QUESTIONS: readonly QuestionDef[] = [
   { id: 'board', tier: 'later', keys: ['TICKET_STATUS_INPROGRESS', 'TICKET_STATUS_INREVIEW', 'TICKET_STATUS_DONE', 'TICKET_ASSIGNEE'] },
   { id: 'guidance', tier: 'later', keys: ['ROLE_SKILL_PLANNER', 'ROLE_SKILL_IMPLEMENTER', 'ROLE_SKILL_TESTER', 'ROLE_SKILL_REVIEWER'] },
   { id: 'alerts', tier: 'later', keys: ['NOTIFY_SINKS', 'TELEGRAM_CHAT_ID', 'WEB_BASE_URL'] },
-  { id: 'hive', tier: 'later', keys: ['HIVE_URL', 'HIVE_TOKEN'] },
+  { id: 'hive', tier: 'later', keys: ['HIVE_URL', 'HIVE_TOKEN', 'HIVE_DASHBOARD_URL'] },
   { id: 'look', tier: 'later', keys: ['THEME'] },
 ];
 

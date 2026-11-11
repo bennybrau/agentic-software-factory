@@ -14,6 +14,7 @@ wins and locks the field there. The settings are:
 |--------------|--------------------------------------------------------------------|
 | `HIVE_URL`   | Hive's base URL, e.g. `https://hive.example.com`. Blank = off.     |
 | `HIVE_TOKEN` | Hive API token, sent as `Authorization: Bearer <token>`. Optional. |
+| `HIVE_DASHBOARD_URL` | Hive dashboard's base URL. Optional; links the run page's [Team memory](#team-memory-on-the-run-page) facts. |
 
 To turn it off, clear the address in Settings. It takes effect within about a
 minute, with no restart. (If `HIVE_URL` is in `.env`, clear it there and run
@@ -128,6 +129,21 @@ section just above their role skill. The tester gets nothing.
   gets no section, and the prompt is the same as without Hive.
 - **Off switch:** `HIVE_BRIEF=off` (in `.env`, or as an org setting) stops the
   briefing. Sending episodes is not affected.
+
+## Team memory on the run page
+
+Each time the api gets a fresh briefing (not a cached one) with at least one
+gotcha or fact, it saves those facts on the run as `hive-brief.json` (gotchas
+first, then facts: id, kind, text, scope). It is not a deliverable, so it is kept
+out of the run's Stage output list. If the save fails, the api logs a warning and
+the step still gets its briefing; if Hive is down, nothing is saved.
+
+The run page shows them in a **Team memory** card just above Stage output: one
+row per fact with its `[hive:<id8>]` tag, kind, text, scope and what the latest
+`plan.md` said about it (Applied, Overridden and the reason, Doesn't apply, or
+nothing). When `HIVE_DASHBOARD_URL` is set, each tag links to
+`<HIVE_DASHBOARD_URL>/facts/<id>` in a new tab. A run with no saved facts shows
+no card.
 
 ## Backfill
 

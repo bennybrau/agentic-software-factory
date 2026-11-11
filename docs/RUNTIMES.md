@@ -69,6 +69,7 @@ the agent not to, and the guard layer or the container catches the result.
 | cancel | signal | signal | signal | signal | signal |
 | liveness | hooks | JSONL stream | JSONL stream | JSON stream | heartbeat |
 | cost | reported | priced from usage | priced from usage | priced from usage | unpriced |
+| activity (run page) | full, with durations | completed calls only | completed calls only | completed calls only | none |
 | where it may run | anywhere | anywhere | container only | container only | container only |
 
 OpenCode's plugin hooks (`tool.execute.before`) may not fire under `opencode run`

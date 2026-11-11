@@ -175,11 +175,22 @@ export const api = {
   refreshSkill: (id: string) => sendJson<{ skill?: SkillSummary; skipped?: SkippedFile[] }>('POST', `/api/skills/${encodeURIComponent(id)}/refresh`),
   deleteSkill: (id: string) => sendJson<{ ok?: true }>('DELETE', `/api/skills/${encodeURIComponent(id)}`),
   health: () => fetch('/health').then(j<{ ok: boolean }>),
+  /** One task's tool events (ascending seq): the latest page, or before/after a seq. */
+  taskActivity: (runId: string, taskId: string, q: { before?: number; after?: number; limit?: number } = {}) => {
+    const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString();
+    return fetch(`/api/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskId)}/activity${qs ? `?${qs}` : ''}`)
+      .then(j<{ events: RunEvent[]; hasEarlier: boolean }>);
+  },
 };
 
-/** Subscribe to the run event stream. Calls back on every run:event frame. */
-export function subscribeEvents(onEvent: (e: RunEvent) => void): () => void {
+/**
+ * Subscribe to the run event stream. Calls back on every run:event frame, and
+ * `onOpen` each time the stream opens — again after a reconnect, so a caller can
+ * fetch what it missed.
+ */
+export function subscribeEvents(onEvent: (e: RunEvent) => void, onOpen?: () => void): () => void {
   const es = new EventSource('/api/events');
+  if (onOpen) es.onopen = () => onOpen();
   es.addEventListener('run:event', (ev) => { try { onEvent(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
   return () => es.close();
 }

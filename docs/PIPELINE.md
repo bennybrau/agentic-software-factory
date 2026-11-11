@@ -22,6 +22,13 @@ Each stage's output is visible on the run (the **Stage output** card); the creat
 
 With Hive on, the reviewer gets the ticket's team-memory briefing too: a change that contradicts a remembered decision is a finding citing its `[hive:<id8>]`, unless the plan's `## Team memory` section overrode that fact with a reason. See [HIVE.md](HIVE.md#what-the-planner-reads).
 
+## What the run page shows
+
+- **The team.** One lane per role with its state and cost. A running task shows who is on it and how long it has been going (Advanced → *Show agent commands* swaps in the tool-call count and last tool).
+- **Activity strip.** Under a running task, one line per tool call: its kind (read, edit, search, command, other), its target with paths relative to the worktree, how long it took, and a mark for failed (`✕ failed`), denied (`⊘ denied`) or still-running (`…`) calls. It loads the latest page, then follows the live event stream; after a reconnect it fetches what it missed. *Show earlier* pages back. It follows the tail only while you are scrolled to the bottom.
+- **Per-try panel.** Click a stage, then a try: *Asked* (the exact prompt), *Said* (the result), *Changed* (files and patch), *Cost*, and *Activity*, the same strip for a finished try, loaded when you open the tab. A call that never finished reads *did not finish*.
+- A runtime that reports no tool events (Copilot), or a finished try with none, shows *This runtime does not report activity.* What each runtime reports is in [RUNTIMES.md](RUNTIMES.md#hard-vs-advisory-per-runtime).
+
 ## Gate modes
 
 - **Human approves** (`required`) — the run pauses; a person approves or rejects (a reject sends the work back with a note).

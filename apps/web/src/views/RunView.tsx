@@ -8,6 +8,7 @@ import { PlanChat } from '../components/PlanChat';
 import { SplitCard } from '../components/SplitCard';
 import { MemberAvatar } from '../components/MemberAvatar';
 import { HiveStage } from '../components/HiveStage';
+import { ActivityStrip } from '../components/ActivityStrip';
 import { useTheme } from '../useTheme';
 import type { RunEvent, RunTask } from '@asf/shared';
 import { parseMergeConflict } from '@asf/shared/ui';
@@ -41,11 +42,14 @@ export function RunView() {
   const [openTask, setOpenTask] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useStoredFlag(LS_ADVANCED_OPEN);
   const [showCommands, setShowCommands] = useStoredFlag(LS_SHOW_COMMANDS);
+  // Bumped on every SSE (re)open, so the activity strips fetch what they missed.
+  const [connectEpoch, setConnectEpoch] = useState(0);
   const load = useCallback(() => { api.run(runId).then(setDetail).catch(() => {}); }, [runId]);
 
   useEffect(() => {
     load();
-    return subscribeEvents((e) => { if (e.runId === runId) { setEvents((prev) => [...prev, e]); load(); } });
+    return subscribeEvents((e) => { if (e.runId === runId) { setEvents((prev) => [...prev, e]); load(); } },
+      () => setConnectEpoch((n) => n + 1));
   }, [runId, load]);
 
   // While a task is running, refresh every 5s so the live ticker's elapsed time and
@@ -85,6 +89,8 @@ export function RunView() {
   const review = reviewHeading(run);
   const reviewMd = (detail.artifactVersions ?? []).find((v) => v.name === 'review.md')?.content
     ?? artifacts.find((a) => a.name === 'review.md')?.content ?? null;
+
+  const toolEventsOf = (taskId: string) => events.filter((e) => e.taskId === taskId && e.kind.startsWith('tool:'));
 
   const groups: Record<string, (k: string) => boolean> = {
     all: () => true, tool: (k) => k.startsWith('tool:'), gate: (k) => k.startsWith('gate:'),
@@ -190,6 +196,7 @@ export function RunView() {
               {t.state === 'running' && detail.taskProgress?.[t.id] && (showCommands
                 ? <LiveTaskLine p={detail.taskProgress[t.id]} />
                 : <WorkingLine role={String(t.role)} p={detail.taskProgress[t.id]} />)}
+              {t.state === 'running' && <ActivityStrip runId={runId} task={t} worktree={run.worktreePath} sseEvents={toolEventsOf(t.id)} connectEpoch={connectEpoch} />}
               {run.state === 'failed' && t.state === 'failed' && isConflictReason(t.reason) && (
                 <div style={{ padding: '2px 0 6px 18px' }}>
                   <div className="muted" style={{ fontSize: 13, marginBottom: 4 }}>Work merged since this run started changed the same lines, so the branch can't be pushed. The implementer can merge the latest code in and resolve it; then it's re-tested and re-reviewed before pushing.</div>
@@ -209,7 +216,7 @@ export function RunView() {
                       <div onClick={() => setOpenTask(openTask === a.task.id ? null : a.task.id)} style={{ cursor: 'pointer', fontSize: 13, padding: '2px 0' }} title="Show what this try was asked, said, and changed">
                         <span className={`dot ${a.task.state}`} />Try {a.n} · {taskCostText(a.task)}{feedbackText(a)}{openTask === a.task.id ? ' ▾' : ' ▸'}
                       </div>
-                      {openTask === a.task.id && <TaskPanel task={a.task} versions={detail.artifactVersions ?? []} events={events} />}
+                      {openTask === a.task.id && <TaskPanel runId={runId} worktree={run.worktreePath} connectEpoch={connectEpoch} task={a.task} versions={detail.artifactVersions ?? []} events={events} />}
                     </div>
                   ))}
                 </div>
@@ -359,12 +366,13 @@ function LiveTaskLine({ p }: { p: NonNullable<RunDetail['taskProgress']>[string]
 
 /**
  * Per-task panel (M11 WP2): what this task was Asked (its exact rendered prompt),
- * Said (final result text), Changed (files + patch), and Cost (turns/tokens/USD).
- * Everything comes from data already fetched — prompt/patch from artifactVersions
- * (by task_id), result/diff from the run's events — so no extra request.
+ * Said (final result text), Changed (files + patch), Cost (turns/tokens/USD) and
+ * Activity (its tool calls). Everything but Activity comes from data already fetched —
+ * prompt/patch from artifactVersions (by task_id), result/diff from the run's events;
+ * Activity loads its events when the tab is opened.
  */
-function TaskPanel({ task, versions, events }: { task: RunTask; versions: Version[]; events: RunEvent[] }) {
-  const [tab, setTab] = useState<'asked' | 'said' | 'changed' | 'cost'>('asked');
+function TaskPanel({ runId, worktree, connectEpoch, task, versions, events }: { runId: string; worktree: string | null; connectEpoch: number; task: RunTask; versions: Version[]; events: RunEvent[] }) {
+  const [tab, setTab] = useState<'asked' | 'said' | 'changed' | 'cost' | 'activity'>('asked');
   const forTask = (name: string) => versions.find((v) => v.taskId === task.id && v.name === name)?.content ?? null;
   const prompt = forTask(`${task.role}.prompt.md`);
   const patch = forTask(`${task.role}.patch`);
@@ -383,7 +391,7 @@ function TaskPanel({ task, versions, events }: { task: RunTask; versions: Versio
   return (
     <div className="card" style={{ margin: '4px 0 10px', background: 'var(--bg-subtle, rgba(0,0,0,0.02))' }}>
       <div className="row" style={{ marginBottom: 6 }}>
-        <Tab id="asked" label="Asked" /><Tab id="said" label="Said" />{task.outputRef || diff ? <Tab id="changed" label="Changed" /> : null}<Tab id="cost" label="Cost" />
+        <Tab id="asked" label="Asked" /><Tab id="said" label="Said" />{task.outputRef || diff ? <Tab id="changed" label="Changed" /> : null}<Tab id="cost" label="Cost" /><Tab id="activity" label="Activity" />
       </div>
       {tab === 'asked' && (prompt
         ? <pre className="artifact">{prompt}</pre>
@@ -407,6 +415,9 @@ function TaskPanel({ task, versions, events }: { task: RunTask; versions: Versio
           <div>cost: {taskCostText(task, 4)}</div>
         </div>
       )}
+      {/* Mounted only while open, so its fetch happens only then. */}
+      {tab === 'activity' && <ActivityStrip runId={runId} task={task} worktree={worktree} connectEpoch={connectEpoch}
+        sseEvents={events.filter((e) => e.taskId === task.id && e.kind.startsWith('tool:'))} />}
     </div>
   );
 }

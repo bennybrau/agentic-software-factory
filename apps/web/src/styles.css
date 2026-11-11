@@ -156,6 +156,18 @@ textarea { width: 100%; font-family: var(--mono); font-size: 13px; }
 .working-dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes wbounce { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .working-dots i { animation: none; } }
+/* Activity strip (#107): one line per tool call under a task. Failed/denied carry a mark, not colour alone. */
+.activity { font-size: 12px; padding: 2px 0 6px 18px; }
+.activity-note { font-size: 12px; padding: 2px 0 6px 18px; }
+.activity-lines { max-height: 220px; overflow-y: auto; scroll-behavior: auto; }
+.act-line { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
+.act-kind { flex: none; width: 56px; color: var(--muted); }
+.act-target { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.act-line.failed .act-mark, .act-line.denied .act-mark { color: var(--bad); }
+.act-line.unfinished .act-mark { color: var(--warn); }
+.act-line.running .act-mark { animation: act-pulse 1.2s infinite ease-in-out; }
+@keyframes act-pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .act-line.running .act-mark { animation: none; } }
 .advanced > summary { font-weight: 600; color: var(--muted); padding: 4px 0; }
 .advanced > summary:hover { color: var(--accent); }
 .advanced[open] > summary { margin-bottom: 10px; }

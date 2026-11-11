@@ -95,3 +95,17 @@ test('"Added by" names the repository an agent to-do came from', () => {
   assert.equal(addedBy({ createdBy: 'ana', sourceRepoId: null }), 'ana');
   assert.equal(addedBy({ createdBy: null }), '—');
 });
+
+test('pickChatRepo matches a bare or qualified suggestion to its listed repository by native id', () => {
+  const repos = [{ id: 'gitlab:acme/web' }, { id: 'gitlab:acme/api' }];
+  assert.equal(pickChatRepo({ suggestedRepoId: 'acme/api', repos }), 'gitlab:acme/api');
+  assert.equal(pickChatRepo({ suggestedRepoId: 'gitlab:acme/api', repos }), 'gitlab:acme/api');
+  assert.equal(pickChatRepo({ suggestedRepoId: 'gitlab:acme/gone', repos }), 'gitlab:acme/gone', 'an unlisted suggestion is kept as it is');
+});
+
+test('addedBy names the source repository by its path, else its native id', () => {
+  const repos = [{ id: 'github:7', path: 'bennybrau/hive' }];
+  assert.equal(addedBy({ createdBy: 'agent:planner', sourceRepoId: '7' }, repos), 'agent:planner · bennybrau/hive');
+  assert.equal(addedBy({ createdBy: 'agent:planner', sourceRepoId: 'github:7' }, repos), 'agent:planner · bennybrau/hive');
+  assert.equal(addedBy({ createdBy: 'agent:planner', sourceRepoId: 'github:acme/web' }, repos), 'agent:planner · acme/web');
+});

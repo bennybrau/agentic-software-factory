@@ -629,3 +629,81 @@ test('reviewOf: an unparsable URL or an unreachable PR is a 400 bad_review_targe
   assert.equal(created, undefined, 'no run is created');
   await a.close();
 });
+
+// --- M12: qualified ids at the api seam (qualifyTickets / qualifyScm wrap the live providers) ---
+import { qualifyTickets } from '../providers/tickets/set.js';
+import { qualifyScm } from '../providers/scm/set.js';
+
+test('through the wrappers: the registry gets a native ticketId, its connection, and a qualified repoId; bare ids still work', async () => {
+  for (const [ticketId, repoId] of [['mock:asf-1', 'mock:1'], ['asf-1', '1'], ['asf-1', undefined]]) {
+    let input: { ticketId?: string; ticketProvider?: string; repoId?: string | null } | undefined;
+    stubRegistry({ onCreateRun: (i) => { input = i as typeof input; } });
+    const a = Fastify();
+    registerDispatchRoutes(a, { tickets: qualifyTickets(new MockTicketProvider()), scm: qualifyScm(new MockScmProvider()) });
+    await a.ready();
+    const res = await a.inject({ method: 'POST', url: `/api/tickets/${encodeURIComponent(ticketId!)}/dispatch`, payload: { maxCostUsd: 15, repoId } });
+    await a.close();
+    assert.equal(res.statusCode, 201, res.body);
+    assert.deepEqual([input?.ticketId, input?.ticketProvider, input?.repoId], ['asf-1', 'mock', 'mock:1']);
+  }
+});
+
+test('through the wrappers: an ad-hoc dispatch is stored as provider adhoc with its adhoc: id', async () => {
+  let input: { ticketId?: string; ticketProvider?: string } | undefined;
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string; input?: unknown };
+    if (body.op === 'createRun') { input = body.input as typeof input; return json({ ok: true, result: { run: { id: 'run_test' } } }); }
+    return json({ ok: true, result: body.op === 'getAdhoc' ? { task: { ...adhocTask, body: '' } } : {} });
+  }) as unknown as typeof fetch;
+  const a = Fastify();
+  registerDispatchRoutes(a, { tickets: qualifyTickets(new MockTicketProvider()), scm: qualifyScm(new MockScmProvider()) });
+  await a.ready();
+  const res = await a.inject({ method: 'POST', url: `/api/tickets/${encodeURIComponent(adhocTask.id)}/dispatch`, payload: { maxCostUsd: 15 } });
+  await a.close();
+  assert.equal(res.statusCode, 201, res.body);
+  assert.deepEqual([input?.ticketId, input?.ticketProvider], [adhocTask.id, 'adhoc']);
+});
+
+test('through the wrappers: the preview hands out qualified ticket and repository ids', async () => {
+  const a = Fastify();
+  registerDispatchRoutes(a, { tickets: qualifyTickets(new MockTicketProvider()), scm: qualifyScm(new ManyReposScm(manyRepos)) });
+  await a.ready();
+  for (const id of ['asf-1', 'mock:asf-1']) {
+    const res = await a.inject({ method: 'GET', url: `/api/tickets/${encodeURIComponent(id)}/dispatch` });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().ticket.id, 'mock:asf-1');
+    assert.deepEqual(res.json().repos.map((r: { id: string }) => r.id), manyRepos.map((r) => `mock:${r.id}`));
+  }
+  await a.close();
+});
+
+test('through the wrappers: a to-do\'s bare or qualified source repository is suggested by its qualified id', async () => {
+  for (const sourceRepoId of ['acme/platform/api/billing', 'mock:acme/platform/api/billing']) {
+    stubAdhoc({ ...adhocTask, body: '', sourceRepoId });
+    const a = Fastify();
+    registerDispatchRoutes(a, { tickets: qualifyTickets(new MockTicketProvider()), scm: qualifyScm(new ManyReposScm(manyRepos)) });
+    await a.ready();
+    const res = await a.inject({ method: 'GET', url: `/api/tickets/${encodeURIComponent(adhocTask.id)}/dispatch` });
+    await a.close();
+    assert.equal(res.json().suggestedRepoId, 'mock:acme/platform/api/billing');
+  }
+});
+
+test('through the wrappers: the GitHub tracker reads its own native id to suggest the issue\'s repository', async () => {
+  const restore = stubGithub([
+    { m: 'GET', re: /\/repos\/acme\/scratch\/issues\/9$/, json: { number: 9, title: 'T', body: '', html_url: 'https://github.com/acme/scratch/issues/9', state: 'open', labels: [], assignee: null, updated_at: '2026-09-14T00:00:00Z' } },
+    { m: 'GET', re: /\/repos\/acme\/scratch$/, json: { full_name: 'acme/scratch', html_url: 'https://github.com/acme/scratch', default_branch: 'main', clone_url: 'https://github.com/acme/scratch.git', id: 1, permissions: { push: true } } },
+  ]);
+  try {
+    const a = Fastify();
+    const tickets = qualifyTickets(new GithubTicketProvider({ token: 't', repos: ['acme/scratch'], bucketMap: [], apiUrl: 'https://api.github.com' }));
+    const scm = qualifyScm(new GithubScmProvider({ token: 't', repos: ['acme/scratch'], apiUrl: 'https://api.github.com', graphqlUrl: 'https://api.github.com/graphql', host: 'github.com' }));
+    registerDispatchRoutes(a, { tickets, scm });
+    await a.ready();
+    const res = await a.inject({ method: 'GET', url: `/api/tickets/${encodeURIComponent('github:acme/scratch#9')}/dispatch` });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().ticket.id, 'github:acme/scratch#9');
+    assert.equal(res.json().suggestedRepoId, 'github:acme/scratch');
+    await a.close();
+  } finally { restore(); }
+});

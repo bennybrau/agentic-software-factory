@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { appendEventInputSchema, runContextSchema, ROLE_SKILL_ORG_SETTING_KEYS, MAX_TURNS_ORG_SETTING_KEYS, isAdhocId, ticketReposMentioned } from '@asf/shared';
+import { appendEventInputSchema, runContextSchema, ROLE_SKILL_ORG_SETTING_KEYS, MAX_TURNS_ORG_SETTING_KEYS, isAdhocId, ticketReposMentioned, sameRef } from '@asf/shared';
 import type { ReferenceRepo, Repo, RunContext, ScmProvider, Ticket, TicketProvider, WorkerSettings } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
@@ -42,11 +42,11 @@ export async function computeReferenceRepos(
   ticket: Pick<Ticket, 'id' | 'title' | 'body'>, own: Repo | null, connected: Repo[], scm: ScmProvider,
   warn: (detail: Record<string, unknown>, msg: string) => void,
 ): Promise<ReferenceRepo[]> {
-  const isOwn = (r: { id: string; path: string }) => !!own && (r.id === own.id || r.path === own.path);
+  const isOwn = (r: { id: string; path: string }) => !!own && (sameRef(r.id, own.id, scm.kind) || r.path === own.path);
   const mentioned = ticketReposMentioned(ticket, connected).filter((m) => !isOwn(m)).slice(0, MAX_REFERENCE_REPOS);
   const out: ReferenceRepo[] = [];
   for (const m of mentioned) {
-    const repo = connected.find((r) => r.id === m.id);
+    const repo = connected.find((r) => sameRef(r.id, m.id, scm.kind));
     if (!repo) continue;
     try {
       const cloneCredential = await scm.cloneCredential(repo);

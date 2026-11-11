@@ -4,8 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeSchedule, scheduleSchema, type RecurringTask } from '@asf/shared/ui';
 import { api } from '../api';
 import {
-  browserTimeZone, DEFAULT_SCHEDULE_FORM, formatNextRun, formToSchedule, lastRunView, recurringFormProblem,
-  scheduleToForm, TITLE_MAX, WEEKDAY_SHORT, type RecurringForm, type ScheduleKind,
+  browserTimeZone, DEFAULT_SCHEDULE_FORM, findRepo, formatNextRun, formToSchedule, lastRunView, recurringFormProblem,
+  repoLabel, repoOptionId, scheduleToForm, TITLE_MAX, WEEKDAY_SHORT, type RecurringForm, type ScheduleKind,
 } from '../recurring';
 
 const KINDS: { kind: ScheduleKind; label: string }[] = [
@@ -17,8 +17,9 @@ const KINDS: { kind: ScheduleKind; label: string }[] = [
 const blankForm = (repoId: string): RecurringForm =>
   ({ title: '', body: '', repoId, timezone: browserTimeZone(), schedule: DEFAULT_SCHEDULE_FORM });
 
-const taskToForm = (t: RecurringTask): RecurringForm =>
-  ({ title: t.title, body: t.body, repoId: t.repoId, timezone: t.timezone, schedule: scheduleToForm(t.schedule) });
+// A task stored with a bare repoId opens with the matching (qualified) option selected.
+const taskToForm = (t: RecurringTask, repos: { id: string }[]): RecurringForm =>
+  ({ title: t.title, body: t.body, repoId: repoOptionId(repos, t.repoId), timezone: t.timezone, schedule: scheduleToForm(t.schedule) });
 
 /**
  * Recurring tasks (#188): work the factory adds to Planned tasks on a schedule, e.g.
@@ -39,10 +40,9 @@ export function Recurring() {
   const [busy, setBusy] = useState(false);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['recurring'] });
-  const repoPath = (id: string) => repos.find((r) => r.id === id)?.path ?? id;
 
   const openNew = () => { setForm(blankForm(repos.length === 1 ? repos[0].id : '')); setEditing('new'); setErr(null); };
-  const openEdit = (t: RecurringTask) => { setForm(taskToForm(t)); setEditing(t.id); setErr(null); };
+  const openEdit = (t: RecurringTask) => { setForm(taskToForm(t, repos)); setEditing(t.id); setErr(null); };
   const close = () => { setEditing(null); setErr(null); };
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -113,7 +113,7 @@ export function Recurring() {
           <select id="rt-repo" value={form.repoId} onChange={(e) => setForm({ ...form, repoId: e.target.value })}>
             <option value="">Choose…</option>
             {repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
-            {form.repoId && !repos.some((r) => r.id === form.repoId) && <option value={form.repoId}>{form.repoId} (not reachable)</option>}
+            {form.repoId && !findRepo(repos, form.repoId) && <option value={form.repoId}>{repoLabel(repos, form.repoId)} (not reachable)</option>}
           </select>
 
           <fieldset style={{ border: 0, padding: 0, margin: '12px 0 0' }}>
@@ -182,7 +182,7 @@ export function Recurring() {
                 <tr key={t.id}>
                   <td>
                     <div>{t.title} {t.paused && <span className="pill">Paused</span>}</div>
-                    <div className="muted small mono">{repoPath(t.repoId)}</div>
+                    <div className="muted small mono">{repoLabel(repos, t.repoId)}</div>
                   </td>
                   <td>{describeSchedule(t.schedule)}<div className="muted small">{t.timezone}</div></td>
                   <td className="muted">{t.paused ? '—' : formatNextRun(t.nextRunAt, t.timezone)}</td>

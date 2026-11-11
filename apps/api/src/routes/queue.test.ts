@@ -54,6 +54,20 @@ test('POST /api/queue stamps the provider server-side from the API provider (ign
   await a.close();
 });
 
+test('POST /api/queue sends the registry native ticket ids beside their connection; bare ids still work', async () => {
+  const calls = stub();
+  const a = await app();
+  await a.inject({ method: 'POST', url: '/api/queue', payload: { items: [
+    { ticketId: 'mock:asf-1', ticketKey: 'ASF-1', ticketProvider: '' },
+    { ticketId: 'asf-2', ticketKey: 'ASF-2', ticketProvider: '' },
+    { ticketId: 'adhoc:ce17', ticketKey: 'ADHOC-CE17', ticketProvider: '', repoId: 'mock:1' },
+  ], mode: 'parallel' } });
+  const items = calls.find((c) => c.op === 'enqueue')!.body.items as Array<{ ticketId: string; ticketProvider: string; repoId?: string }>;
+  assert.deepEqual(items.map((i) => [i.ticketId, i.ticketProvider]), [['asf-1', 'mock'], ['asf-2', 'mock'], ['adhoc:ce17', 'adhoc']]);
+  assert.equal(items[2].repoId, 'mock:1', 'the repository keeps its qualified id');
+  await a.close();
+});
+
 test('POST /api/queue keeps the repository chosen for each item', async () => {
   const calls = stub();
   const a = await app();

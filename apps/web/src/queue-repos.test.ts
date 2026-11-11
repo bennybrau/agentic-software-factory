@@ -43,3 +43,12 @@ test('queue items carry each chosen repository', () => {
     { ticketId: 'p-2', ticketKey: 'P-2', ticketProvider: '', repoId: 'acme/platform/api/billing' },
   ]);
 });
+
+test('a preview and a ticket match by native id, bare or qualified (the browser does not know the default connection)', () => {
+  const previews = [{ ticketId: 'p-1', repoId: 'gitlab:acme/web', reason: 'Named.', mentionedRepoIds: [] }];
+  const qualified = [{ id: 'jira:p-1', key: 'P-1', title: 'T' }];
+  assert.equal(initialChoices(qualified, previews)[0].repoId, 'gitlab:acme/web');
+  const bare = initialChoices([{ id: 'p-1', key: 'P-1', title: 'T' }], [{ ...previews[0], ticketId: 'jira:p-1' }]);
+  assert.equal(bare[0].repoId, 'gitlab:acme/web');
+  assert.equal(chooseRepo(initialChoices(qualified, []), 'p-1', 'gitlab:acme/api')[0].repoId, 'gitlab:acme/api');
+});

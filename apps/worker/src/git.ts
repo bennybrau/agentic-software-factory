@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CloneCredential, Repo, Run } from '@asf/shared';
-import { isForbiddenBranch, formatMergeConflict } from '@asf/shared';
+import { isForbiddenBranch, formatMergeConflict, nativeId } from '@asf/shared';
 import { config } from './config.js';
 import type { ChangeType } from './commit-type.js';
 
@@ -97,8 +97,8 @@ export function branchFor(run: Run): string {
   return `agent/${run.ticketKey}-${short}`;
 }
 
-/** The cached bare clone of a repo, shared by every run (and every read-only copy) of it. */
-export const bareDirFor = (repo: Pick<Repo, 'id'>) => join(config.worktreeRoot, 'repos', `${repo.id}.git`);
+/** The cached bare clone of a repo, shared by every run (and every read-only copy) of it. Keyed by native id, as before M12. */
+export const bareDirFor = (repo: Pick<Repo, 'id'>) => join(config.worktreeRoot, 'repos', `${nativeId(repo.id)}.git`);
 
 /**
  * Make sure the repo's bare clone exists, scrub the credential from its stored remote, and

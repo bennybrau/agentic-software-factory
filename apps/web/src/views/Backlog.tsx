@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { AdhocTask, TicketScope, TicketSprint } from '@asf/shared';
-import { keyPrefixes, looksLikeTicketRef, ticketMatches } from '@asf/shared/ui';
+import { keyPrefixes, looksLikeTicketRef, nativeId, ticketMatches } from '@asf/shared/ui';
 import { api, encodeTicketId, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
 import { addedBy, removeAdhoc } from '../new-task';
@@ -181,7 +181,7 @@ export function Backlog() {
     setFinding(true);
     const timer = setTimeout(() => {
       api.findTickets(q, keyPrefixes(tickets.map((t) => t.key)))
-        .then((d) => { if (alive) setElsewhere(d.tickets.filter((t) => !tickets.some((x) => x.id === t.id))); })
+        .then((d) => { if (alive) setElsewhere(d.tickets.filter((t) => !tickets.some((x) => nativeId(x.id) === nativeId(t.id)))); })
         .catch(() => { if (alive) setElsewhere([]); })
         .finally(() => { if (alive) setFinding(false); });
     }, 300);
@@ -356,7 +356,7 @@ export function Backlog() {
                 {adhoc.map((t) => (
                   <tr key={t.id}>
                     <td>{t.title}</td>
-                    <td className="muted">{addedBy(t)}</td>
+                    <td className="muted">{addedBy(t, readiness?.ok ? readiness.repos : [])}</td>
                     <td className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
                       <button className="btn" disabled={Boolean(blocked)} onClick={() => navigate(`/dispatch/${encodeTicketId(t.id)}`)}
                         title={blocked ? 'Connect a repository first' : 'Choose the repository and models, then run it'}>Start</button>

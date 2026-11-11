@@ -1,4 +1,4 @@
-import { formatHiveBrief } from '@asf/shared';
+import { formatHiveBrief, nativeId } from '@asf/shared';
 import type { ArtifactWire, HiveBrief, HiveDialogItem, ReferenceRepo, Run, RunTask, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import { registry } from './registry/client.js';
 import { cfg } from './settings.js';
@@ -40,10 +40,10 @@ export const HIVE_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 /** A run whose episode fails this many times is given up on (logged), not retried forever. */
 export const HIVE_MAX_ATTEMPTS = 5;
 
-/** `gh/<owner/repo>` or `gl/<group/repo>`; null for a run with no repo (it is skipped). */
+/** `gh/<owner/repo>` or `gl/<group/repo>` (bare or qualified repoId alike); null for a run with no repo (it is skipped). */
 export function repoKey(run: Pick<Run, 'repoId'>): string | null {
   if (!run.repoId) return null;
-  return `${cfg('SCM_PROVIDER') === 'gitlab' ? 'gl' : 'gh'}/${run.repoId}`;
+  return `${cfg('SCM_PROVIDER') === 'gitlab' ? 'gl' : 'gh'}/${nativeId(run.repoId)}`;
 }
 
 /** Most paths an episode carries. */

@@ -1,4 +1,4 @@
-import { ticketReposMentioned, type RepoMention } from '@asf/shared';
+import { sameRef, ticketReposMentioned, type RepoMention } from '@asf/shared';
 import type { Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 
 /**
@@ -74,7 +74,7 @@ export async function pickRepo(
   deps: { tickets: TicketProvider; scm: ScmProvider }, ticket: Ticket, repos: Repo[], requested?: string | null,
 ): Promise<{ ok: true; repo: Repo } | { ok: false; code: RepoBlocker; reason: string; link: string }> {
   const find = async (idOrPath: string): Promise<Repo | null> =>
-    repos.find((r) => r.id === idOrPath || r.path === idOrPath) ?? await deps.scm.getRepo(idOrPath).catch(() => null);
+    repos.find((r) => sameRef(r.id, idOrPath, deps.scm.kind) || r.path === idOrPath) ?? await deps.scm.getRepo(idOrPath).catch(() => null);
 
   if (requested) {
     const repo = await find(requested);
@@ -99,13 +99,14 @@ export type RepoPreview = { ticketId: string; repoId: string | null; reason: str
 /**
  * Where a queued ticket would start, for the Planned tasks confirm panel: the same
  * order as pickRepo with nothing requested, against the connected repositories only
- * (no per-ticket SCM lookup). repoId is null when a person has to choose.
+ * (no per-ticket SCM lookup). repoId is null when a person has to choose. A bare
+ * suggested id belongs to `scmKind`, the default code connection.
  */
-export function previewRepo(tickets: TicketProvider, ticket: Ticket, repos: Repo[]): RepoPreview {
+export function previewRepo(tickets: TicketProvider, ticket: Ticket, repos: Repo[], scmKind = ''): RepoPreview {
   const mentioned = ticketReposMentioned(ticket, repos);
   const base = { ticketId: ticket.id, mentionedRepoIds: mentioned.map((m) => m.id) };
   const suggested = tickets.suggestedRepo?.(ticket) ?? null;
-  const own = suggested ? repos.find((r) => r.id === suggested || r.path === suggested) : undefined;
+  const own = suggested ? repos.find((r) => sameRef(r.id, suggested, scmKind) || r.path === suggested) : undefined;
   if (own) return { ...base, repoId: own.id, reason: `This ticket belongs to ${own.path}.` };
   const settled = repoFromMentions(mentioned);
   if (settled) return { ...base, repoId: settled.id, reason: mentionReason(settled) };

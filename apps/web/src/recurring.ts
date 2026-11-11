@@ -1,3 +1,4 @@
+import { nativeId } from '@asf/shared/ui';
 import type { RecurringTask, Schedule } from '@asf/shared/ui';
 import { encodeTicketId } from './api';
 import { runStateLabel } from './words';
@@ -45,6 +46,24 @@ export function recurringFormProblem(f: RecurringForm): string | null {
   if (f.schedule.kind === 'monthly' && !(Number.isInteger(f.schedule.day) && f.schedule.day >= 1 && f.schedule.day <= 31)) return 'Pick a day of the month from 1 to 31.';
   if (!f.timezone.trim()) return 'Choose a time zone.';
   return null;
+}
+
+/**
+ * The connected repository a stored repoId names, matched by native id (a task saved
+ * before M12 holds a bare id; the list hands out qualified ones). Null when none is.
+ */
+export function findRepo<R extends { id: string }>(repos: R[], repoId: string): R | null {
+  return repos.find((r) => nativeId(r.id) === nativeId(repoId)) ?? null;
+}
+
+/** The dropdown value for a stored repoId: the matching listed option's id, else the stored id as it is. */
+export function repoOptionId(repos: { id: string }[], repoId: string): string {
+  return findRepo(repos, repoId)?.id ?? repoId;
+}
+
+/** A repository as text: its path when it is connected, else its id without the connection prefix. */
+export function repoLabel(repos: { id: string; path: string }[], repoId: string): string {
+  return findRepo(repos, repoId)?.path ?? nativeId(repoId);
 }
 
 /** What the list shows for the last time the schedule fired: a pill and, where there is one, a link. */

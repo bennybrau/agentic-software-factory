@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { parseRef } from '@asf/shared';
 import type { TicketProvider, ScmProvider, EnqueueItem, QueueMode } from '@asf/shared';
 import { startReadiness } from '../start-readiness.js';
 import { registry } from '../registry/client.js';
@@ -25,9 +26,15 @@ export function registerQueueRoutes(app: FastifyInstance, deps: { tickets: Ticke
     // Queuing is starting later: refuse it too until there is a repository to put code in.
     const ready = await startReadiness(deps.scm);
     if (!ready.ok) return reply.code(409).send({ error: ready.code, reason: ready.reason, link: ready.link });
-    // Stamp the provider server-side: the queue always targets the API's own
-    // configured ticket provider, so the browser never has to know its kind.
-    const items = body.items.map((it) => ({ ...it, ticketProvider: deps.tickets.kind }));
+    // Stamp the provider server-side from the ticket's own id (a bare id is the API's
+    // configured tracker), so the browser never has to know its kind. The registry
+    // stores the native id beside its connection, as a dispatch does.
+    const items = body.items.map((it) => {
+      // A malformed item goes through as it is, for the registry's schema to refuse.
+      if (typeof it.ticketId !== 'string') return { ...it, ticketProvider: deps.tickets.kind };
+      const ref = parseRef(it.ticketId, deps.tickets.kind);
+      return { ...it, ticketId: ref.native, ticketProvider: ref.connection };
+    });
     const by = resolveIdentity(req).user;
     const { entries } = await registry.enqueue({ items, mode: body.mode ?? 'parallel', by });
     return reply.code(201).send({ entries, added: entries.length, skipped: items.length - entries.length });

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { createRecurringTaskInputSchema, isValidTimeZone, updateRecurringTaskInputSchema } from '@asf/shared';
+import { createRecurringTaskInputSchema, isValidTimeZone, sameRef, updateRecurringTaskInputSchema } from '@asf/shared';
 import type { ScmProvider } from '@asf/shared';
 import { registry } from '../registry/client.js';
 import { resolveIdentity } from '../identity.js';
@@ -28,7 +28,7 @@ export function registerRecurringRoutes(app: FastifyInstance, deps: { scm: ScmPr
     if (typeof repoId === 'string') {
       const ready = await startReadiness(deps.scm);
       const repos = ready.ok ? ready.repos : [];
-      if (!repos.some((r) => r.id === repoId)) {
+      if (!repos.some((r) => sameRef(r.id, repoId, deps.scm.kind))) {
         reply.code(400).send({ error: 'repo_not_found', reason: ready.ok
           ? `The repository "${repoId}" isn't one source control can reach. Pick one of: ${repos.map((r) => r.path).join(', ')}.`
           : ready.reason });

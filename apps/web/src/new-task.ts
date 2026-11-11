@@ -1,9 +1,14 @@
-import { attachmentProblem, parseReviewRequest, type AdhocLimits } from '@asf/shared/ui';
+import { attachmentProblem, nativeId, parseReviewRequest, type AdhocLimits } from '@asf/shared/ui';
 
-/** The "Added by" cell for a to-do: who added it, plus the repository its run was in for an agent's to-do. */
-export function addedBy(t: { createdBy: string | null; sourceRepoId?: string | null }): string {
+/**
+ * The "Added by" cell for a to-do: who added it, plus the repository its run was in for an agent's
+ * to-do, by its path when it is connected, else its id without the connection prefix.
+ */
+export function addedBy(t: { createdBy: string | null; sourceRepoId?: string | null }, repos: { id: string; path: string }[] = []): string {
   const who = t.createdBy ?? '—';
-  return t.sourceRepoId ? `${who} · ${t.sourceRepoId}` : who;
+  if (!t.sourceRepoId) return who;
+  const src = nativeId(t.sourceRepoId);
+  return `${who} · ${repos.find((r) => nativeId(r.id) === src)?.path ?? src}`;
 }
 
 /** The file's metadata as the New task screen and the api check it. */
@@ -56,9 +61,15 @@ export function chatProblem(text: string, files: PickedMeta[], limits: AdhocLimi
   return attachmentProblem(files, limits);
 }
 
-/** The repository a chat starts in: the one the task names, else the first connected one. */
+/**
+ * The repository a chat (or the Start screen) starts in: the one the task names, else the first
+ * connected one. A suggestion is matched to its listed repository by native id, so the picker
+ * shows it whether or not it carries a connection prefix.
+ */
 export function pickChatRepo(preview: { suggestedRepoId: string | null; repos: { id: string }[] }): string | null {
-  return preview.suggestedRepoId ?? preview.repos[0]?.id ?? null;
+  const wanted = preview.suggestedRepoId;
+  if (wanted) return preview.repos.find((r) => nativeId(r.id) === nativeId(wanted))?.id ?? wanted;
+  return preview.repos[0]?.id ?? null;
 }
 
 /**

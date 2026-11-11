@@ -28,16 +28,44 @@ export const changeRequestSchema = z.object({
 });
 export type ChangeRequest = z.infer<typeof changeRequestSchema>;
 
-export const reviewCommentSchema = z.object({
-  id: z.string(),
-  author: z.string(),
-  body: z.string(),
+/** One review thread on a change request: its opening comment plus the replies under it. */
+export const reviewThreadSchema = z.object({
+  id: z.string(),            // GitHub thread node id / GitLab discussion id — what replyToThread takes
+  resolved: z.boolean(),
   path: z.string().nullable(),
   line: z.number().int().nullable(),
-  resolved: z.boolean().nullable(),
+  author: z.string(),
+  /** The opening comment was written by the account the factory's token belongs to. */
+  authorIsTokenAccount: z.boolean(),
+  /** The opening comment was posted by the factory (see isFactoryComment). */
+  own: z.boolean(),
+  body: z.string(),
   createdAt: z.string(),
+  /** Oldest first. */
+  replies: z.array(z.object({
+    id: z.string(),
+    author: z.string(),
+    own: z.boolean(),
+    body: z.string(),
+    createdAt: z.string(),
+  })),
 });
-export type ReviewComment = z.infer<typeof reviewCommentSchema>;
+export type ReviewThread = z.infer<typeof reviewThreadSchema>;
+/** Old name, kept so existing imports compile. */
+export type ReviewComment = ReviewThread;
+
+/** Hidden marker on every comment the factory posts, so it can tell its own comments apart. */
+export const ASF_COMMENT_MARKER = '<!-- asf -->';
+
+/** `body` with the marker appended, once. */
+export function markFactoryComment(body: string): string {
+  return body.includes(ASF_COMMENT_MARKER) ? body : `${body}\n\n${ASF_COMMENT_MARKER}`;
+}
+
+/** Posted by the factory: carries the marker, or is the reviewer's summary comment (posted before the marker existed). */
+export function isFactoryComment(body: string): boolean {
+  return body.includes(ASF_COMMENT_MARKER) || body.startsWith('**ASF review (run');
+}
 
 export const scmProviderKindSchema = z.enum(['mock', 'gitlab', 'github']);
 export type ScmProviderKind = z.infer<typeof scmProviderKindSchema>;
@@ -78,7 +106,10 @@ export interface ScmProvider {
   openChangeRequest(repo: Repo, input: { head: string; base: string; title: string; body: string; draft: boolean }): Promise<ChangeRequest>;
   listChangeRequests(repo: Repo, q: { ticketKeys?: string[]; since?: string }): Promise<ChangeRequest[]>;
   getChangeRequest(repo: Repo, number: number): Promise<ChangeRequest & { diffRefs: unknown }>;
-  listReviewComments(repo: Repo, number: number): Promise<ReviewComment[]>;
+  /** Every review thread, resolved ones included; the caller filters. */
+  listReviewComments(repo: Repo, number: number): Promise<ReviewThread[]>;
+  /** Reply under a thread (`threadId` is ReviewThread.id). The body gets the factory marker. */
+  replyToThread(repo: Repo, number: number, threadId: string, body: string): Promise<void>;
   comment(repo: Repo, number: number, body: string, anchor?: { path: string; line: number }): Promise<void>;
   /** Only ever called after the `before_change_request` gate resolves. */
   markReady(repo: Repo, number: number): Promise<void>;

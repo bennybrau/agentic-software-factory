@@ -1,4 +1,4 @@
-import type { ChangeRequest, Repo, ScmProvider } from '@asf/shared';
+import { markFactoryComment, type ChangeRequest, type Repo, type ReviewThread, type ScmProvider } from '@asf/shared';
 
 export class MockScmProvider implements ScmProvider {
   readonly kind = 'mock' as const;
@@ -14,6 +14,12 @@ export class MockScmProvider implements ScmProvider {
     this.repos = path ? [{ id: '1', path: 'example/app', url: 'mock://repos/example/app', defaultBranch: 'main', cloneUrl: path }] : [];
   }
   private crs: ChangeRequest[] = [];
+  private threads = new Map<number, ReviewThread[]>();
+  private replies = new Map<number, Array<{ threadId: string; body: string }>>();
+  /** Test hook: the review threads change request `number` has. */
+  seedThreads(number: number, threads: ReviewThread[]) { this.threads.set(number, threads); }
+  /** Test hook: the replies posted on change request `number`, in order. */
+  repliesFor(number: number) { return this.replies.get(number) ?? []; }
   async preflight() {
     return this.repos.length
       ? { ok: true as const, identity: 'mock' }
@@ -29,7 +35,10 @@ export class MockScmProvider implements ScmProvider {
   }
   async listChangeRequests() { return this.crs; }
   async getChangeRequest(_repo: Repo, number: number) { const cr = this.crs.find((c) => c.number === number); if (!cr) throw new Error('no cr'); return { ...cr, diffRefs: null }; }
-  async listReviewComments() { return []; }
+  async listReviewComments(_repo: Repo, number: number) { return this.threads.get(number) ?? []; }
+  async replyToThread(_repo: Repo, number: number, threadId: string, body: string) {
+    this.replies.set(number, [...this.repliesFor(number), { threadId, body: markFactoryComment(body) }]);
+  }
   async comment(_repo: Repo, _number: number, _body: string, _anchor?: { path: string; line: number }) {}
   async markReady(_repo: Repo, number: number) { const cr = await this.getChangeRequest(_repo, number); cr.draft = false; }
   async merge(_repo: Repo, number: number) { const cr = await this.getChangeRequest(_repo, number); cr.state = 'merged'; }

@@ -1,5 +1,6 @@
-import type {
-  ChangeRequest, Preflight, Repo, ReviewComment, ScmProvider,
+import {
+  isFactoryComment, markFactoryComment,
+  type ChangeRequest, type Preflight, type Repo, type ReviewThread, type ScmProvider,
 } from '@asf/shared';
 import { credentialRejected } from '../rejected.js';
 import { changeRequestMentionsKey } from './ticket-key.js';
@@ -7,7 +8,7 @@ import { changeRequestMentionsKey } from './ticket-key.js';
 /**
  * GitHub as an ScmProvider. Shares GITHUB_TOKEN with the ticket provider (one
  * token, repo scope covers both). REST for repos / PRs / comments / merge;
- * GraphQL only for markPullRequestReadyForReview (no REST equivalent).
+ * GraphQL for markPullRequestReadyForReview and review threads (no REST equivalent).
  *
  * The clone credential is a tokenized HTTPS URL
  *   https://x-access-token:<TOKEN>@github.com/owner/repo.git
@@ -34,10 +35,24 @@ interface GhPull {
   updated_at: string; node_id: string;
 }
 interface GhReview { state: string }
-interface GhReviewComment {
-  id: number; user: { login: string } | null; body: string;
-  path: string | null; line: number | null; created_at: string;
+interface GhThreadComment {
+  databaseId: number; author: { login: string } | null; body: string; createdAt: string;
 }
+interface GhThreadsPage {
+  repository: { pullRequest: { reviewThreads: {
+    nodes: Array<{ id: string; isResolved: boolean; path: string | null; line: number | null; comments: { nodes: GhThreadComment[] } }>;
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+  } } | null } | null;
+}
+
+const REVIEW_THREADS = `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    reviewThreads(first: 100, after: $cursor) {
+      nodes { id isResolved path line comments(first: 100) { nodes { databaseId author { login } body createdAt } } }
+      pageInfo { hasNextPage endCursor }
+    }
+  } }
+}`;
 
 function mapState(pr: Pick<GhPull, 'state' | 'merged_at' | 'merged'>): ChangeRequest['state'] {
   if (pr.merged_at || pr.merged) return 'merged';
@@ -48,6 +63,7 @@ export class GithubScmProvider implements ScmProvider {
   readonly kind = 'github' as const;
   private readonly cfg: GithubScmConfig;
   private readonly nodeIds = new Map<string, string>(); // repoId#number → PR node_id (for GraphQL)
+  private me: string | null = null; // the token's login, from GET /user
 
   constructor(cfg: GithubScmConfig) {
     this.cfg = cfg;
@@ -113,6 +129,12 @@ export class GithubScmProvider implements ScmProvider {
     return pr.node_id;
   }
 
+  /** The token's login, cached (preflight fills the same cache). */
+  private async login(): Promise<string> {
+    this.me ??= (await this.gh<{ login: string }>('GET', '/user')).login;
+    return this.me;
+  }
+
   async preflight(): Promise<Preflight> {
     if (!this.cfg.token) return { ok: false, reason: 'GITHUB_TOKEN is empty' };
     // Plain answers for the two failures a person can fix; anything else keeps the raw detail.
@@ -120,6 +142,7 @@ export class GithubScmProvider implements ScmProvider {
     let me: { login: string };
     try {
       me = await this.gh<{ login: string }>('GET', '/user');
+      this.me = me.login;
     } catch (e) {
       if (status(e) === 401) return credentialRejected('GitHub');
       return { ok: false, reason: (e as Error).message };
@@ -206,12 +229,39 @@ export class GithubScmProvider implements ScmProvider {
     }
   }
 
-  async listReviewComments(repo: Repo, number: number): Promise<ReviewComment[]> {
-    const cs = await this.gh<GhReviewComment[]>('GET', `/repos/${repo.path}/pulls/${number}/comments?per_page=100`);
-    return cs.map((c) => ({
-      id: String(c.id), author: c.user?.login ?? 'unknown', body: c.body,
-      path: c.path, line: c.line, resolved: null, createdAt: c.created_at,
-    }));
+  async listReviewComments(repo: Repo, number: number): Promise<ReviewThread[]> {
+    const [owner, name] = repo.path.split('/');
+    const login = await this.login();
+    const out: ReviewThread[] = [];
+    let cursor: string | null = null;
+    do {
+      const data: GhThreadsPage = await this.graphql<GhThreadsPage>(REVIEW_THREADS, { owner, name, number, cursor });
+      const threads = data.repository?.pullRequest?.reviewThreads;
+      if (!threads) throw new Error(`GitHub: no pull request ${repo.path}#${number}`);
+      for (const t of threads.nodes) {
+        const [first, ...rest] = t.comments.nodes;
+        if (!first) continue;
+        const author = first.author?.login ?? 'unknown';
+        out.push({
+          id: t.id, resolved: t.isResolved, path: t.path, line: t.line,
+          author, authorIsTokenAccount: author === login, own: isFactoryComment(first.body),
+          body: first.body, createdAt: first.createdAt,
+          replies: rest.map((c) => ({
+            id: String(c.databaseId), author: c.author?.login ?? 'unknown',
+            own: isFactoryComment(c.body), body: c.body, createdAt: c.createdAt,
+          })),
+        });
+      }
+      cursor = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
+    } while (cursor);
+    return out;
+  }
+
+  async replyToThread(_repo: Repo, _number: number, threadId: string, body: string): Promise<void> {
+    await this.graphql(
+      `mutation($id: ID!, $body: String!) { addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) { comment { id } } }`,
+      { id: threadId, body: markFactoryComment(body) },
+    );
   }
 
   async changedFiles(repo: Repo, number: number, limit: number): Promise<string[]> {
@@ -225,7 +275,8 @@ export class GithubScmProvider implements ScmProvider {
     return out.slice(0, max);
   }
 
-  async comment(repo: Repo, number: number, body: string, anchor?: { path: string; line: number }): Promise<void> {
+  async comment(repo: Repo, number: number, text: string, anchor?: { path: string; line: number }): Promise<void> {
+    const body = markFactoryComment(text);
     if (anchor) {
       // A line comment needs the head sha to anchor against.
       const pr = await this.gh<GhPull>('GET', `/repos/${repo.path}/pulls/${number}`);

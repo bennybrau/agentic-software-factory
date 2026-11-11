@@ -1,5 +1,5 @@
 import type {
-  ChangeRequest, Preflight, Repo, ReviewComment, ScmProvider, ScmProviderKind,
+  ChangeRequest, Preflight, Repo, ReviewThread, ScmProvider, ScmProviderKind,
 } from '@asf/shared';
 
 /**
@@ -49,8 +49,10 @@ export class ScmProviderRegistry {
       listChangeRequests: (repo: Repo, q: { ticketKeys?: string[]; since?: string }): Promise<ChangeRequest[]> =>
         this.current().then((p) => p.listChangeRequests(repo, q)),
       getChangeRequest: (repo: Repo, number: number) => this.current().then((p) => p.getChangeRequest(repo, number)),
-      listReviewComments: (repo: Repo, number: number): Promise<ReviewComment[]> =>
+      listReviewComments: (repo: Repo, number: number): Promise<ReviewThread[]> =>
         this.current().then((p) => p.listReviewComments(repo, number)),
+      replyToThread: (repo: Repo, number: number, threadId: string, body: string) =>
+        this.current().then((p) => p.replyToThread(repo, number, threadId, body)),
       comment: (repo: Repo, number: number, body: string, anchor?: { path: string; line: number }) =>
         this.current().then((p) => p.comment(repo, number, body, anchor)),
       markReady: (repo: Repo, number: number) => this.current().then((p) => p.markReady(repo, number)),

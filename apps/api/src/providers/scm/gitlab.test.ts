@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GitlabScmProvider, type GitlabScmConfig } from './gitlab.js';
-import type { Repo } from '@asf/shared';
+import { ASF_COMMENT_MARKER, type Repo } from '@asf/shared';
 
 const PROJECT_JSON = {
   id: 42,
@@ -140,28 +140,68 @@ test('comment: plain body → note; anchored → positioned discussion', async (
   try {
     const p = new GitlabScmProvider(cfg());
     await p.comment(REPO, 5, 'ship it');
-    assert.ok(s.calls.some((c) => /\/merge_requests\/5\/notes$/.test(c.url)));
+    const note = s.calls.find((c) => /\/merge_requests\/5\/notes$/.test(c.url))!.body as { body: string };
+    assert.equal(note.body, `ship it\n\n${ASF_COMMENT_MARKER}`);
     await p.comment(REPO, 5, 'nit', { path: 'src/x.ts', line: 10 });
-    const disc = s.calls.find((c) => /\/discussions$/.test(c.url))!.body as { position: { new_line: number; head_sha: string; new_path: string } };
+    const disc = s.calls.find((c) => /\/discussions$/.test(c.url))!.body as { body: string; position: { new_line: number; head_sha: string; new_path: string } };
+    assert.equal(disc.body, `nit\n\n${ASF_COMMENT_MARKER}`);
     assert.equal(disc.position.new_line, 10);
     assert.equal(disc.position.new_path, 'src/x.ts');
     assert.equal(disc.position.head_sha, 'headsha');
   } finally { s.restore(); }
 });
 
-test('listReviewComments drops system notes and maps position', async () => {
-  const notes = [
-    { id: 1, author: { username: 'alice' }, body: 'real comment', created_at: '2026-09-14T10:00:00Z', system: false, resolvable: true, resolved: false, position: { new_path: 'src/x.ts', new_line: 3 } },
-    { id: 2, author: { username: 'gitlab-bot' }, body: 'changed the milestone', created_at: '2026-09-14T10:01:00Z', system: true },
-  ];
-  const s = stubFetch([{ m: 'GET', re: /\/merge_requests\/5\/notes/, json: notes }]);
+// Shaped like GitLab's GET /merge_requests/:iid/discussions response.
+const glNote = (id: number, username: string, body: string, over: Record<string, unknown> = {}) => ({
+  id, type: 'DiffNote', author: { id, username, name: username }, body,
+  created_at: `2026-09-14T10:${String(id % 60).padStart(2, '0')}:00Z`, system: false,
+  resolvable: true, resolved: false, position: { new_path: 'src/x.ts', new_line: 3, old_path: 'src/x.ts', old_line: null }, ...over,
+});
+// Page 1 is full (100): one review thread, a system note, and 98 plain MR comments (not resolvable).
+const DISCUSSIONS_P1 = [
+  { id: 'd1', individual_note: false, notes: [
+    glNote(1, 'alice', 'rename this'),
+    glNote(2, 'asf-bot', `Renamed in abc123.\n\n${ASF_COMMENT_MARKER}`),
+    glNote(3, 'alice', 'thanks'),
+  ] },
+  { id: 'd2', individual_note: true, notes: [glNote(4, 'gitlab-bot', 'changed the milestone', { type: null, system: true, resolvable: false, position: undefined })] },
+  ...Array.from({ length: 98 }, (_, i) => ({ id: `plain${i}`, individual_note: true,
+    notes: [glNote(100 + i, 'bob', 'lgtm', { type: null, resolvable: false, position: undefined })] })),
+];
+const DISCUSSIONS_P2 = [
+  { id: 'd3', individual_note: false, notes: [glNote(5, 'asf-bot', `nit: typo\n\n${ASF_COMMENT_MARKER}`, { resolved: true, position: { new_path: 'src/y.ts', new_line: 9 } })] },
+];
+
+test('listReviewComments pages discussions, keeping only resolvable non-system threads', async () => {
+  const s = stubFetch([
+    { m: 'GET', re: /\/user$/, json: { username: 'asf-bot' } },
+    { m: 'GET', re: /\/merge_requests\/5\/discussions\?per_page=100&page=1$/, json: DISCUSSIONS_P1 },
+    { m: 'GET', re: /\/merge_requests\/5\/discussions\?per_page=100&page=2$/, json: DISCUSSIONS_P2 },
+  ]);
   try {
-    const cs = await new GitlabScmProvider(cfg()).listReviewComments(REPO, 5);
-    assert.equal(cs.length, 1);
-    assert.equal(cs[0].author, 'alice');
-    assert.equal(cs[0].path, 'src/x.ts');
-    assert.equal(cs[0].line, 3);
-    assert.equal(cs[0].resolved, false);
+    const p = new GitlabScmProvider(cfg());
+    const ts = await p.listReviewComments(REPO, 5);
+    assert.equal(s.calls.filter((c) => /\/discussions\?/.test(c.url)).length, 2);
+    assert.deepEqual(ts.map((t) => [t.id, t.resolved, t.path, t.line, t.author, t.authorIsTokenAccount, t.own]), [
+      ['d1', false, 'src/x.ts', 3, 'alice', false, false],
+      ['d3', true, 'src/y.ts', 9, 'asf-bot', true, true],
+    ]);
+    assert.equal(ts[0].body, 'rename this');
+    assert.deepEqual(ts[0].replies.map((r) => [r.id, r.author, r.own, r.body]), [
+      ['2', 'asf-bot', true, `Renamed in abc123.\n\n${ASF_COMMENT_MARKER}`], ['3', 'alice', false, 'thanks'],
+    ]);
+    // The username is cached: a second read doesn't ask /user again.
+    await p.listReviewComments(REPO, 5);
+    assert.equal(s.calls.filter((c) => c.url.endsWith('/user')).length, 1);
+  } finally { s.restore(); }
+});
+
+test('replyToThread posts a note on the discussion, with the marker', async () => {
+  const s = stubFetch([{ m: 'POST', re: /\/discussions\/d1\/notes$/, json: {} }]);
+  try {
+    await new GitlabScmProvider(cfg()).replyToThread(REPO, 5, 'd1', 'Fixed in abc123.');
+    assert.equal(s.calls[0].url, 'https://gitlab.com/api/v4/projects/acme%2Fscratch/merge_requests/5/discussions/d1/notes');
+    assert.deepEqual(s.calls[0].body, { body: `Fixed in abc123.\n\n${ASF_COMMENT_MARKER}` });
   } finally { s.restore(); }
 });
 

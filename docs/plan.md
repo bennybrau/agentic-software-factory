@@ -125,7 +125,8 @@ interface ScmProvider {
   openChangeRequest(repo: Repo, input: { head: string; base: string; title: string; body: string; draft: true }): Promise<ChangeRequest>;
   listChangeRequests(repo: Repo, q: { ticketKeys?: string[]; since?: string }): Promise<ChangeRequest[]>;
   getChangeRequest(repo: Repo, number: number): Promise<ChangeRequest & { diffRefs: unknown }>;
-  listReviewComments(repo: Repo, number: number): Promise<ReviewComment[]>;
+  listReviewComments(repo: Repo, number: number): Promise<ReviewThread[]>;    // every thread, resolved ones too
+  replyToThread(repo: Repo, number: number, threadId: string, body: string): Promise<void>;
   comment(repo: Repo, number: number, body: string, anchor?: { path: string; line: number }): Promise<void>;
   markReady(repo: Repo, number: number): Promise<void>;    // only after the `before_change_request`/`before_merge` gate
   merge(repo: Repo, number: number, opts: { method: 'merge' | 'squash' | 'rebase' }): Promise<void>; // only after `before_merge` gate

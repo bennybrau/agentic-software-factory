@@ -48,6 +48,7 @@ function fakeScm(kind: string, preflight: ScmProvider['preflight']): ScmProvider
     async listChangeRequests() { return []; },
     async getChangeRequest() { throw new Error('nope'); },
     async listReviewComments() { return []; },
+    async replyToThread() {},
     async comment() {}, async markReady() {}, async merge() {},
   };
 }

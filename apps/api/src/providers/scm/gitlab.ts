@@ -1,5 +1,6 @@
-import type {
-  ChangeRequest, Preflight, Repo, ReviewComment, ScmProvider,
+import {
+  isFactoryComment, markFactoryComment,
+  type ChangeRequest, type Preflight, type Repo, type ReviewThread, type ScmProvider,
 } from '@asf/shared';
 import { credentialRejected } from '../rejected.js';
 import { changeRequestMentionsKey } from './ticket-key.js';
@@ -64,6 +65,7 @@ interface GlNote {
   resolvable?: boolean;
   resolved?: boolean;
 }
+interface GlDiscussion { id: string; notes: GlNote[] }
 
 /** GitLab MR access levels: Developer(30)+ can push/merge; below that is read-only. */
 const DEVELOPER = 30;
@@ -87,6 +89,7 @@ function mapCiState(status: string | undefined): ChangeRequest['ciState'] {
 export class GitlabScmProvider implements ScmProvider {
   readonly kind = 'gitlab' as const;
   private readonly cfg: GitlabScmConfig;
+  private me: string | null = null; // the token's username, from GET /user
 
   constructor(cfg: GitlabScmConfig) {
     this.cfg = { ...cfg, baseUrl: cfg.baseUrl.replace(/\/+$/, '') };
@@ -107,6 +110,12 @@ export class GitlabScmProvider implements ScmProvider {
       throw new Error(`GitLab ${method} ${path} → ${res.status}: ${text.slice(0, 300)}`);
     }
     return (res.status === 204 ? (undefined as T) : ((await res.json()) as T));
+  }
+
+  /** The token's username, cached (preflight fills the same cache). */
+  private async username(): Promise<string> {
+    this.me ??= (await this.gl<{ username: string }>('GET', '/user')).username;
+    return this.me;
   }
 
   /** URL-encode "group/repo" for use as :id in a project path. */
@@ -148,6 +157,7 @@ export class GitlabScmProvider implements ScmProvider {
     try {
       // /user (not a search) so a dead token fails outright rather than 200-empty.
       me = await this.gl<{ username: string }>('GET', '/user');
+      this.me = me.username;
     } catch (e) {
       if (status(e) === 401) return credentialRejected('GitLab');
       return { ok: false, reason: (e as Error).message };
@@ -225,14 +235,36 @@ export class GitlabScmProvider implements ScmProvider {
     return { ...cr, diffRefs: refs ? { headSha: refs.head_sha, baseSha: refs.base_sha, startSha: refs.start_sha } : { headSha: mr.sha, baseSha: null } };
   }
 
-  async listReviewComments(repo: Repo, number: number): Promise<ReviewComment[]> {
-    const notes = await this.gl<GlNote[]>('GET', `/projects/${this.pid(repo.path)}/merge_requests/${number}/notes?per_page=100&sort=asc`);
-    // Drop GitLab's system notes (status changes etc.) — only human/agent notes are review comments.
-    return notes.filter((n) => !n.system).map((n) => ({
-      id: String(n.id), author: n.author?.username ?? 'unknown', body: n.body,
-      path: n.position?.new_path ?? null, line: n.position?.new_line ?? null,
-      resolved: n.resolvable ? (n.resolved ?? false) : null, createdAt: n.created_at,
-    }));
+  async listReviewComments(repo: Repo, number: number): Promise<ReviewThread[]> {
+    const username = await this.username();
+    const out: ReviewThread[] = [];
+    // gl() hands back only the body, so page until a short page rather than reading x-next-page.
+    for (let page = 1; ; page++) {
+      const ds = await this.gl<GlDiscussion[]>('GET', `/projects/${this.pid(repo.path)}/merge_requests/${number}/discussions?per_page=100&page=${page}`);
+      for (const d of ds) {
+        const [first, ...rest] = d.notes;
+        // Only resolvable, non-system discussions are review threads (not status changes or plain MR notes).
+        if (!first || !first.resolvable || first.system) continue;
+        const author = first.author?.username ?? 'unknown';
+        out.push({
+          id: d.id, resolved: first.resolved ?? false,
+          path: first.position?.new_path ?? null, line: first.position?.new_line ?? null,
+          author, authorIsTokenAccount: author === username, own: isFactoryComment(first.body),
+          body: first.body, createdAt: first.created_at,
+          replies: rest.map((n) => ({
+            id: String(n.id), author: n.author?.username ?? 'unknown',
+            own: isFactoryComment(n.body), body: n.body, createdAt: n.created_at,
+          })),
+        });
+      }
+      if (ds.length < 100) break;
+    }
+    return out;
+  }
+
+  async replyToThread(repo: Repo, number: number, threadId: string, body: string): Promise<void> {
+    await this.gl('POST', `/projects/${this.pid(repo.path)}/merge_requests/${number}/discussions/${encodeURIComponent(threadId)}/notes`,
+      { body: markFactoryComment(body) });
   }
 
   async changedFiles(repo: Repo, number: number, limit: number): Promise<string[]> {
@@ -246,7 +278,8 @@ export class GitlabScmProvider implements ScmProvider {
     return out.slice(0, max);
   }
 
-  async comment(repo: Repo, number: number, body: string, anchor?: { path: string; line: number }): Promise<void> {
+  async comment(repo: Repo, number: number, text: string, anchor?: { path: string; line: number }): Promise<void> {
+    const body = markFactoryComment(text);
     if (anchor) {
       // A positioned discussion needs the MR's diff refs to anchor against.
       const mr = await this.gl<GlMergeRequest>('GET', `/projects/${this.pid(repo.path)}/merge_requests/${number}`);

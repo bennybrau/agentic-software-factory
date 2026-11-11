@@ -25,18 +25,31 @@ export interface PromptVars {
   connectedRepos?: RunContext['connectedRepos'];  // every repository source control reaches; absent = the api couldn't say (or is older)
   repo?: RunContext['repo'];  // the run's own repository, marked "(this run)" in {{repos.connected}}
   referenceRepos?: ReferencePromptRepo[];  // read-only copies of other repositories the ticket names; empty/absent = {{repos.reference}} renders ''
-  hiveBrief?: string;  // Hive's briefing on the ticket (RunContext.hiveBrief), for the planner and implementer; empty/absent = no section
+  hiveBrief?: string;  // Hive's briefing on the ticket (RunContext.hiveBrief), for the planner, implementer and reviewer; empty/absent = no section
 }
 
 /**
+ * The planner's account of each remembered fact (#108), read back by parseTeamMemory: a
+ * `## Team memory` section at the end of plan.md, one line per Gotchas/Facts line.
+ */
+const TEAM_MEMORY_SECTION = 'End plan.md with a `## Team memory` section, just before the `Change-Type:` line: one line for each line under Gotchas and Facts above, in the form `- [hive:<id8>] <the fact in a few words>: applied`, `: overridden: <why>`, or `: doesn\'t apply here`. If the briefing has no gotchas or facts, the section is the single line `Nothing remembered applies to this ticket.`';
+
+/**
  * Hive's briefing on the ticket (#93): what the team has already settled about this repo, so
- * the planner doesn't re-ask it and the implementer follows it. Planner and implementer only;
- * no brief = '' (the prompt is unchanged).
+ * the planner doesn't re-ask it (and accounts for each fact in the plan, #108), the implementer
+ * follows it, and the reviewer flags a change that contradicts it. Not the tester; no brief = ''
+ * (the prompt is unchanged).
  */
 export function renderHiveBrief(brief: string | undefined, role: string): string {
-  if (!brief || !brief.trim() || (role !== 'planner' && role !== 'implementer')) return '';
+  if (!brief || !brief.trim()) return '';
+  const head = '\n\n---\n\n## TEAM MEMORY (Hive)\n\nThese are decisions and gotchas the team has already settled.';
+  if (role === 'reviewer') {
+    return `${head} A change that contradicts one is a finding: cite its \`[hive:<id>]\`. It is not a finding when the plan's \`## Team memory\` section overrode that fact with a reason.\n\n${brief.trim()}`;
+  }
+  if (role !== 'planner' && role !== 'implementer') return '';
   const where = role === 'planner' ? 'say so in the plan (or ask)' : 'say so';
-  return `\n\n---\n\n## TEAM MEMORY (Hive)\n\nThese are decisions and gotchas the team has already settled. Follow them. When the ticket contradicts one, ${where} instead of silently picking. Cite \`[hive:<id>]\` for any you rely on.\n\n${brief.trim()}`;
+  const plan = role === 'planner' ? ` ${TEAM_MEMORY_SECTION}` : '';
+  return `${head} Follow them. When the ticket contradicts one, ${where} instead of silently picking. Cite \`[hive:<id>]\` for any you rely on.${plan}\n\n${brief.trim()}`;
 }
 
 /** A read-only copy of another repository, as {{repos.reference}} describes it. */

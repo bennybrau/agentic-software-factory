@@ -311,19 +311,36 @@ test('the planner is told to split library work first and to wait for a pinned v
   assert.ok(!impl.includes('Library part first'));
 });
 
-test('the Hive brief renders a TEAM MEMORY section above ROLE SKILL, for the planner and implementer only', async () => {
+test('the Hive brief renders a TEAM MEMORY section above ROLE SKILL for the planner, implementer and reviewer', async () => {
   const hiveBrief = 'Facts:\n- Only the registry talks to Postgres (repo, decision) [hive:eeeeeeee]';
-  for (const role of ['planner', 'implementer']) {
+  for (const role of ['planner', 'implementer', 'reviewer']) {
     const p = await renderPrompt(role, 'run_hive', { ...base, prior: priorsFor[role], skill: 'role guidance', hiveBrief });
     assert.match(p, /## TEAM MEMORY \(Hive\)/, `${role} gets the section`);
     assert.ok(p.includes('[hive:eeeeeeee]'), `${role} gets the brief text`);
-    assert.match(p, /already settled\. Follow them\./);
     assert.ok(p.indexOf('## TEAM MEMORY (Hive)') < p.indexOf('## ROLE SKILL'), 'the brief sits above the role skill');
   }
-  for (const role of ['tester', 'reviewer']) {
-    const p = await renderPrompt(role, 'run_hive', { ...base, prior: priorsFor[role], hiveBrief });
-    assert.doesNotMatch(p, /TEAM MEMORY|hive:eeeeeeee/, `${role} gets nothing`);
-  }
+  const p = await renderPrompt('tester', 'run_hive', { ...base, prior: priorsFor.tester, hiveBrief });
+  assert.doesNotMatch(p, /TEAM MEMORY|hive:eeeeeeee/, 'the tester gets nothing');
+});
+
+test('the planner is told to end the plan with a Team memory section; the implementer is not', async () => {
+  const hiveBrief = 'Facts:\n- Only the registry talks to Postgres (repo, decision) [hive:eeeeeeee]';
+  const planner = await renderPrompt('planner', 'run_hive', { ...base, prior: {}, hiveBrief });
+  assert.match(planner, /already settled\. Follow them\./);
+  assert.match(planner, /End plan\.md with a `## Team memory` section, just before the `Change-Type:` line/);
+  assert.ok(planner.includes("`- [hive:<id8>] <the fact in a few words>: applied`, `: overridden: <why>`, or `: doesn't apply here`"));
+  assert.ok(planner.includes('`Nothing remembered applies to this ticket.`'));
+  const impl = await renderPrompt('implementer', 'run_hive', { ...base, prior: priorsFor.implementer, hiveBrief });
+  assert.ok(impl.includes('These are decisions and gotchas the team has already settled. Follow them. When the ticket contradicts one, say so instead of silently picking. Cite `[hive:<id>]` for any you rely on.\n\nFacts:'));
+  assert.doesNotMatch(impl, /## Team memory/);
+});
+
+test('the reviewer is told a change contradicting team memory is a finding, unless the plan overrode it', async () => {
+  const hiveBrief = 'Facts:\n- Only the registry talks to Postgres (repo, decision) [hive:eeeeeeee]';
+  const p = await renderPrompt('reviewer', 'run_hive', { ...base, prior: priorsFor.reviewer, hiveBrief });
+  assert.match(p, /A change that contradicts one is a finding: cite its `\[hive:<id>\]`/);
+  assert.match(p, /plan's `## Team memory` section overrode that fact with a reason/);
+  assert.doesNotMatch(p, /Follow them\./);
 });
 
 test('without a Hive brief the prompt is byte-identical', async () => {

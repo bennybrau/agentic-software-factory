@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { registerBrowserRoutes } from './browser.js';
 import { MockTicketProvider } from '../providers/tickets/mock.js';
 import { MockScmProvider } from '../providers/scm/mock.js';
+import type { Repo, ReviewThread } from '@asf/shared';
 
 // The needs-human answer/skip routes are a thin surface over registry RPCs.
 // Stub the registry and assert the HTTP calls map to answerNeedsHuman/skipNeedsHuman.
@@ -375,4 +376,171 @@ test('GET activity: a bad query is a 400 and never reaches the registry', async 
   }
   assert.equal(calls.length, 0);
   await a.close();
+});
+
+// Addressing review threads (#109): a run with PR #1 on the mock SCM, whose state the
+// test sets, and a stub registry that records requestChanges and appendEvent.
+class ThreadsScm extends MockScmProvider {
+  writes: string[] = [];
+  constructor(private state: 'open' | 'merged' | 'closed' = 'open', private fail: string | null = null) { super(); }
+  override async getChangeRequest(repo: Repo, number: number) {
+    if (this.fail) throw new Error(this.fail);
+    return { id: '1', number, repoId: repo.id, url: 'https://github.com/example/app/pull/1', title: 't', state: this.state, draft: false,
+      headBranch: 'feat', baseBranch: 'main', reviewState: null, ciState: null, updatedAt: '', diffRefs: null };
+  }
+  override async replyToThread() { this.writes.push('replyToThread'); }
+  override async comment() { this.writes.push('comment'); }
+  override async markReady() { this.writes.push('markReady'); }
+  override async merge() { this.writes.push('merge'); }
+}
+
+const reviewReply = (id: string, own = false) => ({ id, author: own ? 'asf' : 'bo', own, body: `reply ${id}`, createdAt: '' });
+function reviewThread(id: string, over: Partial<ReviewThread> = {}): ReviewThread {
+  return { id, resolved: false, path: 'src/a.ts', line: 3, author: 'ana', authorIsTokenAccount: false, own: false, body: `body ${id}`, createdAt: '', replies: [], ...over };
+}
+
+function stubThreadsRun(opts: { changeRequestNumber?: number | null; requestChanges409?: string } = {}) {
+  const requested: Array<Record<string, unknown>> = [];
+  const appended: Array<Record<string, unknown>> = [];
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string; input?: Record<string, unknown> };
+    const reply = (result: unknown) => new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
+    switch (body.op) {
+      case 'getRun': return reply({ run: { id: 'run_1', ticketId: 'JIRA-1', state: 'succeeded', repoId: '1',
+        changeRequestUrl: 'https://github.com/example/app/pull/1',
+        changeRequestNumber: opts.changeRequestNumber === undefined ? 1 : opts.changeRequestNumber, team: {} }, tasks: [] });
+      case 'requestChanges':
+        if (opts.requestChanges409) return new Response(JSON.stringify({ error: 'chat_error', reason: opts.requestChanges409 }), { status: 409, headers: { 'content-type': 'application/json' } });
+        requested.push(body as unknown as Record<string, unknown>); return reply({ message: {} });
+      case 'appendEvent': appended.push(body.input!); return reply({ event: {} });
+      default: return reply({});
+    }
+  }) as unknown as typeof fetch;
+  return { requested, appended };
+}
+
+async function threadsApp(scm: ThreadsScm, threads: ReviewThread[] = []) {
+  scm.seedThreads(1, threads);
+  const a = Fastify();
+  registerBrowserRoutes(a, { tickets: new MockTicketProvider(), scm });
+  await a.ready();
+  return a;
+}
+
+test('GET /api/runs/:id/review-threads lists only the addressable threads, own replies stripped', async () => {
+  stubThreadsRun();
+  const scm = new ThreadsScm();
+  const a = await threadsApp(scm, [
+    reviewThread('t1', { replies: [reviewReply('r1', true), reviewReply('r2')] }),
+    reviewThread('t2', { resolved: true }),
+    reviewThread('t3', { own: true }),
+    reviewThread('t4', { replies: [reviewReply('r3', true)] }),
+  ]);
+  const res = await a.inject({ method: 'GET', url: '/api/runs/run_1/review-threads' });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.equal(body.eligible, true);
+  assert.equal(body.reason, null);
+  assert.equal(body.url, 'https://github.com/example/app/pull/1');
+  assert.deepEqual(body.threads.map((t: ReviewThread) => t.id), ['t1']);
+  assert.deepEqual(body.threads[0].replies.map((r: { id: string }) => r.id), ['r2']);
+  assert.deepEqual(scm.writes, []);
+  await a.close();
+});
+
+test('GET /api/runs/:id/review-threads is not eligible, with the reason, when there is nothing to address', async () => {
+  const cases: Array<[Parameters<typeof stubThreadsRun>[0], ThreadsScm, ReviewThread[], RegExp]> = [
+    [{ changeRequestNumber: null }, new ThreadsScm(), [reviewThread('t1')], /no open pull request/],
+    [{}, new ThreadsScm('merged'), [reviewThread('t1')], /already merged/],
+    [{}, new ThreadsScm('closed'), [reviewThread('t1')], /already closed/],
+    [{}, new ThreadsScm('open', 'boom'), [reviewThread('t1')], /couldn't read the pull request: boom/],
+    [{}, new ThreadsScm(), [reviewThread('t2', { resolved: true })], /no open review threads to address/],
+  ];
+  for (const [opts, scm, threads, reason] of cases) {
+    stubThreadsRun(opts);
+    const a = await threadsApp(scm, threads);
+    const res = await a.inject({ method: 'GET', url: '/api/runs/run_1/review-threads' });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().eligible, false);
+    assert.match(res.json().reason, reason);
+    assert.deepEqual(res.json().threads, []);
+    await a.close();
+  }
+});
+
+test('GET /api/runs/:id/review-threads 404s for a missing run', async () => {
+  global.fetch = (async () => new Response(JSON.stringify({ ok: true, result: null }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+  const a = await threadsApp(new ThreadsScm());
+  assert.equal((await a.inject({ method: 'GET', url: '/api/runs/run_x/review-threads' })).statusCode, 404);
+  await a.close();
+});
+
+test('POST address-review-comments sends only the chosen threads and records review_threads:sent', async () => {
+  const { requested, appended } = stubThreadsRun();
+  const scm = new ThreadsScm();
+  const a = await threadsApp(scm, [
+    reviewThread('t1'), reviewThread('t2'), reviewThread('t3'),
+    reviewThread('t4', { resolved: true }), reviewThread('t5', { own: true }),
+  ]);
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/address-review-comments',
+    payload: { threadIds: ['t1', 't3', 't4', 't5'], note: 'Rename only.', by: 'jon' } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true, sentIds: ['t1', 't3'], notSentIds: [] });
+  assert.equal(requested.length, 1);
+  const text = requested[0].body as string;
+  assert.deepEqual([requested[0].runId, requested[0].by], ['run_1', 'jon']);
+  assert.ok(text.includes('### Thread t1 ') && text.includes('### Thread t3 '));
+  for (const id of ['t2', 't4', 't5']) assert.ok(!text.includes(`body ${id}`), id);
+  assert.match(text, /### Note from jon\n\nRename only\.$/);
+  assert.deepEqual(appended, [{ runId: 'run_1', taskId: null, kind: 'review_threads:sent', source: 'human',
+    payload: { number: 1, url: 'https://github.com/example/app/pull/1', threadIds: ['t1', 't3'], notSent: [] } }]);
+  assert.deepEqual(scm.writes, []);
+  await a.close();
+});
+
+test('POST address-review-comments: 25 chosen send 20, and a long body is cut', async () => {
+  const { requested, appended } = stubThreadsRun();
+  const threads = Array.from({ length: 25 }, (_, i) => reviewThread(`t${i + 1}`, i === 0 ? { body: 'x'.repeat(3000) } : {}));
+  const a = await threadsApp(new ThreadsScm(), threads);
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/address-review-comments', payload: { threadIds: threads.map((t) => t.id) } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().sentIds.length, 20);
+  assert.deepEqual(res.json().notSentIds, ['t21', 't22', 't23', 't24', 't25']);
+  const text = requested[0].body as string;
+  assert.match(text, /> … \(cut at 2,000 characters\)/);
+  assert.ok(!text.includes('x'.repeat(2001)));
+  assert.match(text, /### Not sent \(over the limit\)\n\n- t21 \(@ana\)/);
+  assert.deepEqual((appended[0].payload as { notSent: string[] }).notSent, ['t21', 't22', 't23', 't24', 't25']);
+  await a.close();
+});
+
+test('POST address-review-comments: bad or stale thread ids are a 400 and reach nothing', async () => {
+  for (const payload of [{}, { threadIds: [] }, { threadIds: 't1' }, { threadIds: ['t9'] }, { threadIds: ['t2'] }]) {
+    const { requested, appended } = stubThreadsRun();
+    const a = await threadsApp(new ThreadsScm(), [reviewThread('t1'), reviewThread('t2', { resolved: true })]);
+    const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/address-review-comments', payload });
+    assert.equal(res.statusCode, 400, JSON.stringify(payload));
+    assert.equal(requested.length + appended.length, 0);
+    await a.close();
+  }
+});
+
+test('POST address-review-comments refuses with 409 when the PR is gone or the registry says no', async () => {
+  const cases: Array<[Parameters<typeof stubThreadsRun>[0], ThreadsScm, RegExp]> = [
+    [{ changeRequestNumber: null }, new ThreadsScm(), /no open pull request/],
+    [{}, new ThreadsScm('merged'), /already merged/],
+    [{}, new ThreadsScm('closed'), /already closed/],
+    [{ requestChanges409: 'the run is still running' }, new ThreadsScm(), /still running/],
+  ];
+  for (const [opts, scm, reason] of cases) {
+    const { appended } = stubThreadsRun(opts);
+    const a = await threadsApp(scm, [reviewThread('t1')]);
+    const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/address-review-comments', payload: { threadIds: ['t1'] } });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error, 'request_changes_refused');
+    assert.match(res.json().reason, reason);
+    assert.equal(appended.length, 0);
+    assert.deepEqual(scm.writes, []);
+    await a.close();
+  }
 });

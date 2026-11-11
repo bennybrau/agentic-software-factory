@@ -32,6 +32,7 @@ export * from './updates.js';
 export * from './outcome-tags.js';
 export * from './ticket-search.js';
 export * from './review.js';
+export * from './review-threads.js';
 export * from './repo-mentions.js';
 export * from './hive-brief.js';
 export * from './refs.js';

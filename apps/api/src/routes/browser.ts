@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import type { HiveBriefFactView, ScmProvider, TicketProvider, RunReportInput } from '@asf/shared';
-import { isAdhocId, reviewComments, runReportMarkdown } from '@asf/shared';
+import type { ChangeRequest, HiveBriefFactView, Repo, ReviewThread, Run, ScmProvider, TicketProvider, RunReportInput } from '@asf/shared';
+import { addressableThreads, addressMessage, isAdhocId, reviewComments, runReportMarkdown } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { cfg } from '../settings.js';
@@ -262,6 +262,68 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
       throw e;
     }
   });
+  // Address review threads (#109): list a run's PR/MR threads that still want an answer,
+  // and send the chosen ones back to the team as a request-changes turn. Never resolves
+  // a thread and never posts anything on the PR.
+  type ReviewTarget = { repo: Repo; cr: ChangeRequest } | { reason: string; url: string | null };
+  const reviewTarget = async (run: Run): Promise<ReviewTarget> => {
+    const url = run.changeRequestUrl ?? null;
+    if (run.changeRequestNumber == null || !run.repoId) return { reason: 'this run has no open pull request', url };
+    try {
+      const repo = await deps.scm.getRepo(run.repoId);
+      const cr = await deps.scm.getChangeRequest(repo, run.changeRequestNumber);
+      if (cr.state !== 'open') return { reason: `the pull request is already ${cr.state}`, url: cr.url };
+      return { repo, cr };
+    } catch (e) {
+      return { reason: `couldn't read the pull request: ${(e as Error).message}`, url };
+    }
+  };
+  const openThreads = async (t: { repo: Repo; cr: ChangeRequest }): Promise<ReviewThread[] | { reason: string }> => {
+    try {
+      return addressableThreads(await deps.scm.listReviewComments(t.repo, t.cr.number));
+    } catch (e) {
+      return { reason: `couldn't read the review threads: ${(e as Error).message}` };
+    }
+  };
+
+  app.get<{ Params: { id: string } }>('/api/runs/:id/review-threads', async (req, reply) => {
+    const detail = await registry.getRun(req.params.id);
+    if (!detail) return reply.code(404).send({ error: 'not_found' });
+    const t = await reviewTarget(detail.run);
+    if ('reason' in t) return { eligible: false, reason: t.reason, url: t.url, threads: [] };
+    const threads = await openThreads(t);
+    if ('reason' in threads) return { eligible: false, reason: threads.reason, url: t.cr.url, threads: [] };
+    if (!threads.length) return { eligible: false, reason: 'no open review threads to address', url: t.cr.url, threads };
+    return { eligible: true, reason: null, url: t.cr.url, threads };
+  });
+
+  app.post<{ Params: { id: string }; Body: { threadIds?: unknown; note?: string; by?: string } }>('/api/runs/:id/address-review-comments', async (req, reply) => {
+    const b = req.body ?? {};
+    if (!Array.isArray(b.threadIds) || !b.threadIds.length) return reply.code(400).send({ error: 'bad_request', reason: 'choose at least one thread' });
+    const detail = await registry.getRun(req.params.id);
+    if (!detail) return reply.code(404).send({ error: 'not_found' });
+    const refuse = (reason: string) => reply.code(409).send({ error: 'request_changes_refused', reason });
+    const t = await reviewTarget(detail.run);
+    if ('reason' in t) return refuse(t.reason);
+    const open = await openThreads(t);
+    if ('reason' in open) return refuse(open.reason);
+    const chosen = new Set(b.threadIds.map(String));
+    const threads = open.filter((x) => chosen.has(x.id));
+    if (!threads.length) return reply.code(400).send({ error: 'bad_request', reason: 'none of the chosen threads still needs addressing' });
+    const by = b.by ?? null;
+    const { text, sentIds, notSentIds } = addressMessage({ url: t.cr.url, threads, note: b.note?.trim() ? { text: b.note, by } : null });
+    try {
+      await registry.requestChanges(detail.run.id, text, by);
+    } catch (e) {
+      const m = /registry rpc requestChanges failed: 409 (.*)$/.exec((e as Error).message);
+      if (m) return refuse(m[1].trim() || 'changes cannot be requested on this run right now');
+      throw e;
+    }
+    await registry.appendEvent({ runId: detail.run.id, taskId: null, kind: 'review_threads:sent', source: 'human',
+      payload: { number: t.cr.number, url: t.cr.url, threadIds: sentIds, notSent: notSentIds } });
+    return { ok: true, sentIds, notSentIds };
+  });
+
   app.post<{ Params: { id: string }; Body: { by?: string } }>('/api/runs/:id/skip', async (req) => {
     await registry.skipNeedsHuman(req.params.id, (req.body ?? {}).by ?? null);
     return { ok: true };

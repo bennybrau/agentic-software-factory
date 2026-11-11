@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ADHOC_DEFAULT_LIMITS, parseReviewRequest, type AdhocLimits } from '@asf/shared/ui';
+import { ADHOC_DEFAULT_LIMITS, nativeId, parseReviewRequest, type AdhocLimits } from '@asf/shared/ui';
 import { api, subscribeEvents, type RunDetail } from '../api';
 import { chatDispatchBody, chatProblem, chatTitle } from '../new-task';
 import { chatStatus } from '../chat-status';
@@ -138,7 +138,9 @@ export function ChatRun() {
   const { run, tasks, gates } = detail;
   const planGate = gates.find((g) => g.state === 'open' && g.gateName === 'after_plan') ?? null;
   const plannerTask = [...tasks].filter((t) => String(t.role) === 'planner').sort((a, b) => b.seq - a.seq)[0] ?? null;
-  const repo = repos.find((r) => r.id === run.repoId)?.path ?? run.repoId;
+  // By native id: the run row may hold a bare id while the list hands out qualified ones.
+  const own = run.repoId;
+  const repo = own ? repos.find((r) => nativeId(r.id) === nativeId(own))?.path ?? nativeId(own) : own;
 
   return (
     <div>

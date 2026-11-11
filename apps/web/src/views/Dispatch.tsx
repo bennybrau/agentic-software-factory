@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { isAdhocId } from '@asf/shared/ui';
 import { api, decodeTicketId, type TicketRow } from '../api';
 import { gatesFor, isCustomised, modelsFor, overridesDiff, reconcileModel, repoHint, roleLock, runtimeOptions, skipRolesPayload } from '../dispatch-roles';
+import { pickChatRepo } from '../new-task';
 import { setupFlags } from '../setup-flags';
 import { useMe } from '../useMe';
 import { GATE_MODE_LABEL, PAGE, runtimeLabel } from '../words';
@@ -58,7 +59,7 @@ export function Dispatch() {
       setPreview(p);
       // Prefer the suggested repo (a GitHub issue's own repo, or one the ticket names); else the first.
       // Only preselected: the person confirms it with Start.
-      setRepoId(p.suggestedRepoId ?? p.repos[0]?.id ?? '');
+      setRepoId(pickChatRepo(p) ?? '');
       setGates(Object.fromEntries(Object.entries(p.gates).map(([k, v]) => [k, v.mode])));
       setModels({ ...p.defaultModels });
       setRuntimes({ ...p.defaultRuntimes });

@@ -1,6 +1,6 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { backfillHive, buildDialogEpisode, buildEpisode, clearHiveBriefCache, fetchHiveBrief, newHiveHookState, tickHive, HIVE_BRIEF_TIMEOUT_MS, HIVE_MAX_ATTEMPTS } from './hive.js';
+import { backfillHive, buildDialogEpisode, buildEpisode, clearHiveBriefCache, fetchHiveBrief, newHiveHookState, repoKey, tickHive, HIVE_BRIEF_TIMEOUT_MS, HIVE_MAX_ATTEMPTS } from './hive.js';
 import type { MergedRun } from './hive.js';
 import type { ArtifactWire, HiveDialogItem, ReferenceRepo, Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 
@@ -349,4 +349,13 @@ test('fetchHiveBrief: HIVE_BRIEF off, HIVE_URL blank or no repo -> never asks', 
   assert.equal(await fetchHiveBrief({ ...briefRun, run: { id: 'run_n', repoId: null } }, briefTicket, [], log), undefined, 'no repo');
   assert.equal(calls.length, 0);
   assert.deepEqual(warns, []);
+});
+
+test('repoKey: a bare and a qualified repoId give the same key', () => {
+  assert.equal(repoKey({ repoId: 'acme/web' }), 'gh/acme/web');
+  assert.equal(repoKey({ repoId: 'github:acme/web' }), 'gh/acme/web');
+  process.env.SCM_PROVIDER = 'gitlab';
+  assert.equal(repoKey({ repoId: 'gitlab:acme/platform/web' }), 'gl/acme/platform/web');
+  assert.equal(repoKey({ repoId: 'acme/platform/web' }), 'gl/acme/platform/web');
+  assert.equal(repoKey({ repoId: null }), null);
 });

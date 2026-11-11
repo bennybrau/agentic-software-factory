@@ -1,3 +1,5 @@
+import { nativeId } from '@asf/shared/ui';
+
 /**
  * Which repository each ticket queued from Planned tasks starts in. With several
  * repositories connected, ASF preselects one per ticket (the tracker's own, or the
@@ -18,9 +20,10 @@ export function needsRepoConfirm(repoCount: number): boolean {
 
 /** The panel's rows: each ticket with ASF's suggestion preselected, or blank when it couldn't tell. */
 export function initialChoices(tickets: { id: string; key: string; title: string }[], previews: RepoPreview[]): QueueChoice[] {
-  const byId = new Map(previews.map((p) => [p.ticketId, p]));
+  // By native id: the browser doesn't know the default connection, so `PROJ-12` and `jira:PROJ-12` are one ticket.
+  const byId = new Map(previews.map((p) => [nativeId(p.ticketId), p]));
   return tickets.map((t) => {
-    const p = byId.get(t.id);
+    const p = byId.get(nativeId(t.id));
     return { ticketId: t.id, ticketKey: t.key, title: t.title, repoId: p?.repoId ?? '', reason: p?.reason ?? 'Choose the repository.' };
   });
 }
@@ -32,7 +35,7 @@ export function stillNeedRepo(choices: QueueChoice[]): QueueChoice[] {
 
 /** Set one ticket's repository. */
 export function chooseRepo(choices: QueueChoice[], ticketId: string, repoId: string): QueueChoice[] {
-  return choices.map((c) => (c.ticketId === ticketId ? { ...c, repoId } : c));
+  return choices.map((c) => (nativeId(c.ticketId) === nativeId(ticketId) ? { ...c, repoId } : c));
 }
 
 /** One repository for every ticket, overriding the suggestions. */

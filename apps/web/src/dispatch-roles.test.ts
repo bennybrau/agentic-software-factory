@@ -87,3 +87,9 @@ test('the repository hint still reads well from an older server with no reason',
   assert.match(repoHint({ repos, suggestedRepoId: '1' }, '1', false)!, /issue.s own repository/);
   assert.match(repoHint({ repos, suggestedRepoId: '1' }, '1', true)!, /run that added it/);
 });
+
+test('the repository hint matches qualified and bare ids by native id', () => {
+  const repos = [{ id: 'gitlab:a/web/shared-ui', path: 'a/web/shared-ui' }, { id: 'gitlab:a/web/billing', path: 'a/web/billing' }];
+  const preview = { repos, suggestedRepoId: 'a/web/shared-ui', suggestedRepoReason: 'Named.', mentionedRepoIds: ['gitlab:a/web/shared-ui', 'a/web/billing'] };
+  assert.equal(repoHint(preview, 'gitlab:a/web/shared-ui', false), 'Named. Also mentioned: billing.');
+});

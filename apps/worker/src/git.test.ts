@@ -36,6 +36,13 @@ after(async () => { await rm(root, { recursive: true, force: true }); await rm(o
 
 const cred: CloneCredential = { url: '' };
 
+test('bareDirFor keys the cached clone by native id, so a qualified id reuses the pre-M12 clone', () => {
+  const want = join(root, 'repos', 'acme/platform/web.git');
+  assert.equal(git.bareDirFor({ id: 'acme/platform/web' }), want);
+  assert.equal(git.bareDirFor({ id: 'gitlab:acme/platform/web' }), want);
+  assert.equal(git.bareDirFor({ id: 'mock:r1' }), join(root, 'repos', 'r1.git'));
+});
+
 test('creates a worktree on agent/<key>-<runid> from origin/main', async () => {
   const ws = await git.ensureWorkspace(run(), repo(), { url: originDir }, () => {});
   assert.equal(ws.branchName, 'agent/ASF-9-deadbeef');

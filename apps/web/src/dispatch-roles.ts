@@ -1,3 +1,5 @@
+import { nativeId } from '@asf/shared/ui';
+
 /**
  * Per-role runtime + model choice on the Dispatch page (#69). Pure, so the rules
  * are testable without a browser: the runtime narrows the models a role may use,
@@ -75,12 +77,14 @@ function shortRepoName(repos: { path: string }[], path: string): string {
  * is the one selected; null otherwise (nothing to explain).
  */
 export function repoHint(preview: RepoSuggestion, selected: string, isAdhoc: boolean): string | null {
-  if (!preview.suggestedRepoId || selected !== preview.suggestedRepoId) return null;
+  // Ids compare by native id: the browser doesn't know the default connection.
+  const same = (a: string, b: string) => nativeId(a) === nativeId(b);
+  if (!preview.suggestedRepoId || !same(selected, preview.suggestedRepoId)) return null;
   const reason = preview.suggestedRepoReason
     ?? (isAdhoc ? 'Suggested: the repository the run that added it was working in.' : 'Suggested: the issue\u2019s own repository.');
   const others = (preview.mentionedRepoIds ?? [])
-    .filter((id) => id !== selected)
-    .map((id) => preview.repos.find((r) => r.id === id))
+    .filter((id) => !same(id, selected))
+    .map((id) => preview.repos.find((r) => same(r.id, id)))
     .filter((r): r is { id: string; path: string } => Boolean(r))
     .map((r) => shortRepoName(preview.repos, r.path));
   return others.length ? `${reason} Also mentioned: ${others.join(', ')}.` : reason;

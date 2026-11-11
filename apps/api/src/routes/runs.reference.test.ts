@@ -4,6 +4,8 @@ import Fastify from 'fastify';
 import type { Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import { registerRunRoutes, computeReferenceRepos, MAX_REFERENCE_REPOS } from './runs.js';
 import { config } from '../config.js';
+import { qualifyScm } from '../providers/scm/set.js';
+import { qualifyTickets } from '../providers/tickets/set.js';
 
 // RunContext.referenceRepos: the other connected repositories a ticket names, each with its
 // own clone credential, so the worker can check them out read-only next to the run's own.
@@ -92,4 +94,23 @@ test('computeReferenceRepos warns once per skipped repository', async () => {
   const out = await computeReferenceRepos(ticket('T', 'shared-ui, icon-set'), STOREFRONT, ALL, scm(ALL, [ICONS.path]), (d) => warned.push(d));
   assert.deepEqual(out.map((r) => r.repo.id), [SHARED_UI.id]);
   assert.deepEqual(warned, [{ repo: ICONS.path, reason: 'token expired' }]);
+});
+
+test('through the qualifying wrappers: ids come out qualified, and a bare or qualified run repoId both resolve', async () => {
+  const t = ticket('Use the new Button from shared-ui', 'In acme/platform/web/storefront.');
+  const asked: string[] = [];
+  const tickets = qualifyTickets({ kind: 'mock', get: async (id: string) => { asked.push(id); return t; } } as unknown as TicketProvider);
+  for (const repoId of [STOREFRONT.id, `mock:${STOREFRONT.id}`]) {
+    stubRegistry(repoId);
+    const a = Fastify();
+    registerRunRoutes(a, { tickets, scm: qualifyScm(scm(ALL)) });
+    await a.ready();
+    const ctx = (await a.inject({ method: 'GET', url: '/api/runs/run_ref/context', headers: { 'x-run-secret': config.runEventSecret } })).json();
+    await a.close();
+    assert.equal(ctx.ticket.id, 'mock:ASF-7');
+    assert.equal(ctx.repo.id, 'mock:1');
+    assert.deepEqual(ctx.connectedRepos.map((r: { id: string }) => r.id), ALL.map((r) => `mock:${r.id}`));
+    assert.deepEqual(ctx.referenceRepos.map((r: { repo: Repo }) => r.repo.id), ['mock:2'], 'the run\'s own repository is still left out');
+  }
+  assert.deepEqual(asked, ['ASF-7', 'ASF-7'], 'the tracker is asked with the native id');
 });

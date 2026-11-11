@@ -1,6 +1,10 @@
-import { isAdhocId } from '@asf/shared';
+import { parseRef } from '@asf/shared';
 import type { TicketProvider } from '@asf/shared';
 import { adhocTickets } from '../providers/tickets/index.js';
+import { qualifyTickets } from '../providers/tickets/set.js';
+
+/** The ad-hoc store with qualified ids at the seam, like the tracker (its ids already carry `adhoc:`). */
+const adhoc = qualifyTickets(adhocTickets);
 
 /**
  * Which provider owns a ticket id: the ad-hoc store for an `adhoc:` id (#179),
@@ -9,5 +13,5 @@ import { adhocTickets } from '../providers/tickets/index.js';
  * tracker (no lookup, comment, transition or assign against it).
  */
 export function ticketsFor(tracker: TicketProvider, id: string): TicketProvider {
-  return isAdhocId(id) ? adhocTickets : tracker;
+  return parseRef(id, tracker.kind).connection === 'adhoc' ? adhoc : tracker;
 }

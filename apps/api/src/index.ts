@@ -11,6 +11,8 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { ticketRegistry } from './providers/tickets/index.js';
 import { scmRegistry } from './providers/scm/index.js';
+import { qualifyTickets } from './providers/tickets/set.js';
+import { qualifyScm } from './providers/scm/set.js';
 import { registerRunRoutes } from './routes/runs.js';
 import { registerScmRoutes } from './routes/scm.js';
 import { registerDispatchRoutes } from './routes/dispatch.js';
@@ -67,9 +69,10 @@ catch (e) {
 // The ticket AND SCM providers are hot-swappable (white-label WP A/B): routes and
 // the scheduler get the registries' live proxies, which always forward to the
 // currently-configured provider. A settings write in the /providers UI invalidates
-// both registries so the next request rebuilds — no restart.
-const tickets = ticketRegistry.live;
-const scm = scmRegistry.live;
+// both registries so the next request rebuilds — no restart. Both are wrapped so
+// ticket and repository ids leave the api qualified with their connection (M12).
+const tickets = qualifyTickets(ticketRegistry.live);
+const scm = qualifyScm(scmRegistry.live);
 
 app.get('/health', async () => ({ ok: true, orgSettingsLoaded: orgSettingsLoaded(), tickets: tickets.kind, scm: scm.kind }));
 

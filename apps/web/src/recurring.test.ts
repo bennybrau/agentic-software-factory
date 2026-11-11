@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scheduleSchema, type RecurringTask, type Schedule } from '@asf/shared/ui';
-import { browserTimeZone, DEFAULT_SCHEDULE_FORM, formatNextRun, formToSchedule, lastRunView, recurringFormProblem, scheduleToForm, TITLE_MAX, type RecurringForm } from './recurring';
+import { browserTimeZone, DEFAULT_SCHEDULE_FORM, findRepo, formatNextRun, formToSchedule, lastRunView, recurringFormProblem, repoLabel, repoOptionId, scheduleToForm, TITLE_MAX, type RecurringForm } from './recurring';
 
 const TASK: RecurringTask = {
   id: 'rec_1', title: 'Bump dependencies', body: '', repoId: '1',
@@ -81,4 +81,15 @@ test('a title over the max length is rejected', () => {
 
 test('browserTimeZone returns a non-empty zone name to prefill the form', () => {
   assert.ok(browserTimeZone().length > 0);
+});
+
+test('a stored repoId matches its listed repository by native id; shown by path, else native id', () => {
+  const repos = [{ id: 'gitlab:acme/web', path: 'acme/web' }, { id: 'gitlab:7', path: 'acme/api' }];
+  assert.equal(findRepo(repos, '7')?.path, 'acme/api');
+  assert.equal(findRepo(repos, 'gitlab:7')?.path, 'acme/api');
+  assert.equal(findRepo(repos, '8'), null);
+  assert.equal(repoOptionId(repos, '7'), 'gitlab:7', 'a bare stored id opens with the qualified option selected');
+  assert.equal(repoOptionId(repos, 'gitlab:9'), 'gitlab:9');
+  assert.equal(repoLabel(repos, 'gitlab:7'), 'acme/api');
+  assert.equal(repoLabel(repos, 'gitlab:acme/gone'), 'acme/gone');
 });

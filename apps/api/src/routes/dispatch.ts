@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { STANDARD_TEAM, GatePolicyError, ticketReposMentioned, isAdhocId, resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, parseReviewRequest, PipelineConfigError } from '@asf/shared';
+import { STANDARD_TEAM, GatePolicyError, ticketReposMentioned, isAdhocId, resolvePipeline, skipRoles, disabledRoles, reviewOnlyStages, parseReviewRequest, PipelineConfigError, parseRef, sameRef } from '@asf/shared';
 import type { GateConfig, Repo, ScmProvider, TeamTemplate, Ticket, TicketProvider } from '@asf/shared';
 import { registry, RunConflict } from '../registry/client.js';
 import type { RunWithTasks } from '@asf/shared';
@@ -184,8 +184,10 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
   team = applyRoleSkills(team, input.skillOverrides);
 
   try {
+    // The registry stores the ticket's native id beside its connection; the repository keeps its qualified id.
+    const ref = parseRef(ticket.id, deps.tickets.kind);
     const created = await registry.createRun({
-      ticketId: ticket.id, ticketKey: ticket.key, ticketProvider: deps.tickets.kind,
+      ticketId: ref.native, ticketKey: ticket.key, ticketProvider: ref.connection,
       team, gates, repoId: repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null,
     });
     await deps.tickets.comment(ticket.id, `Agentic Software Factory: run ${created.run.id} started (team ${team.name}).`).catch(() => {});
@@ -244,7 +246,7 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
       const tickets = ticketsFor(deps.tickets, id);
       const ticket = await tickets.get(id).catch(() => null);
       if (!ticket) return { ticketId: id, repoId: null, reason: `Couldn't read ticket ${id}.`, mentionedRepoIds: [] };
-      return previewRepo(tickets, ticket, ready.repos);
+      return previewRepo(tickets, ticket, ready.repos, deps.scm.kind);
     }));
     return { repos: ready.repos.map((r) => ({ id: r.id, path: r.path })), previews };
   });
@@ -266,7 +268,7 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     let suggestedRepoReason: string | null = null;
     const wanted = tickets.suggestedRepo?.(ticket) ?? null;
     if (wanted) {
-      const match = repos.find((r) => r.path === wanted || r.id === wanted) ?? await deps.scm.getRepo(wanted).catch(() => null);
+      const match = repos.find((r) => r.path === wanted || sameRef(r.id, wanted, deps.scm.kind)) ?? await deps.scm.getRepo(wanted).catch(() => null);
       if (match) { suggestedRepoId = match.id; suggestedRepoReason = providerReason(ticket, match.path); }
     }
     // The repositories the ticket names. The tracker's own link (above) wins; otherwise the

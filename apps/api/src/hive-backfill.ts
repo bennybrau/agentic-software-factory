@@ -9,6 +9,8 @@ import './boot-secrets.js';
 import { parseArgs } from 'node:util';
 import { ticketRegistry } from './providers/tickets/index.js';
 import { scmRegistry } from './providers/scm/index.js';
+import { qualifyTickets } from './providers/tickets/set.js';
+import { qualifyScm } from './providers/scm/set.js';
 import { loadOrgSettings } from './settings.js';
 import { backfillHive, hiveEnabled } from './hive.js';
 
@@ -31,7 +33,7 @@ try { await loadOrgSettings(); }
 catch (e) { fail(`${(e as Error).message} — is the registry up?`); }
 if (!dryRun && !hiveEnabled()) fail('HIVE_URL is blank — set it in .env first, or pass --dry-run');
 
-const r = await backfillHive({ tickets: ticketRegistry.live, scm: scmRegistry.live }, { since, dryRun }, log);
+const r = await backfillHive({ tickets: qualifyTickets(ticketRegistry.live), scm: qualifyScm(scmRegistry.live) }, { since, dryRun }, log);
 if (dryRun) console.log(`dry run: ${r.runs} merged run(s), ${r.dialog} dialog message(s), ${r.bytes} bytes would be sent${since != null ? ` (since ${new Date(since).toISOString()})` : ''}`);
 else console.log(`sent ${r.sent} of ${r.runs} merged run(s) and ${r.dialog} dialog message(s), ${r.bytes} bytes; ${r.failed} failed`);
 process.exit(r.failed > 0 ? 1 : 0);

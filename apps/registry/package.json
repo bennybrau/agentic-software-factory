@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
+    "migrate:down": "node --import tsx src/db/migrate-down.ts",
     "test": "node --test --test-timeout=20000 --import tsx src/db/*.test.ts src/runs/*.test.ts src/settings/*.test.ts src/*.test.ts"
   },
   "dependencies": {

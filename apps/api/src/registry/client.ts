@@ -117,6 +117,7 @@ export const registry = {
   /** No `roles`: keep the ones the skill has. */
   setSkillState: (id: string, enabled: boolean, roles?: SkillRole[]) => rpc({ op: 'setSkillState', id, enabled, ...(roles ? { roles } : {}) }),
   deleteSkill: (id: string) => rpc({ op: 'deleteSkill', id }),
+  qualifyStoredRefs: (scm: string, tickets: string) => rpc({ op: 'qualifyStoredRefs', scm, tickets }),
 };
 
 export type { RunContext };

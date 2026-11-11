@@ -13,6 +13,7 @@ import { ticketRegistry } from './providers/tickets/index.js';
 import { scmRegistry } from './providers/scm/index.js';
 import { qualifyTickets } from './providers/tickets/set.js';
 import { qualifyScm } from './providers/scm/set.js';
+import { registry } from './registry/client.js';
 import { registerRunRoutes } from './routes/runs.js';
 import { registerScmRoutes } from './routes/scm.js';
 import { registerDispatchRoutes } from './routes/dispatch.js';
@@ -45,6 +46,16 @@ const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
 // Fail fast on an unsafe identity config (header mode on a public bind).
 assertIdentityConfig();
 
+// M12 WP1: qualify stored repo ids with the configured code host. Only once the
+// org tier is loaded, so it never runs with the default `mock`. A refusal is
+// logged and the api keeps booting: nothing reads the qualified form yet.
+function qualifyStoredRefs(): void {
+  registry.qualifyStoredRefs(String(cfg('SCM_PROVIDER')), String(cfg('TICKET_PROVIDER'))).then(
+    (counts) => app.log.info({ counts }, 'stored refs qualified'),
+    (err: Error) => app.log.warn({ err: err.message }, 'stored refs not qualified'),
+  );
+}
+
 // Load org-tier settings from the registry before serving. At boot the registry
 // may not be listening yet (compose starts them together); a failed one-shot load
 // would leave the api serving env+defaults with an EMPTY org tier — providers,
@@ -52,7 +63,7 @@ assertIdentityConfig();
 // on "no credential". So: try once and start serving immediately (a registry that
 // is down must not take the api down), but keep retrying in the background until
 // the org tier is loaded; each attempt is logged.
-try { await loadOrgSettings(); app.log.info('org settings loaded'); }
+try { await loadOrgSettings(); app.log.info('org settings loaded'); qualifyStoredRefs(); }
 catch (e) {
   app.log.warn({ err: (e as Error).message }, 'org settings not loaded yet; serving env + defaults and retrying');
   void loadOrgSettingsWithRetry({
@@ -63,6 +74,7 @@ catch (e) {
     // as a settings write does.
     ticketRegistry.invalidate(); scmRegistry.invalidate();
     app.log.info('org settings loaded (after retry); providers reloaded');
+    qualifyStoredRefs();
   });
 }
 

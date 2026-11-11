@@ -166,3 +166,18 @@ up, then fails loudly if any restored token can't be decrypted with this stack's
 Pin `ASF_VERSION` to the previous tag and `asf update`. Because migrations are
 additive, an older image runs against the newer schema in the common case; if a
 release notes a breaking migration, restore the pre-update backup instead.
+
+**Rolling back past M12 WP1 (`023_repo_connection`).** That release rewrites stored
+repository ids into the qualified form (`github:acme/web`), which an older image
+does not read. Reverse it before pinning the old version:
+
+1. Stop the api and every worker, so nothing writes while the ids are rewritten.
+2. With the **new** image still in place (it ships the down file), run:
+
+   ```bash
+   docker compose run --rm registry node apps/registry/dist/db/migrate-down.js 023_repo_connection
+   ```
+
+   It refuses, and changes nothing, unless `023_repo_connection` is the latest
+   migration applied.
+3. Pin `ASF_VERSION` to the previous tag and `asf update`.

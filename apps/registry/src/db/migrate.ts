@@ -47,3 +47,27 @@ export async function migrate(sql: Sql, dir: string): Promise<{ applied: string[
   }
   return { applied, total: files.length };
 }
+
+/** Why a reverse migration was refused. Nothing ran. */
+export class MigrationDownError extends Error {}
+
+/**
+ * Reverses one migration: runs `dir/down/<name>.sql` and deletes its
+ * schema_migration row, in one transaction. `name` may omit `.sql`. Only the
+ * latest applied migration can be reversed, and only if it ships a down file:
+ * refuse rather than guess.
+ */
+export async function migrateDown(sql: Sql, dir: string, name: string): Promise<{ reverted: string }> {
+  const file = name.endsWith('.sql') ? name : `${name}.sql`;
+  const rows = await sql<{ name: string }[]>`SELECT name FROM schema_migration ORDER BY name DESC`;
+  if (!rows.some((r) => r.name === file)) throw new MigrationDownError(`migration ${file} is not applied`);
+  if (rows[0].name !== file) throw new MigrationDownError(`migration ${file} is not the latest applied (${rows[0].name} is); reverse that first`);
+  let body: string;
+  try { body = await readFile(join(dir, 'down', file), 'utf8'); }
+  catch { throw new MigrationDownError(`migration ${file} has no down file (down/${file})`); }
+  await sql.begin(async (tx) => {
+    await tx.unsafe(body);
+    await tx`DELETE FROM schema_migration WHERE name = ${file}`;
+  });
+  return { reverted: file };
+}

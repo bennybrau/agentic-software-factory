@@ -46,6 +46,15 @@ export function formatHiveBrief(b: HiveBrief): string {
   return lines.join('\n');
 }
 
+/** One remembered fact as the run page's Team memory panel shows it (#108). */
+export interface HiveBriefFactView { id: string; kind: string; text: string; scope: string }
+
+/** The brief's gotchas then its facts, for the run page: kind defaults to gotcha / fact, scope to ''. */
+export function hiveBriefFacts(b: HiveBrief): HiveBriefFactView[] {
+  const view = (f: HiveBriefFact, kind: string): HiveBriefFactView => ({ id: f.id, kind: f.kind || kind, text: f.text, scope: f.scope ?? '' });
+  return [...(b.gotchas ?? []).map((f) => view(f, 'gotcha')), ...(b.facts ?? []).map((f) => view(f, 'fact'))];
+}
+
 /** How the plan accounted for one remembered fact (its `## Team memory` line, #108). */
 export interface TeamMemoryVerdict { verdict: 'applied' | 'overridden' | 'not_applicable'; reason?: string }
 

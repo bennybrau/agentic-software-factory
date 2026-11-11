@@ -21,4 +21,5 @@ export * from './themes/index.js';
 export { SKILL_ENTRY_FILE, SKILL_ROLES } from './skills.js';
 export * from './ticket-search.js';
 export { parseReviewRequest } from './scm.js';
+export { parseTeamMemory } from './hive-brief.js';
 export * from './refs.js';

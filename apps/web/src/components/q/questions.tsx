@@ -825,12 +825,14 @@ export const alertsQ: Question = {
 
 // ── 10. Hive ─────────────────────────────────────────────────────────────────
 
-/** The Hive writes: the URL only when it changed (blank = null = off), the token only when one was typed. */
-export function hiveEntries(b: ByKey, url: string, token: string): [string, unknown][] {
+/** The Hive writes: each URL only when it changed (blank = null = off), the token only when one was typed. */
+export function hiveEntries(b: ByKey, url: string, token: string, dashboard = str(b.HIVE_DASHBOARD_URL)): [string, unknown][] {
   const u = url.trim().replace(/\/+$/, '');
+  const d = dashboard.trim().replace(/\/+$/, '');
   return [
     ...(u !== str(b.HIVE_URL) ? [['HIVE_URL', u || null] as [string, unknown]] : []),
     ...secretEntry('HIVE_TOKEN', token),
+    ...(d !== str(b.HIVE_DASHBOARD_URL) ? [['HIVE_DASHBOARD_URL', d || null] as [string, unknown]] : []),
   ];
 }
 
@@ -847,13 +849,15 @@ export const hiveQ: Question = {
     const b = store.byKey;
     const [url, setUrl] = useState(str(b.HIVE_URL));
     const [token, setToken] = useState('');
+    const [dashboard, setDashboard] = useState(str(b.HIVE_DASHBOARD_URL));
     const { busy, error, run } = useSaver(store);
-    const save = () => run(hiveEntries(b, url, token),
+    const save = () => run(hiveEntries(b, url, token, dashboard),
       () => (url.trim() && !/^https?:\/\/[^\s/]+/.test(url.trim()) ? 'Hive’s address starts with http:// or https:// (for example https://hive.example.com).' : null));
     return (
       <>
         <Field s={b.HIVE_URL} label="Hive address" placeholder="https://hive.example.com" value={url} onChange={setUrl} help="Leave blank to turn Hive off." />
         <SecretField s={b.HIVE_TOKEN} label="Hive token (optional)" placeholder="Paste your Hive token" value={token} onChange={setToken} />
+        <Field s={b.HIVE_DASHBOARD_URL} label="Hive dashboard address (optional)" placeholder="https://hive.example.com" value={dashboard} onChange={setDashboard} help="Links each fact in a run's Team memory panel to its page in the dashboard." />
         {actions({ save, busy, error })}
       </>
     );

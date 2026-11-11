@@ -8,7 +8,7 @@ import { MockScmProvider } from '../providers/scm/mock.js';
 // The needs-human answer/skip routes are a thin surface over registry RPCs.
 // Stub the registry and assert the HTTP calls map to answerNeedsHuman/skipNeedsHuman.
 const realFetch = global.fetch;
-afterEach(() => { global.fetch = realFetch; });
+afterEach(() => { global.fetch = realFetch; delete process.env.HIVE_DASHBOARD_URL; });
 
 function stub() {
   const calls: Array<{ op: string; body: Record<string, unknown> }> = [];
@@ -81,15 +81,20 @@ test('POST /api/runs/:id/skip forwards to skipNeedsHuman', async () => {
   await a.close();
 });
 
-function stubRunDetail(opts: { ticketId: string; adhocTask?: { recurringId?: string | null; recurringTitle?: string | null; body?: string } | null }) {
+function stubRunDetail(opts: {
+  ticketId: string; adhocTask?: { recurringId?: string | null; recurringTitle?: string | null; body?: string } | null;
+  artifacts?: { name: string; content: string }[];
+}) {
+  const artifacts = (opts.artifacts ?? []).map((a) => ({ ...a, updatedAt: '' }));
+  const versions = artifacts.map((a) => ({ name: a.name, content: a.content, taskId: null, attempt: null, source: 'agent', createdAt: '' }));
   global.fetch = (async (_url: string, init?: { body?: string }) => {
     const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
     const reply = (result: unknown) => new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
     switch (body.op) {
       case 'getRun': return reply({ run: { id: 'run_1', ticketId: opts.ticketId }, tasks: [] });
       case 'listGates': return reply({ gates: [] });
-      case 'listArtifacts': return reply({ artifacts: [] });
-      case 'listArtifactVersions': return reply({ versions: [] });
+      case 'listArtifacts': return reply({ artifacts });
+      case 'listArtifactVersions': return reply({ versions });
       case 'listMessages': return reply({ messages: [] });
       case 'getSplitFamily': return reply(null);
       case 'getAdhoc':
@@ -126,6 +131,39 @@ test('GET /api/runs/:id on an adhoc run gives the opening request without the ch
   assert.equal(res.statusCode, 200);
   assert.equal(res.json().request, 'Fix the **login** page.');
   await a.close();
+});
+
+const FACTS = [{ id: 'aaaaaaaa1111', kind: 'gotcha', text: 'Never edit an applied migration', scope: 'global' }];
+
+test('GET /api/runs/:id keeps hive-brief.json out of both artifact lists and returns it as hiveBrief', async () => {
+  process.env.HIVE_DASHBOARD_URL = ' https://hive.example.com// ';
+  stubRunDetail({ ticketId: 'JIRA-1', artifacts: [{ name: 'hive-brief.json', content: JSON.stringify(FACTS) }, { name: 'plan.md', content: 'the plan' }] });
+  const a = await app();
+  const res = await a.inject({ method: 'GET', url: '/api/runs/run_1' });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.deepEqual(body.artifacts.map((x: { name: string }) => x.name), ['plan.md']);
+  assert.deepEqual(body.artifactVersions.map((x: { name: string }) => x.name), ['plan.md']);
+  assert.deepEqual(body.hiveBrief, { facts: FACTS, dashboardUrl: 'https://hive.example.com' });
+  await a.close();
+});
+
+test('GET /api/runs/:id: hiveBrief has a null dashboardUrl when the setting is blank', async () => {
+  stubRunDetail({ ticketId: 'JIRA-1', artifacts: [{ name: 'hive-brief.json', content: JSON.stringify(FACTS) }] });
+  const a = await app();
+  assert.deepEqual((await a.inject({ method: 'GET', url: '/api/runs/run_1' })).json().hiveBrief, { facts: FACTS, dashboardUrl: null });
+  await a.close();
+});
+
+test('GET /api/runs/:id: no hive-brief.json, bad JSON or [] gives hiveBrief: null', async () => {
+  for (const artifacts of [[], [{ name: 'hive-brief.json', content: '{not json' }], [{ name: 'hive-brief.json', content: '[]' }]]) {
+    stubRunDetail({ ticketId: 'JIRA-1', artifacts });
+    const a = await app();
+    const body = (await a.inject({ method: 'GET', url: '/api/runs/run_1' })).json();
+    assert.equal(body.hiveBrief, null);
+    assert.deepEqual(body.artifacts, []);
+    await a.close();
+  }
 });
 
 test('GET /api/runs/:id on a tracker-ticket run has recurring: null and never calls the ad-hoc store', async () => {

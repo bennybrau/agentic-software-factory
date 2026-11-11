@@ -172,6 +172,8 @@ export const SETTINGS = {
     description: 'Hive API token, sent as Authorization: Bearer. Blank = no Authorization header.' }),
   HIVE_BRIEF: S({ type: 'boolean', default: true, tiers: ['env', 'org'], group: 'Hive', readBy: ['api'],
     description: 'When HIVE_URL is set, ask Hive for a briefing on the ticket (POST <HIVE_URL>/v1/brief, 2 s timeout) and give it to the planner and implementer as a TEAM MEMORY section. Off = never ask; sending episodes is unchanged.' }),
+  HIVE_DASHBOARD_URL: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Hive', readBy: ['api'],
+    description: 'Hive dashboard base URL. When set, each fact in a run page\'s Team memory panel links to <HIVE_DASHBOARD_URL>/facts/<id>. Blank = the facts are shown without links.' }),
 
   // ---------------------------------------------------------- identity/auth
   AUTH_MODE: S({ type: 'enum', values: ['none', 'header'], default: 'none', tiers: ['env'], group: 'Identity', readBy: ['api'],

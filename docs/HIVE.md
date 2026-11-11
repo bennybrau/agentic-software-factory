@@ -73,6 +73,21 @@ Hive can never block or fail a run.
 What has been sent is kept in memory only. After an api restart the last day is
 sent again; Hive dedupes it.
 
+## "Sent to team memory for review"
+
+Once a gate note or a chat message has been sent (by the hook or by a backfill
+that isn't a dry run), the registry records when (`hive_sent_at`), and the web
+shows **Sent to team memory for review** under it: under your message in the
+planner chat, and under the note in the run page's **Gate notes** list. Hive
+turns what it learns from them into facts that a person reviews before the
+agents act on them.
+
+The marker never shows when Hive is off (blank `HIVE_URL`), because then nothing
+is sent. Notes and messages written before migration 024, or sent before
+this release, have no marker until a backfill sends them again. If recording
+the time fails, the api logs a warning and does not send the item again, so
+that item has no marker.
+
 ## What the planner reads
 
 When `HIVE_URL` is set, the api also asks Hive for a briefing on the ticket

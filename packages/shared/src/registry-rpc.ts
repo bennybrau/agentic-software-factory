@@ -57,6 +57,8 @@ export interface RunMessageWire {
   id: string; runId: string; taskId: string | null; role: string;
   author: 'agent' | 'human'; kind: 'question' | 'plan' | 'reply' | 'message';
   body: string; by: string | null; sessionId: string | null; createdAt: string;
+  /** When the Hive hook sent this (a person's) message to team memory; null = not sent. */
+  hiveSentAt: string | null;
 }
 /**
  * One human turn for the Hive hook (#78): a gate decision with a note, or a
@@ -126,6 +128,8 @@ export const rpcRequestSchema = z.discriminatedUnion('op', [
     limit: z.number().int().positive().max(1000).default(500), offset: z.number().int().nonnegative().default(0) }),
   z.object({ op: z.literal('hiveDialog'), since: z.string().datetime({ offset: true }).optional(),
     limit: z.number().int().positive().max(1000).default(500), offset: z.number().int().nonnegative().default(0) }),
+  // The Hive hook sent this gate note or chat message: stamp it once so the web can say so.
+  z.object({ op: z.literal('markHiveSent'), kind: z.enum(['gate', 'msg']), id: z.string().min(1) }),
   // Today view (M6 WP6.2): the four landing-page buckets in one aggregate.
   z.object({ op: z.literal('today'), since: z.string() }),
   // Notifications (M6 WP6.3): the web inbox + the external-sink delivery cursor.
@@ -231,6 +235,7 @@ export interface RpcResults {
   hiveMergedRuns: { runs: (z.infer<typeof runSchema> & { mergedAt: string })[] };
   /** Human gate notes and chat messages for the Hive hook, oldest first. */
   hiveDialog: { items: HiveDialogItem[] };
+  markHiveSent: { ok: true };
   markQueueEntry: { ok: true };
   today: TodayWire;
   listNotifications: { notifications: NotificationWire[]; unread: number };
@@ -329,6 +334,8 @@ export interface GateWire {
   id: string; runId: string; gateName: string; mode: string; state: string;
   afterTask: string | null; artifact: string | null; decidedBy: string | null;
   note: string | null; editedArtifact: string | null; createdAt: string; decidedAt: string | null;
+  /** When the Hive hook sent this gate's note to team memory; null = not sent. */
+  hiveSentAt: string | null;
 }
 export interface ArtifactWire { name: string; content: string; updatedAt: string; }
 /** One stored version of an artifact, tied to the task that produced it (M11 WP1). */

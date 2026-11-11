@@ -37,3 +37,9 @@ export async function hiveDialog(sql: Sql, q: { since?: string; limit: number; o
     text: String(r.text), answer: String(r.answer), author: r.author == null ? null : String(r.author), at: iso(r.at),
   }));
 }
+
+/** The Hive hook sent this gate note or chat message (#108). Stamps it once; a second call keeps the first time. */
+export async function markHiveSent(sql: Sql, kind: 'gate' | 'msg', id: string): Promise<void> {
+  if (kind === 'gate') await sql`UPDATE run_gate SET hive_sent_at = now() WHERE id = ${id} AND hive_sent_at IS NULL`;
+  else await sql`UPDATE run_message SET hive_sent_at = now() WHERE id = ${id} AND hive_sent_at IS NULL`;
+}

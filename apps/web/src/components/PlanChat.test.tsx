@@ -26,6 +26,13 @@ test('your own replies show exactly as typed', () => {
   assert.doesNotMatch(html, /<strong>/);
 });
 
+test('"Sent to team memory for review" shows under a human message only when hiveSentAt is set', () => {
+  assert.doesNotMatch(chat([msg('human', 'Postgres.')]), /Sent to team memory/);
+  const sent = { ...msg('human', 'Postgres.'), hiveSentAt: '2026-11-11T10:00:00Z' };
+  assert.match(chat([sent]), /Sent to team memory for review/);
+  assert.doesNotMatch(chat([{ ...msg('agent', 'Python or Node?'), hiveSentAt: '2026-11-11T10:00:00Z' }]), /Sent to team memory/);
+});
+
 test('raw HTML in a planner message is not output as a tag', () => {
   const html = chat([msg('agent', 'hi <script>alert(1)</script>')]);
   assert.doesNotMatch(html, /<script/);

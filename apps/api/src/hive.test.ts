@@ -10,7 +10,7 @@ const realFetch = global.fetch;
 afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'HIVE_BRIEF', 'SCM_PROVIDER']) delete process.env[k]; clearHiveBriefCache(); });
 
 const logs: string[] = [];
-const log = { info: () => {}, error: (_o: unknown, m?: string) => { logs.push(m ?? ''); } };
+const log = { info: () => {}, warn: (_o: unknown, m?: string) => { logs.push(m ?? ''); }, error: (_o: unknown, m?: string) => { logs.push(m ?? ''); } };
 
 function run(over: Partial<MergedRun> = {}): MergedRun {
   return {
@@ -48,14 +48,19 @@ type Sent = { url: string; auth: string | null; body: { ref: string; repo_key: s
  * Stub fetch. `runs` is every run the registry knows; hiveMergedRuns answers the
  * merged ones (like the registry, filtering on since and ordering by mergedAt).
  * `hive` decides each Hive answer: a status, or 'throw' for a network error.
- * `dialog` is what hiveDialog answers (filtered on since).
+ * `dialog` is what hiveDialog answers (filtered on since). Every markHiveSent
+ * call lands in `marks` (`<kind>:<id>`); `failMarks` makes the registry answer it with a 500.
  */
+const marks: string[] = [];
+let failMarks = false;
 function stub(runs: MergedRun[], hive: (n: number) => number | 'throw' = () => 200, dialog: HiveDialogItem[] = []) {
   const sent: Sent[] = [];
+  marks.length = 0;
+  failMarks = false;
   let hiveCalls = 0;
   global.fetch = (async (url: string, init?: { body?: string; headers?: Record<string, string> }) => {
     if (String(url).endsWith('/internal/rpc')) {
-      const body = JSON.parse(init?.body ?? '{}') as { op: string; offset: number; since?: string };
+      const body = JSON.parse(init?.body ?? '{}') as { op: string; offset: number; since?: string; kind?: string; id?: string };
       if (body.op === 'hiveMergedRuns') {
         const merged = runs.filter((r) => r.changeRequestState === 'merged' && (!body.since || r.mergedAt >= body.since))
           .sort((a, b) => a.mergedAt.localeCompare(b.mergedAt));
@@ -65,6 +70,11 @@ function stub(runs: MergedRun[], hive: (n: number) => number | 'throw' = () => 2
         return json({ ok: true, result: { items: body.offset ? [] : dialog.filter((d) => !body.since || d.at >= body.since) } });
       }
       if (body.op === 'listArtifacts') return json({ ok: true, result: { artifacts } });
+      if (body.op === 'markHiveSent') {
+        marks.push(`${body.kind}:${body.id}`);
+        if (failMarks) return new Response(JSON.stringify({ ok: false, error: 'db down' }), { status: 500 });
+        return json({ ok: true, result: { ok: true } });
+      }
       return json({ ok: true, result: {} });
     }
     const outcome = hive(hiveCalls++);
@@ -358,4 +368,39 @@ test('repoKey: a bare and a qualified repoId give the same key', () => {
   assert.equal(repoKey({ repoId: 'gitlab:acme/platform/web' }), 'gl/acme/platform/web');
   assert.equal(repoKey({ repoId: 'acme/platform/web' }), 'gl/acme/platform/web');
   assert.equal(repoKey({ repoId: null }), null);
+});
+
+// ---------------------------------------------------------------- the "sent to team memory" marker (#108)
+
+test('tick: a sent dialog turn is marked sent; a failed send is not marked', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  stub([], (n) => (n === 0 ? 200 : 500), [item(), item({ kind: 'msg', id: 'msg_1' })]);
+  assert.equal(await tickHive(deps, newHiveHookState(), log), 1);
+  assert.deepEqual(marks, ['gate:gate_1']);
+});
+
+test('tick: a failed mark is logged and the turn is not sent again', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  logs.length = 0;
+  const sent = stub([], () => 200, [item()]);
+  failMarks = true;
+  const state = newHiveHookState();
+  assert.equal(await tickHive(deps, state, log), 1);
+  assert.equal(await tickHive(deps, state, log), 0);
+  assert.equal(sent.length, 1);
+  assert.deepEqual(marks, ['gate:gate_1']);
+  assert.deepEqual(logs.filter((m) => /could not mark/.test(m)), ['hive: could not mark as sent']);
+});
+
+test('backfill: marks the dialog turns it sent; a dry run marks nothing', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  const dialog = [item(), item({ kind: 'msg', id: 'msg_1' }), item({ id: 'g2', repoId: '' })];
+  stub([], (n) => (n === 1 ? 500 : 200), dialog);
+  const r = await backfillHive(deps, { sleep: async () => {} }, log);
+  assert.deepEqual({ sent: r.sent, failed: r.failed }, { sent: 1, failed: 1 });
+  assert.deepEqual(marks, ['gate:gate_1']);
+
+  stub([], () => 200, dialog);
+  await backfillHive(deps, { dryRun: true }, log);
+  assert.deepEqual(marks, []);
 });

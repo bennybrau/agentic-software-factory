@@ -27,7 +27,7 @@ function toMessage(r: Record<string, unknown>): RunMessageWire {
     id: String(r.id), runId: String(r.runId), taskId: r.taskId ? String(r.taskId) : null, role: String(r.role),
     author: String(r.author) as RunMessageWire['author'], kind: String(r.kind) as RunMessageWire['kind'],
     body: String(r.body), by: r.byUser ? String(r.byUser) : null, sessionId: r.sessionId ? String(r.sessionId) : null,
-    createdAt: iso(r.createdAt),
+    createdAt: iso(r.createdAt), hiveSentAt: r.hiveSentAt == null ? null : iso(r.hiveSentAt),
   };
 }
 

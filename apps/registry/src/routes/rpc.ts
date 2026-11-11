@@ -23,6 +23,7 @@ import * as avatars from '../runs/avatar-store.js';
 import * as themes from '../runs/theme-store.js';
 import * as skills from '../runs/skill-store.js';
 import * as recurring from '../runs/recurring-store.js';
+import { qualifyStoredRefs, RefsBackfillError } from '../runs/refs-backfill.js';
 import { config } from '../config.js';
 
 type Handler = { [K in RpcRequest['op']]: (req: Extract<RpcRequest, { op: K }>) => Promise<RpcResults[K]> };
@@ -114,6 +115,7 @@ export function rpcHandlers(sql: Sql): Handler {
     putSkill: async (r) => ({ skill: await skills.putSkill(sql, r.skill) }),
     setSkillState: async (r) => ({ skill: await skills.setSkillState(sql, r.id, r.enabled, r.roles) }),
     deleteSkill: async (r) => ({ deleted: await skills.deleteSkill(sql, r.id) }),
+    qualifyStoredRefs: (r) => qualifyStoredRefs(sql, { scm: r.scm, tickets: r.tickets }),
   };
 }
 
@@ -146,6 +148,7 @@ export function registerRpc(app: FastifyInstance, sql: Sql): void {
       if (err instanceof themes.ThemeError) return reply.code(409).send({ error: 'theme_error', reason: err.message });
       if (err instanceof skills.SkillError) return reply.code(409).send({ error: 'skill_error', reason: err.message });
       if (err instanceof ConflictError) return reply.code(409).send({ error: 'conflict_error', reason: err.message });
+      if (err instanceof RefsBackfillError) return reply.code(409).send({ error: 'refs_backfill_error', reason: err.message });
       if (err instanceof SecretKeyError) return reply.code(409).send({ error: 'secret_key_error', reason: err.message });
       if ((err as Error).name === 'SettingError') return reply.code(400).send({ error: 'setting_error', reason: (err as Error).message });
       throw err;

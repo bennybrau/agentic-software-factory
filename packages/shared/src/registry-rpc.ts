@@ -181,6 +181,8 @@ export const rpcRequestSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('putSkill'), skill: skillInputSchema }),
   z.object({ op: z.literal('setSkillState'), id: z.string().regex(SKILL_ID_RE), enabled: z.boolean(), roles: skillRolesSchema.optional() }),
   z.object({ op: z.literal('deleteSkill'), id: z.string().regex(SKILL_ID_RE) }),
+  // M12 WP1: qualify stored repo ids with the install's SCM connection. The api calls it at boot, once org settings are loaded.
+  z.object({ op: z.literal('qualifyStoredRefs'), scm: z.string().min(1), tickets: z.string().min(1) }),
 ]);
 export type RpcRequest = z.infer<typeof rpcRequestSchema>;
 
@@ -268,6 +270,8 @@ export interface RpcResults {
   putSkill: { skill: ThirdPartySkill };
   setSkillState: { skill: ThirdPartySkill };
   deleteSkill: { deleted: boolean };
+  /** Rows changed per table. */
+  qualifyStoredRefs: { agentRun: number; workQueue: number; recurringTask: number };
 }
 
 /** One credential's last live check (#139). failingSince/alertedAt are null while it works. */

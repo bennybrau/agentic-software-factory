@@ -275,3 +275,66 @@ test('POST /api/runs/:id/review/post refuses with a reason and posts nothing', a
     await a.close();
   }
 });
+
+// GET /api/runs/:id/tasks/:taskId/activity: one task's tool events, paged.
+function stubEvents(seqs: number[]) {
+  const calls: Array<Record<string, unknown>> = [];
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+    calls.push(body);
+    const limit = body.limit as number;
+    const events = (body.afterSeq !== undefined ? seqs.slice(0, limit) : seqs.slice(-limit)).map((seq) => ({ seq, kind: 'tool:pre' }));
+    return new Response(JSON.stringify({ ok: true, result: { events } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  return calls;
+}
+
+test('GET activity: latest page says whether there is earlier history', async () => {
+  const a = await app();
+  let calls = stubEvents([1, 2, 3, 4, 5]);
+  let res = await a.inject({ method: 'GET', url: '/api/runs/run_1/tasks/task_1/activity?limit=3' });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().events.map((e: { seq: number }) => e.seq), [3, 4, 5]);
+  assert.equal(res.json().hasEarlier, true);
+  assert.deepEqual([calls[0].op, calls[0].runId, calls[0].taskId, calls[0].limit], ['getTaskEvents', 'run_1', 'task_1', 4]);
+  assert.deepEqual(calls[0].kinds, ['tool:pre', 'tool:post', 'tool:denied']);
+
+  calls = stubEvents([1, 2]);
+  res = await a.inject({ method: 'GET', url: '/api/runs/run_1/tasks/task_1/activity?before=3&limit=3' });
+  assert.deepEqual(res.json(), { events: [{ seq: 1, kind: 'tool:pre' }, { seq: 2, kind: 'tool:pre' }], hasEarlier: false });
+  assert.equal(calls[0].beforeSeq, 3);
+
+  calls = stubEvents([6, 7, 8, 9]);
+  res = await a.inject({ method: 'GET', url: '/api/runs/run_1/tasks/task_1/activity?after=5&limit=3' });
+  assert.deepEqual(res.json().events.map((e: { seq: number }) => e.seq), [6, 7, 8]);
+  assert.equal(res.json().hasEarlier, false);
+  assert.deepEqual([calls[0].afterSeq, calls[0].limit], [5, 3]);
+  await a.close();
+});
+
+test('GET activity: exactly limit events is the whole history; limit + 1 drops the oldest', async () => {
+  const a = await app();
+  for (const qs of ['limit=3', 'before=10&limit=3']) {
+    stubEvents([4, 5, 6]);
+    let res = await a.inject({ method: 'GET', url: `/api/runs/run_1/tasks/task_1/activity?${qs}` });
+    assert.deepEqual(res.json().events.map((e: { seq: number }) => e.seq), [4, 5, 6], qs);
+    assert.equal(res.json().hasEarlier, false, qs);
+
+    stubEvents([3, 4, 5, 6]);
+    res = await a.inject({ method: 'GET', url: `/api/runs/run_1/tasks/task_1/activity?${qs}` });
+    assert.deepEqual(res.json().events.map((e: { seq: number }) => e.seq), [4, 5, 6], qs);
+    assert.equal(res.json().hasEarlier, true, qs);
+  }
+  await a.close();
+});
+
+test('GET activity: a bad query is a 400 and never reaches the registry', async () => {
+  const a = await app();
+  const calls = stubEvents([]);
+  for (const qs of ['limit=0', 'limit=abc', 'limit=1000', 'before=-1', 'before=0', 'after=x', 'before=5&after=2']) {
+    const res = await a.inject({ method: 'GET', url: `/api/runs/run_1/tasks/task_1/activity?${qs}` });
+    assert.equal(res.statusCode, 400, qs);
+  }
+  assert.equal(calls.length, 0);
+  await a.close();
+});

@@ -89,12 +89,23 @@ export function writeHalt(kind, detail) {
   try { mkdirSync(env.runDir, { recursive: true }); writeFileSync(`${env.runDir}/halt-${kind}.json`, JSON.stringify(detail)); } catch { /* best effort */ }
 }
 
+const SUMMARY_MAX = 160; // TOOL_SUMMARY_MAX in @asf/shared; the api redacts and caps again.
+
+/**
+ * One-line summary of a tool call for the run's activity feed. Reads only
+ * `command` (Bash), `pattern` (Grep/Glob), `file_path` and `path` — never
+ * `content`, `new_string`, `old_string` or any env value, so file bodies and
+ * edits never leave the machine. At most SUMMARY_MAX characters.
+ */
 export function describeTool(input) {
   const tool = input?.tool_name ?? 'unknown';
   const ti = input?.tool_input ?? {};
-  if (tool === 'Bash' && typeof ti.command === 'string') return `Bash: ${ti.command.slice(0, 120)}`;
-  const p = ti.file_path ?? ti.path ?? '';
-  return p ? `${tool}: ${p}` : tool;
+  const str = (v) => (typeof v === 'string' ? v : '');
+  let detail = '';
+  if (tool === 'Bash') detail = str(ti.command);
+  else if (tool === 'Grep' || tool === 'Glob') detail = [str(ti.pattern), str(ti.path)].filter(Boolean).join(' in ');
+  else detail = str(ti.file_path) || str(ti.path);
+  return (detail ? `${tool}: ${detail}` : tool).slice(0, SUMMARY_MAX);
 }
 
 /** Post an event to the api. Returns the ack (which carries cancelRequested), or null on any failure. */

@@ -20,6 +20,10 @@ async function buildReportInput(runId: string): Promise<RunReportInput | null> {
   };
 }
 
+const ACTIVITY_KINDS = ['tool:pre', 'tool:post', 'tool:denied'];
+const ACTIVITY_DEFAULT_LIMIT = 50;
+const ACTIVITY_MAX_LIMIT = 200;
+
 /**
  * The browser-facing read + control surface. No X-Run-Secret here (that guards
  * worker/hook traffic); in the single-operator MVP the browser is trusted on
@@ -66,6 +70,28 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
     const runningIds = run.tasks.filter((t) => t.state === 'running').map((t) => t.id);
     const progress = runningIds.length ? (await registry.taskProgress(runningIds)).progress : {};
     return { ...run, gates: gates.gates, artifacts: stageArtifacts, artifactVersions: versions.versions, taskProgress: progress, messages: chat.messages, split, recurring, request };
+  });
+
+  // One task's tool activity (pre/post/denied), newest page first for scrolling back
+  // with ?before=<seq>, or forward with ?after=<seq>. Always ascending; hasEarlier says
+  // whether there is more history before this page (false when paging forward).
+  app.get<{ Params: { id: string; taskId: string } }>('/api/runs/:id/tasks/:taskId/activity', async (req, reply) => {
+    const q = req.query as { before?: string; after?: string; limit?: string };
+    const int = (v: string | undefined, min: number) => {
+      if (v === undefined) return undefined;
+      return /^\d+$/.test(v) && Number(v) >= min ? Number(v) : NaN;
+    };
+    const before = int(q.before, 1);
+    const after = int(q.after, 0);
+    const limit = int(q.limit, 1) ?? ACTIVITY_DEFAULT_LIMIT;
+    if ([before, after, limit].some((n) => Number.isNaN(n)) || limit > ACTIVITY_MAX_LIMIT || (before !== undefined && after !== undefined)) {
+      return reply.code(400).send({ error: 'bad_request', reason: `before/after are seqs (not both), limit is 1-${ACTIVITY_MAX_LIMIT}` });
+    }
+    const { events } = await registry.getTaskEvents(req.params.id, req.params.taskId,
+      { kinds: ACTIVITY_KINDS, beforeSeq: before, afterSeq: after, limit: after === undefined ? limit + 1 : limit });
+    // Backwards pages fetched one extra (the oldest); its presence means there is more.
+    const hasEarlier = after === undefined && events.length > limit;
+    return { events: hasEarlier ? events.slice(1) : events, hasEarlier };
   });
 
   // The story of a run in one place (M11 WP6): JSON for the UI Report tab, Markdown

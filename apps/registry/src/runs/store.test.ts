@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRun, RunConflictError, appendEvent, getEvents, requestCancel, getRun, listRuns, taskProgress, runsAwaitingExternalMerge, hiveMergedRuns } from './store.js';
+import { createRun, RunConflictError, appendEvent, getEvents, getTaskEvents, requestCancel, getRun, listRuns, taskProgress, runsAwaitingExternalMerge, hiveMergedRuns } from './store.js';
 import { finishTask, claimTask, registerWorker } from './workers.js';
 import { dbAvailable, testDb, runInput, drain } from '../test/harness.js';
 import { DEFAULT_GATES } from '@asf/shared';
@@ -197,4 +197,32 @@ test('hiveMergedRuns: merged runs with a repo, stamped and ordered by merge time
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const recent = (await hiveMergedRuns(db.sql, { since, limit: 1000 })).filter((r) => mine.has(r.id));
   assert.deepEqual(recent.map((r) => r.id), [lateMerge]);
+});
+
+test('getTaskEvents: one task\'s tool events, latest-N or paged, always ascending', { skip }, async () => {
+  const { run, tasks } = await createRun(db.sql, runInput({ ticketId: 'c-te', ticketKey: 'C-TE' }));
+  const [t, other] = tasks;
+  const kinds = ['tool:pre', 'tool:post', 'tool:denied'];
+  const mine: number[] = [];
+  for (let i = 0; i < 10; i++) {
+    mine.push((await appendEvent(db.sql, { runId: run.id, taskId: t.id, kind: i % 2 ? 'tool:post' : 'tool:pre', source: 'agent', payload: { i } })).seq);
+    await appendEvent(db.sql, { runId: run.id, taskId: other.id, kind: 'tool:pre', source: 'agent', payload: {} });
+    await appendEvent(db.sql, { runId: run.id, taskId: t.id, kind: 'segment:started', source: 'worker', payload: {} });
+  }
+  const seqs = (es: { seq: number }[]) => es.map((e) => e.seq);
+
+  // Latest N, task and kind filtered, ascending.
+  assert.deepEqual(seqs(await getTaskEvents(db.sql, run.id, t.id, { kinds, limit: 3 })), mine.slice(7));
+  // Back through history from the oldest seen.
+  assert.deepEqual(seqs(await getTaskEvents(db.sql, run.id, t.id, { kinds, beforeSeq: mine[7], limit: 3 })), mine.slice(4, 7));
+  assert.deepEqual(seqs(await getTaskEvents(db.sql, run.id, t.id, { kinds, beforeSeq: mine[2], limit: 3 })), mine.slice(0, 2));
+  // Forward from the newest seen.
+  assert.deepEqual(seqs(await getTaskEvents(db.sql, run.id, t.id, { kinds, afterSeq: mine[2], limit: 3 })), mine.slice(3, 6));
+  assert.deepEqual(seqs(await getTaskEvents(db.sql, run.id, t.id, { kinds, afterSeq: mine[9], limit: 3 })), []);
+  // Kind filter narrows.
+  assert.deepEqual(seqs(await getTaskEvents(db.sql, run.id, t.id, { kinds: ['tool:post'], limit: 100 })), mine.filter((_, i) => i % 2));
+  // Limit is clamped to 500 (and at least 1).
+  for (let i = 0; i < 501; i++) await appendEvent(db.sql, { runId: run.id, taskId: t.id, kind: 'tool:pre', source: 'agent', payload: {} });
+  assert.equal((await getTaskEvents(db.sql, run.id, t.id, { kinds, limit: 10_000 })).length, 500);
+  assert.equal((await getTaskEvents(db.sql, run.id, t.id, { kinds, limit: 0 })).length, 1);
 });

@@ -83,3 +83,22 @@ test('the read-only copies of other repositories (<worktreeRoot>/refs/...) are o
   assert.equal(rw.writeAllowed('/data/worktrees/refs/run_1/task_1/shared-ui/src/button.ts'), false, 'even a writing role may not edit them');
   assert.equal(rw.writeAllowed('../../refs/run_1/task_1/shared-ui/x.ts'), false, 'nor through a relative path');
 });
+
+test('describeTool caps a long Bash command at 160 characters', () => {
+  const out = lib.describeTool({ tool_name: 'Bash', tool_input: { command: 'echo ' + 'x'.repeat(500) } });
+  assert.equal(out.length, 160);
+  assert.ok(out.startsWith('Bash: echo x'));
+});
+
+test('describeTool never includes an edit body or file content', () => {
+  const edit = lib.describeTool({ tool_name: 'Edit', tool_input: { file_path: '/work/wt/a.ts', old_string: 'OLD_BODY', new_string: 'NEW_BODY' } });
+  assert.equal(edit, 'Edit: /work/wt/a.ts');
+  const write = lib.describeTool({ tool_name: 'Write', tool_input: { file_path: '/work/wt/b.ts', content: 'FILE_CONTENT' } });
+  assert.equal(write, 'Write: /work/wt/b.ts');
+});
+
+test('describeTool shows the pattern for Grep and Glob', () => {
+  assert.equal(lib.describeTool({ tool_name: 'Grep', tool_input: { pattern: 'redactSecrets', path: 'src' } }), 'Grep: redactSecrets in src');
+  assert.equal(lib.describeTool({ tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } }), 'Glob: **/*.ts');
+  assert.equal(lib.describeTool({ tool_name: 'TodoWrite', tool_input: { todos: [] } }), 'TodoWrite');
+});

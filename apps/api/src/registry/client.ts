@@ -40,6 +40,8 @@ export const registry = {
   getSplitFamily: (runId: string) => rpc({ op: 'getSplitFamily', runId }),
   resolveConflict: (runId: string, by: string | null) => rpc({ op: 'resolveConflict', runId, by }),
   getEvents: (runId: string, afterSeq = 0, limit = 1000) => rpc({ op: 'getEvents', runId, afterSeq, limit }),
+  getTaskEvents: (runId: string, taskId: string, q: { kinds: string[]; beforeSeq?: number; afterSeq?: number; limit: number }) =>
+    rpc({ op: 'getTaskEvents', runId, taskId, kinds: q.kinds, beforeSeq: q.beforeSeq, afterSeq: q.afterSeq, limit: q.limit }),
   appendEvent: (input: Extract<RpcRequest, { op: 'appendEvent' }>['input']) => rpc({ op: 'appendEvent', input }),
   listRuns: (q: { ticketId?: string; state?: RunState; teamName?: string; deliveryOutcome?: 'merged' | 'awaiting_external_merge' | 'no_repo' | 'split'; search?: string; since?: string; limit?: number; offset?: number }) =>
     rpc({ op: 'listRuns', ticketId: q.ticketId, state: q.state, teamName: q.teamName, deliveryOutcome: q.deliveryOutcome, search: q.search, since: q.since, limit: q.limit ?? 50, offset: q.offset ?? 0 }),

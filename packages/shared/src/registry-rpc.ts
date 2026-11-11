@@ -79,6 +79,9 @@ export const rpcRequestSchema = z.discriminatedUnion('op', [
     limit: z.number().int().positive().max(500).default(50), offset: z.number().int().nonnegative().default(0) }),
   z.object({ op: z.literal('getTasks'), runId: z.string() }),
   z.object({ op: z.literal('getEvents'), runId: z.string(), afterSeq: z.number().int().nonnegative().default(0), limit: z.number().int().positive().max(1000).default(200) }),
+  z.object({ op: z.literal('getTaskEvents'), runId: z.string(), taskId: z.string(), kinds: z.array(z.string()).min(1),
+    beforeSeq: z.number().int().positive().optional(), afterSeq: z.number().int().nonnegative().optional(),
+    limit: z.number().int().positive().default(100) }),
   z.object({ op: z.literal('appendEvent'), input: appendEventInputSchema }),
   z.object({ op: z.literal('cancelRun'), id: z.string(), by: z.string().nullable().default(null) }),
   z.object({ op: z.literal('resumeRun'), id: z.string(), by: z.string().nullable().default(null) }),
@@ -197,6 +200,7 @@ export interface RpcResults {
   listRuns: { runs: z.infer<typeof runSchema>[]; total: number };
   getTasks: { tasks: z.infer<typeof runTaskSchema>[] };
   getEvents: { events: z.infer<typeof runEventSchema>[] };
+  getTaskEvents: { events: z.infer<typeof runEventSchema>[] };
   appendEvent: { event: z.infer<typeof runEventSchema> };
   cancelRun: RunWithTasks;
   resumeRun: RunWithTasks;

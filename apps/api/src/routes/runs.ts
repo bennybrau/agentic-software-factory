@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { appendEventInputSchema, runContextSchema, ROLE_SKILL_ORG_SETTING_KEYS, MAX_TURNS_ORG_SETTING_KEYS, isAdhocId, ticketReposMentioned, sameRef } from '@asf/shared';
+import { appendEventInputSchema, runContextSchema, redactSecrets, TOOL_SUMMARY_MAX, ROLE_SKILL_ORG_SETTING_KEYS, MAX_TURNS_ORG_SETTING_KEYS, isAdhocId, ticketReposMentioned, sameRef } from '@asf/shared';
 import type { ReferenceRepo, Repo, RunContext, ScmProvider, Ticket, TicketProvider, WorkerSettings } from '@asf/shared';
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
@@ -164,10 +164,16 @@ export function registerRunRoutes(app: FastifyInstance, deps: { tickets: TicketP
   });
 
   // Hook ingest. The producer is a hook script with no session; it keeps posting
-  // after whoever dispatched closed the tab. Forwarded verbatim to the registry.
+  // after whoever dispatched closed the tab. Forwarded to the registry verbatim, except
+  // a tool event's summary (a Bash command line, from any runtime) is redacted and capped.
   app.post<{ Params: { id: string } }>('/api/runs/:id/events', async (req, reply) => {
     const parsed = appendEventInputSchema.safeParse({ ...(req.body as object), runId: req.params.id });
     if (!parsed.success) return reply.code(400).send({ error: 'bad_request', issues: parsed.error.issues });
+    const { payload } = parsed.data;
+    if (parsed.data.kind.startsWith('tool:') && typeof payload.summary === 'string') {
+      // Redact first, so the cut can never leave half a token behind.
+      payload.summary = redactSecrets(payload.summary).slice(0, TOOL_SUMMARY_MAX);
+    }
     const { event } = await registry.appendEvent(parsed.data);
     // The ack carries whether a cancel has been requested, so the PreToolUse hook can stop the agent.
     const run = await registry.getRun(req.params.id);

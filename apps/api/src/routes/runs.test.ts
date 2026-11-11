@@ -93,3 +93,49 @@ test('context: Hive down or failing -> still served, with no brief', async () =>
     assert.equal('hiveBrief' in res.json(), false);
   }
 });
+
+// POST /api/runs/:id/events: a tool summary is redacted and capped before it reaches the registry.
+async function postEvent(body: Record<string, unknown>) {
+  const forwarded: Array<{ op: string; input?: { payload: Record<string, unknown> } }> = [];
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const req = JSON.parse(init?.body ?? '{}') as { op: string; input?: { payload: Record<string, unknown> } };
+    forwarded.push(req);
+    const result = req.op === 'appendEvent' ? { event: { seq: 1 } } : { run: { cancelRequestedAt: null }, tasks: [] };
+    return new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  const a = await app();
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/events', headers: secret(), payload: body });
+  await a.close();
+  assert.equal(res.statusCode, 200);
+  return forwarded.find((f) => f.op === 'appendEvent')!.input!.payload;
+}
+
+test('events: a tool summary is redacted and capped at 160', async () => {
+  const token = 'ghp_' + 'a'.repeat(36);
+  const summary = `Bash: curl -H "Authorization: Bearer ${token}" https://api.github.com/x && GITHUB_TOKEN=xyz npm publish ${'y'.repeat(300)}`;
+  const payload = await postEvent({ taskId: 'task_1', kind: 'tool:pre', source: 'agent', payload: { tool: 'Bash', summary } });
+  const out = payload.summary as string;
+  assert.ok(out.length <= 160, `length ${out.length}`);
+  assert.ok(!out.includes(token.slice(4, 12)) && !out.includes('xyz'), out);
+  assert.match(out, /Bearer \*\*\*/);
+  assert.match(out, /GITHUB_TOKEN=\*\*\*/);
+  assert.equal(payload.tool, 'Bash');
+});
+
+test('events: a token straddling the cap is redacted before the cut', async () => {
+  // The token starts 8 characters before 160, so 'ghp_***' fits; cut first, the
+  // 'ghp_qqqq' fragment is too short to match the token rule and 'q' would survive.
+  const prefix = 'Bash: echo ' + 'x'.repeat(160 - 8 - 'Bash: echo '.length) + ' ';
+  const summary = `${prefix}ghp_${'q'.repeat(36)} done`;
+  const payload = await postEvent({ taskId: 'task_1', kind: 'tool:pre', source: 'agent', payload: { tool: 'Bash', summary } });
+  const out = payload.summary as string;
+  assert.ok(out.length <= 160, `length ${out.length}`);
+  assert.ok(!out.includes('q'), out);
+  assert.ok(out.endsWith('ghp_***'), out);
+});
+
+test('events: a non-tool event is forwarded untouched', async () => {
+  const summary = 'GITHUB_TOKEN=xyz ' + 'z'.repeat(300);
+  const payload = await postEvent({ taskId: 'task_1', kind: 'progress', source: 'agent', payload: { summary } });
+  assert.equal(payload.summary, summary);
+});

@@ -43,6 +43,7 @@ export function rpcHandlers(sql: Sql): Handler {
     },
     getTasks: async (r) => ({ tasks: await store.getTasks(sql, r.runId) }),
     getEvents: async (r) => ({ events: await store.getEvents(sql, r.runId, r.afterSeq, r.limit) }),
+    getTaskEvents: async (r) => ({ events: await store.getTaskEvents(sql, r.runId, r.taskId, { kinds: r.kinds, beforeSeq: r.beforeSeq, afterSeq: r.afterSeq, limit: r.limit }) }),
     appendEvent: async (r) => ({ event: await store.appendEvent(sql, r.input) }),
     cancelRun: (r) => store.requestCancel(sql, r.id, r.by),
     resumeRun: (r) => store.resumeRun(sql, r.id, r.by),

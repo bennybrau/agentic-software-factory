@@ -138,6 +138,30 @@ export async function getEvents(sql: Sql, runId: string, afterSeq: number, limit
   return rows.map(rowToEvent);
 }
 
+/** Most events one getTaskEvents call returns. */
+export const TASK_EVENTS_MAX = 500;
+
+/**
+ * One task's events of the given kinds, always in ascending seq order. With `afterSeq`
+ * it pages forward from there; otherwise it returns the latest `limit` (before
+ * `beforeSeq` if given) — the newest page first, for scrolling back through history.
+ */
+export async function getTaskEvents(sql: Sql, runId: string, taskId: string,
+  q: { kinds: string[]; beforeSeq?: number; afterSeq?: number; limit: number }): Promise<RunEvent[]> {
+  const limit = Math.max(1, Math.min(TASK_EVENTS_MAX, Math.floor(q.limit)));
+  if (q.afterSeq !== undefined) {
+    const rows = await sql`SELECT * FROM run_events
+      WHERE run_id = ${runId} AND task_id = ${taskId} AND kind = ANY(${q.kinds}::text[]) AND seq > ${q.afterSeq}
+      ORDER BY seq LIMIT ${limit}`;
+    return rows.map(rowToEvent);
+  }
+  const rows = await sql`SELECT * FROM run_events
+    WHERE run_id = ${runId} AND task_id = ${taskId} AND kind = ANY(${q.kinds}::text[])
+      AND (${q.beforeSeq ?? null}::int IS NULL OR seq < ${q.beforeSeq ?? null}::int)
+    ORDER BY seq DESC LIMIT ${limit}`;
+  return rows.map(rowToEvent).reverse();
+}
+
 export async function getEventBySeq(sql: Sql, runId: string, seq: number): Promise<RunEvent | null> {
   const rows = await sql`SELECT * FROM run_events WHERE run_id = ${runId} AND seq = ${seq}`;
   return rows.length ? rowToEvent(rows[0]) : null;

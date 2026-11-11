@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CloneCredential, Repo, Run } from '@asf/shared';
-import { isForbiddenBranch, formatMergeConflict, nativeId } from '@asf/shared';
+import { isForbiddenBranch, formatMergeConflict, nativeId, redactSecrets } from '@asf/shared';
 import { config } from './config.js';
 import type { ChangeType } from './commit-type.js';
 
@@ -47,12 +47,13 @@ async function git(cwd: string, args: string[], env: Record<string, string> = {}
 }
 
 /**
- * Strip the user:token part from every URL in `text`. A failed command's message names the
+ * Strip the user:token part from every URL in `text` (and other secret shapes — see
+ * redactSecrets). A failed command's message names the
  * command it ran, clone URL and credential included, and these messages reach logs, run
  * events and the UI (a skipped read-only copy shows its reason).
  */
 export function redactUrlCredentials(text: string): string {
-  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, '$1***@');
+  return redactSecrets(text);
 }
 
 /** origin/<default> if it exists (live clone), else the local <default> ref (bare clone of a local origin). */

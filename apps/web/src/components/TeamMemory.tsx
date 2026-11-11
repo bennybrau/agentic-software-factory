@@ -2,12 +2,12 @@ import { parseTeamMemory } from '@asf/shared/ui';
 import type { TeamMemoryVerdict } from '@asf/shared';
 import type { RunDetail } from '../api';
 
-/** How the plan's `## Team memory` section accounted for a fact; '' when it didn't say. */
+/** How the plan's `## Team memory` section accounted for a fact, as a label; '' when it didn't say. */
 export function verdictText(v: TeamMemoryVerdict | undefined): string {
   if (!v) return '';
   if (v.verdict === 'applied') return 'Applied';
   if (v.verdict === 'not_applicable') return 'Doesn\'t apply';
-  return v.reason ? `Overridden: ${v.reason}` : 'Overridden';
+  return 'Overridden';
 }
 
 /**
@@ -24,7 +24,8 @@ export function TeamMemory({ brief, planMd }: { brief: RunDetail['hiveBrief']; p
       <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13 }}>
         {brief.facts.map((f) => {
           const tag = `[hive:${f.id.slice(0, 8)}]`;
-          const verdict = verdictText(verdicts[f.id.slice(0, 8).toLowerCase()]);
+          const v = verdicts[f.id.slice(0, 8).toLowerCase()];
+          const verdict = verdictText(v);
           return (
             <li key={f.id} style={{ marginBottom: 4 }}>
               {brief.dashboardUrl
@@ -32,7 +33,7 @@ export function TeamMemory({ brief, planMd }: { brief: RunDetail['hiveBrief']; p
                 : <code>{tag}</code>}
               {' '}<span className="muted">{f.kind}</span> {f.text}
               {f.scope && <span className="muted"> ({f.scope})</span>}
-              {verdict && <> · <b>{verdict}</b></>}
+              {verdict && <> · <b>{verdict}</b>{v?.reason && <span className="muted">: {v.reason}</span>}</>}
             </li>
           );
         })}

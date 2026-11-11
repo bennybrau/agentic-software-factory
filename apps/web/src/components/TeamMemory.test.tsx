@@ -11,9 +11,9 @@ const facts = [
 ];
 const plan = [
   '# Plan', '', '## Team memory',
-  '- [hive:aaaaaaaa] Never edit an applied migration: applied',
+  '- [hive:aaaaaaaa] Never edit an applied migration: applied (no migration in this change)',
   '- [hive:bbbbbbbb] Only the registry talks to Postgres: overridden: this ticket adds a read replica',
-  '- [hive:cccccccc] Settings drift fails CI: doesn\'t apply here',
+  '- [hive:cccccccc] Settings drift fails CI: doesn\'t apply here (no settings touched)',
   '', 'Change-Type: feat',
 ].join('\n');
 
@@ -23,9 +23,9 @@ test('a row per fact with its tag, kind, text, scope and the plan\'s verdict', (
   assert.match(html, /<code>\[hive:aaaaaaaa\]<\/code>/);
   assert.match(html, /gotcha<\/span> Never edit an applied migration/);
   assert.match(html, /\(global\)/);
-  assert.match(html, /<b>Applied<\/b>/);
-  assert.match(html, /<b>Overridden: this ticket adds a read replica<\/b>/);
-  assert.match(html, /<b>Doesn(&#x27;|')t apply<\/b>/);
+  assert.match(html, /<b>Applied<\/b><span class="muted">: no migration in this change<\/span>/);
+  assert.match(html, /<b>Overridden<\/b><span class="muted">: this ticket adds a read replica<\/span>/);
+  assert.match(html, /<b>Doesn(&#x27;|')t apply<\/b><span class="muted">: no settings touched<\/span>/);
   assert.match(html, /Nobody mentioned this one<\/li>/, 'no verdict = blank');
   assert.doesNotMatch(html, /<a /, 'no dashboard, no links');
 });

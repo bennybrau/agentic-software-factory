@@ -60,15 +60,21 @@ export interface TeamMemoryVerdict { verdict: 'applied' | 'overridden' | 'not_ap
 
 const TEAM_MEMORY_HEADING = /^#{1,6}\s*team memory\s*$/i;
 const TEAM_MEMORY_LINE = /^[-*]?\s*\[hive:([0-9a-z]+)\]\s*(.*)$/i;
-// The verdict closes the line, after a `:` or a spaced dash (a dash inside a word, as in
-// "Things-to-do", is not a separator). An override's reason runs to the end of the line.
+// The verdict follows a `:` or a spaced dash (a dash inside a word, as in "Things-to-do", is
+// not a separator). It closes the line, or is followed by its reason: in parentheses, or after
+// one of `: - – — . ; ,`. A verdict word with neither ("applied at boot") is not a verdict.
 const SEP = String.raw`(?::|\s[-–—]|[–—])`;
-const VERDICT = new RegExp(String.raw`${SEP}\s*(?:(overridden)(?:\s*${SEP}?\s*(.*))?|(applied|does(?:n['’]t| not) apply(?: here)?)\.?)\s*$`, 'i');
+const VERDICT = new RegExp(
+  String.raw`${SEP}\s*(overridden|applied|does(?:n['’]t| not) apply(?: here)?)(?:\.?\s*$|\s*\((.*)\)\.?\s*$|\s*[:–—.;,-]\s*(.*)$)`,
+  'i',
+);
 
 /**
  * The plan's `## Team memory` section as id8 → verdict: `- [hive:<id8>] <fact>: applied`,
- * `: overridden: <reason>` or `: doesn't apply here`. Only lines under that heading (up to the
- * next heading or `Change-Type:`); a malformed line is skipped, and with `knownIds` (the brief's
+ * `: overridden: <reason>` or `: doesn't apply here`. Any verdict may carry a reason, after a
+ * separator (`: applied - <reason>`) or in parentheses (`: doesn't apply here (<reason>)`).
+ * Only lines under that heading (up to the next heading or `Change-Type:`); a malformed line
+ * is skipped, and with `knownIds` (the brief's
  * fact ids, compared on their first 8 characters) a tag the brief didn't carry is dropped.
  * Never throws: anything unexpected = {}.
  */
@@ -88,12 +94,9 @@ export function parseTeamMemory(plan: string, knownIds?: Iterable<string>): Reco
       if (known && !known.has(id)) continue;
       const v = VERDICT.exec(tag[2]);
       if (!v) continue;
-      if (v[1]) {
-        const reason = (v[2] ?? '').trim();
-        out[id] = reason ? { verdict: 'overridden', reason } : { verdict: 'overridden' };
-      } else {
-        out[id] = { verdict: /^applied$/i.test(v[3]) ? 'applied' : 'not_applicable' };
-      }
+      const verdict = /^overridden$/i.test(v[1]) ? 'overridden' : /^applied$/i.test(v[1]) ? 'applied' : 'not_applicable';
+      const reason = (v[2] ?? v[3] ?? '').trim();
+      out[id] = reason ? { verdict, reason } : { verdict };
     }
     return out;
   } catch {

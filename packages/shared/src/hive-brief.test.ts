@@ -81,6 +81,25 @@ test('parseTeamMemory: curly apostrophe, "does not", dash separators, any case',
   });
 });
 
+test('parseTeamMemory: a verdict followed by its reason', () => {
+  assert.deepEqual(parseTeamMemory(plan([
+    '- [hive:aaaaaaaa] Things-to-do without MCP: doesn\'t apply here (MCP isn\'t touched; the change is in the web panel)',
+    '- [hive:bbbbbbbb] Keep the old endpoint: applied (the endpoint stays as it is)',
+    '- [hive:cccccccc] Never edit a migration - applied - because x',
+    '- [hive:dddddddd] Human review of facts: doesn\'t apply here.',
+    '- [hive:eeeeeeee] Settings via the catalogue: overridden. reason',
+    '- [hive:ffffffff] Fact was applied to the worker: doesn\'t apply here',
+    '- [hive:11111111] Settings load at boot: applied at boot',
+  ].join('\n'))), {
+    aaaaaaaa: { verdict: 'not_applicable', reason: 'MCP isn\'t touched; the change is in the web panel' },
+    bbbbbbbb: { verdict: 'applied', reason: 'the endpoint stays as it is' },
+    cccccccc: { verdict: 'applied', reason: 'because x' },
+    dddddddd: { verdict: 'not_applicable' },
+    eeeeeeee: { verdict: 'overridden', reason: 'reason' },
+    ffffffff: { verdict: 'not_applicable' },
+  });
+});
+
 test('parseTeamMemory: malformed lines are skipped, unknown tags dropped, only the section counts', () => {
   const text = [
     '# Plan', '', 'Mentions [hive:99999999] Something: applied in the body.', '',

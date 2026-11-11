@@ -13,7 +13,7 @@ const noop = () => {};
 test('planner says not needed: the chat shows the evidence and offers to cancel and remove the ad-hoc task', () => {
   const t = task('planner', 'NOT NEEDED: Already on main in supervisor.ts.');
   const html = wrap(<PlanChat runId="run_1" ticketId="adhoc:abc" ticketKey="ADHOC-ABC" gate={null} plannerTask={t} onDone={noop}
-    messages={[{ id: 'm1', runId: 'run_1', taskId: 'task_1', role: 'planner', author: 'agent', kind: 'question', body: 'NOT NEEDED: Already on main in supervisor.ts.', by: null, sessionId: null, createdAt: '' }]} />);
+    messages={[{ id: 'm1', runId: 'run_1', taskId: 'task_1', role: 'planner', author: 'agent', kind: 'question', body: 'NOT NEEDED: Already on main in supervisor.ts.', by: null, sessionId: null, createdAt: '', hiveSentAt: null }]} />);
   assert.match(html, /Planner: not needed/);
   assert.match(html, />Already on main in supervisor\.ts\.</, 'the tag is not shown');
   assert.match(html, /Cancel job &amp; remove ADHOC-ABC/);

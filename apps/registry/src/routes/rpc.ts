@@ -15,7 +15,7 @@ import * as notifications from '../runs/notification-store.js';
 import { answerNeedsHuman, skipNeedsHuman, NeedsHumanError } from '../runs/needs-human.js';
 import { appendMessage, listMessages, sendChatMessage, requestChanges, ChatError } from '../runs/chat.js';
 import * as adhoc from '../runs/adhoc-store.js';
-import { hiveDialog } from '../runs/hive-dialog.js';
+import { hiveDialog, markHiveSent } from '../runs/hive-dialog.js';
 import { getSplitFamily } from '../runs/split.js';
 import { resolveConflict, ConflictError } from '../runs/conflict.js';
 import { advance } from '../runs/orchestrate.js';
@@ -71,6 +71,7 @@ export function rpcHandlers(sql: Sql): Handler {
     runsAwaitingExternalMerge: async (r) => ({ runs: await store.runsAwaitingExternalMerge(sql, r.limit) }),
     hiveMergedRuns: async (r) => ({ runs: await store.hiveMergedRuns(sql, { since: r.since, limit: r.limit, offset: r.offset }) }),
     hiveDialog: async (r) => ({ items: await hiveDialog(sql, { since: r.since, limit: r.limit, offset: r.offset }) }),
+    markHiveSent: async (r) => { await markHiveSent(sql, r.kind, r.id); return { ok: true as const }; },
     markQueueEntry: async (r) => { await queue.markQueueEntry(sql, r.id, r.state, r.runId, r.reason); return { ok: true as const }; },
     today: async (r) => today(sql, new Date(r.since)),
     listNotifications: async (r) => notifications.listNotifications(sql, { unreadOnly: r.unreadOnly, limit: r.limit }),

@@ -10,6 +10,7 @@ import { useMe } from '../useMe';
 import { chatTitle } from '../new-task';
 import { PAGE } from '../words';
 import type { ChatStatus } from '../chat-status';
+import { HIVE_SENT } from './GateNotes';
 
 /**
  * The plan stage as a conversation. The planner either asks what blocks it or
@@ -52,7 +53,7 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
   const split = parseSplit(planText);
 
   // A run from before the chat existed has no messages: show its question from the task.
-  const replies: Array<Pick<RunMessageWire, 'id' | 'author' | 'kind' | 'body' | 'by'>> = messages.length
+  const replies: Array<Pick<RunMessageWire, 'id' | 'author' | 'kind' | 'body' | 'by'> & { hiveSentAt?: string | null }> = messages.length
     ? messages
     : asking && plannerTask?.reason ? [{ id: 'legacy', author: 'agent', kind: 'question', body: plannerTask.reason, by: null }] : [];
   // What was asked to start the run comes first; it isn't a stored message.
@@ -93,6 +94,7 @@ export function PlanChat({ runId, ticketId, ticketKey, messages, gate, plannerTa
           {m.author === 'agent'
             ? <div className="chat-body ticket-desc chat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{isNotNeeded(m.body) ? notNeededReason(m.body) : m.body}</ReactMarkdown></div>
             : <div className="chat-body">{isNotNeeded(m.body) ? notNeededReason(m.body) : m.body}</div>}
+          {m.author === 'human' && m.hiveSentAt && <div className="muted small">{HIVE_SENT}</div>}
         </div>
       ))}
       {liveStatus ? (

@@ -16,6 +16,7 @@ import { backfillHive, hiveEnabled } from './hive.js';
 
 const log = {
   info: (o: unknown, m?: string) => console.log(JSON.stringify({ level: 'info', msg: m, ...(o as object) })),
+  warn: (o: unknown, m?: string) => console.error(JSON.stringify({ level: 'warn', msg: m, ...(o as object) })),
   error: (o: unknown, m?: string) => console.error(JSON.stringify({ level: 'error', msg: m, ...(o as object) })),
 };
 

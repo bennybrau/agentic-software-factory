@@ -5,7 +5,7 @@ import { cfg } from './settings.js';
 import { ticketsFor } from './tickets/route.js';
 import { resolveProviderSecret } from './providers/secrets.js';
 
-type Log = { info: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
+type Log = { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
 
 /**
  * The Hive hook (#76, #78). Each merged run becomes one Hive "episode" — the
@@ -18,6 +18,9 @@ type Log = { info: (o: unknown, m?: string) => void; error: (o: unknown, m?: str
  * Every note a person left at a gate, and every chat message they wrote, also
  * becomes an `asf_dialog` episode (what the agent said, then what they said),
  * whatever state the run ended in.
+ *
+ * A dialog turn that was sent is stamped in the registry (`hive_sent_at`) so the
+ * web can say "Sent to team memory for review" (#108).
  *
  * Sent state is in memory. After a restart the last day is sent again, which is
  * harmless because Hive dedupes on `ref`. Blank HIVE_URL = off.
@@ -240,6 +243,15 @@ async function sendOnce(state: HiveHookState, key: string, ctx: object, build: (
 }
 
 /**
+ * Stamp a sent dialog turn in the registry. A failure is only a warning: the
+ * turn is already in `state.sent`, so it is never sent again for it.
+ */
+async function markSent(item: HiveDialogItem, log: Log): Promise<void> {
+  try { await registry.markHiveSent(item.kind, item.id); }
+  catch (err) { log.warn({ runId: item.runId, ref: dialogRef(item), err: (err as Error).message }, 'hive: could not mark as sent'); }
+}
+
+/**
  * One tick: send every run that merged, and every human dialog turn written,
  * since `state.since` that has not been sent yet. Returns how many episodes were sent.
  */
@@ -253,7 +265,10 @@ export async function tickHive(deps: HiveDeps, state: HiveHookState, log: Log): 
   }
   const dialog = (await listDialog(state.since)).filter((d) => Date.parse(d.at) >= state.since && todo(dialogRef(d)));
   for (const item of dialog) {
-    if (await sendOnce(state, dialogRef(item), { runId: item.runId }, async () => buildDialogEpisode(item), log)) sent += 1;
+    if (await sendOnce(state, dialogRef(item), { runId: item.runId }, async () => buildDialogEpisode(item), log)) {
+      sent += 1;
+      await markSent(item, log);
+    }
   }
   return sent;
 }
@@ -276,7 +291,7 @@ export function startHiveHook(deps: HiveDeps, log: Log): () => void {
  * Backfill: every run that merged at or after `since`, oldest first, then every
  * human dialog turn written since then, about `perSecond` a second. `dryRun`
  * sends nothing and only totals the counts and episode bytes. Per-episode
- * failures are counted, not thrown.
+ * failures are counted, not thrown. A dialog turn that is sent is marked sent.
  */
 export async function backfillHive(
   deps: HiveDeps,
@@ -290,12 +305,13 @@ export async function backfillHive(
     .filter((r) => after(r.mergedAt))
     .sort((a, b) => Date.parse(a.mergedAt) - Date.parse(b.mergedAt));
   const out = { runs: 0, dialog: 0, bytes: 0, sent: 0, failed: 0 };
-  const send = async (episode: HiveEpisode, ctx: object) => {
+  /** Whether the episode was sent (never on a dry run). */
+  const send = async (episode: HiveEpisode, ctx: object): Promise<boolean> => {
     out.bytes += Buffer.byteLength(JSON.stringify(episode));
-    if (opts.dryRun) return;
+    if (opts.dryRun) return false;
     if (out.sent + out.failed > 0) await sleep(gap);
-    try { await sendEpisode(episode); out.sent += 1; log.info({ ...ctx, ref: episode.ref }, 'hive backfill: sent'); }
-    catch (err) { out.failed += 1; log.error({ ...ctx, ref: episode.ref, err: (err as Error).message }, 'hive backfill: send failed'); }
+    try { await sendEpisode(episode); out.sent += 1; log.info({ ...ctx, ref: episode.ref }, 'hive backfill: sent'); return true; }
+    catch (err) { out.failed += 1; log.error({ ...ctx, ref: episode.ref, err: (err as Error).message }, 'hive backfill: send failed'); return false; }
   };
   for (const run of runs) {
     let episode: HiveEpisode | null;
@@ -309,7 +325,7 @@ export async function backfillHive(
     const episode = buildDialogEpisode(item);
     if (!episode) continue;
     out.dialog += 1;
-    await send(episode, { runId: item.runId });
+    if (await send(episode, { runId: item.runId })) await markSent(item, log);
   }
   return out;
 }

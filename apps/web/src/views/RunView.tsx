@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, subscribeEvents, type RunDetail } from '../api';
 import { GateCard } from '../components/GateCard';
+import { GateNotes } from '../components/GateNotes';
 import { NeedsHumanCard } from '../components/NeedsHumanCard';
 import { PlanChat } from '../components/PlanChat';
 import { SplitCard } from '../components/SplitCard';
@@ -170,6 +171,8 @@ export function RunView() {
             : <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>The reviewer is still working.</div>}
         </div>
       )}
+
+      <GateNotes gates={gates} />
 
       <TeamWrap split={wasSplit}>
         {!wasSplit && <b>{crewName(theme)}</b>}

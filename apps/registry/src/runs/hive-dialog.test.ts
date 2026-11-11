@@ -1,8 +1,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRun } from './store.js';
-import { appendMessage } from './chat.js';
-import { hiveDialog } from './hive-dialog.js';
+import { appendMessage, listMessages } from './chat.js';
+import { listGates } from './gates-store.js';
+import { hiveDialog, markHiveSent } from './hive-dialog.js';
 import { dbAvailable, testDb, runInput } from '../test/harness.js';
 
 let db: Awaited<ReturnType<typeof testDb>>;
@@ -62,4 +63,28 @@ test('hiveDialog: since filters; a run with no repo is excluded; ordered by time
   assert.deepEqual(all.map((i) => i.id), ['gate_hd_old', 'gate_hd_new']);
   const since = new Date(Date.now() - 86_400_000).toISOString();
   assert.deepEqual((await mine([runId, noRepo], since)).map((i) => i.id), ['gate_hd_new']);
+});
+
+test('markHiveSent: stamps a gate and a message once; listGates and listMessages carry hiveSentAt', { skip }, async () => {
+  const runId = await mkRun('sent');
+  await gate(runId, 'gate_hd_sent', 'Use Node.', 'plan');
+  await gate(runId, 'gate_hd_unsent', 'later', 'plan');
+  const m = await msg(runId, 'human', 'Postgres.', 'jon');
+  assert.deepEqual((await listGates(db.sql, runId)).map((g) => g.hiveSentAt), [null, null]);
+  assert.equal((await listMessages(db.sql, runId))[0].hiveSentAt, null);
+
+  await markHiveSent(db.sql, 'gate', 'gate_hd_sent');
+  await markHiveSent(db.sql, 'msg', m);
+  const sentGate = (await listGates(db.sql, runId)).find((g) => g.id === 'gate_hd_sent')!.hiveSentAt;
+  const sentMsg = (await listMessages(db.sql, runId))[0].hiveSentAt;
+  assert.ok(sentGate && !Number.isNaN(Date.parse(sentGate)));
+  assert.ok(sentMsg && !Number.isNaN(Date.parse(sentMsg)));
+  assert.equal((await listGates(db.sql, runId)).find((g) => g.id === 'gate_hd_unsent')!.hiveSentAt, null);
+
+  // A second mark keeps the first time.
+  await new Promise((r) => setTimeout(r, 20));
+  await markHiveSent(db.sql, 'gate', 'gate_hd_sent');
+  await markHiveSent(db.sql, 'msg', m);
+  assert.equal((await listGates(db.sql, runId)).find((g) => g.id === 'gate_hd_sent')!.hiveSentAt, sentGate);
+  assert.equal((await listMessages(db.sql, runId))[0].hiveSentAt, sentMsg);
 });

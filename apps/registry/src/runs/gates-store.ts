@@ -7,6 +7,7 @@ export interface GateRow {
   id: string; runId: string; gateName: string; mode: string; state: string;
   afterTask: string | null; artifact: string | null; decidedBy: string | null;
   note: string | null; editedArtifact: string | null; createdAt: string; decidedAt: string | null;
+  hiveSentAt: string | null;
 }
 
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v == null ? null : String(v));
@@ -14,7 +15,8 @@ function toGate(r: Record<string, unknown>): GateRow {
   return { id: String(r.id), runId: String(r.runId), gateName: String(r.gateName), mode: String(r.mode), state: String(r.state),
     afterTask: r.afterTask ? String(r.afterTask) : null, artifact: r.artifact ? String(r.artifact) : null,
     decidedBy: r.decidedBy ? String(r.decidedBy) : null, note: r.note ? String(r.note) : null,
-    editedArtifact: r.editedArtifact ? String(r.editedArtifact) : null, createdAt: iso(r.createdAt)!, decidedAt: iso(r.decidedAt) };
+    editedArtifact: r.editedArtifact ? String(r.editedArtifact) : null, createdAt: iso(r.createdAt)!, decidedAt: iso(r.decidedAt),
+    hiveSentAt: iso(r.hiveSentAt) };
 }
 
 export async function openGate(tx: Db, input: { runId: string; gateName: string; mode: string; afterTask: string | null; artifact: string | null }): Promise<GateRow> {

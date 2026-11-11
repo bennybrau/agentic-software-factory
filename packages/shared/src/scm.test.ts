@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseReviewRequest } from './index.js';
+import { ASF_COMMENT_MARKER, isFactoryComment, markFactoryComment, parseReviewRequest } from './index.js';
 
 test('parseReviewRequest: a GitHub pull request', () => {
   assert.deepEqual(parseReviewRequest('Please review https://github.com/acme/web/pull/42.'),
@@ -20,4 +20,18 @@ test('parseReviewRequest: needs a PR/MR URL', () => {
   assert.equal(parseReviewRequest('review the login page'), null);
   assert.equal(parseReviewRequest('review https://github.com/acme/web/issues/42'), null);
   assert.equal(parseReviewRequest('review https://github.com/acme/web/pull/abc'), null);
+});
+
+test('isFactoryComment: the marker anywhere, or the reviewer summary header', () => {
+  assert.equal(isFactoryComment(`Fixed in abc123.\n\n${ASF_COMMENT_MARKER}`), true);
+  assert.equal(isFactoryComment('**ASF review (run run_1)**\n\nLooks fine.'), true);
+  assert.equal(isFactoryComment('Please rename this.'), false);
+  assert.equal(isFactoryComment('quoting **ASF review (run run_1)** mid-text'), false);
+});
+
+test('markFactoryComment appends the marker once', () => {
+  const once = markFactoryComment('Done.');
+  assert.equal(once, `Done.\n\n${ASF_COMMENT_MARKER}`);
+  assert.equal(markFactoryComment(once), once);
+  assert.equal(isFactoryComment(once), true);
 });

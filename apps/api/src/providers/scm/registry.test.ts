@@ -15,6 +15,7 @@ function fake(kind: string): ScmProvider {
     async listChangeRequests() { return []; },
     async getChangeRequest() { throw new Error('not used'); },
     async listReviewComments() { return []; },
+    async replyToThread() {},
     async comment() {},
     async markReady() {},
     async merge() {},

@@ -22,6 +22,7 @@ function recording() {
     listChangeRequests: async (r: Repo) => { seen.push(`listChangeRequests ${r.id}`); return [cr(r.id)]; },
     getChangeRequest: async (r: Repo) => { seen.push(`getChangeRequest ${r.id}`); return { ...cr(r.id), diffRefs: null }; },
     listReviewComments: async (r: Repo) => { seen.push(`listReviewComments ${r.id}`); return []; },
+    replyToThread: async (r: Repo) => { seen.push(`replyToThread ${r.id}`); },
     comment: async (r: Repo) => { seen.push(`comment ${r.id}`); },
     markReady: async (r: Repo) => { seen.push(`markReady ${r.id}`); },
     merge: async (r: Repo) => { seen.push(`merge ${r.id}`); },
@@ -51,10 +52,10 @@ test('every method that takes a Repo hands the provider its native id; change re
     assert.equal((await q.openChangeRequest(r, { head: 'h', base: 'main', title: 't', body: '', draft: true })).repoId, 'gitlab:acme/web');
     assert.deepEqual((await q.listChangeRequests(r, {})).map((c) => c.repoId), ['gitlab:acme/web']);
     assert.equal((await q.getChangeRequest(r, 4)).repoId, 'gitlab:acme/web');
-    await q.listReviewComments(r, 4); await q.comment(r, 4, 'hi'); await q.markReady(r, 4);
+    await q.listReviewComments(r, 4); await q.replyToThread(r, 4, 'T1', 'done'); await q.comment(r, 4, 'hi'); await q.markReady(r, 4);
     await q.merge(r, 4, { method: 'squash' });
     assert.deepEqual(await q.changedFiles!(r, 4, 10), ['a.ts']);
-    assert.ok(seen.length === 9 && seen.every((s) => s.endsWith(' acme/web')), seen.join(', '));
+    assert.ok(seen.length === 10 && seen.every((s) => s.endsWith(' acme/web')), seen.join(', '));
   }
 });
 

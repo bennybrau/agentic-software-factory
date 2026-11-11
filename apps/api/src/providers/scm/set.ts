@@ -23,6 +23,7 @@ export function qualifyScm(provider: ScmProvider): ScmProvider {
     listChangeRequests: async (repo, q) => (await provider.listChangeRequests(unqualify(repo), q)).map(qualifyCr),
     getChangeRequest: async (repo, number) => qualifyCr(await provider.getChangeRequest(unqualify(repo), number)),
     listReviewComments: (repo, number) => provider.listReviewComments(unqualify(repo), number),
+    replyToThread: (repo, number, threadId, body) => provider.replyToThread(unqualify(repo), number, threadId, body),
     comment: (repo, number, body, anchor) => provider.comment(unqualify(repo), number, body, anchor),
     markReady: (repo, number) => provider.markReady(unqualify(repo), number),
     merge: (repo, number, opts) => provider.merge(unqualify(repo), number, opts),

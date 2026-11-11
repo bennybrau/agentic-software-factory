@@ -38,7 +38,7 @@ function scmReturning(state: ChangeRequest['state']): ScmProvider {
     cloneCredential: async () => ({ url: repo.cloneUrl }),
     openChangeRequest: async () => cr, listChangeRequests: async () => [cr],
     getChangeRequest: async () => ({ ...cr, diffRefs: null }),
-    listReviewComments: async () => [], comment: async () => {},
+    listReviewComments: async () => [], replyToThread: async () => {}, comment: async () => {},
     markReady: async () => {}, merge: async () => {},
   } as ScmProvider;
 }

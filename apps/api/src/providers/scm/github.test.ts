@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GithubScmProvider, type GithubScmConfig } from './github.js';
-import type { Repo } from '@asf/shared';
+import { ASF_COMMENT_MARKER, type Repo } from '@asf/shared';
 
 const REPO_JSON = {
   full_name: 'acme/scratch', html_url: 'https://github.com/acme/scratch',
@@ -21,16 +21,19 @@ const cfg = (over: Partial<GithubScmConfig> = {}): GithubScmConfig => ({
   graphqlUrl: 'https://api.github.com/graphql', host: 'github.com', ...over,
 });
 
+/** `json` may be a function of the request body (to answer GraphQL by its variables). */
 function stubFetch(routes: Array<{ m: string; re: RegExp; status?: number; json?: unknown }>) {
   const calls: Array<{ method: string; url: string; body: unknown }> = [];
   const orig = globalThis.fetch;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
-    calls.push({ method, url: String(url), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    calls.push({ method, url: String(url), body });
     const r = routes.find((x) => x.m === method && x.re.test(String(url)));
     if (!r) throw new Error(`no stub for ${method} ${url}`);
+    const json = typeof r.json === 'function' ? (r.json as (b: unknown) => unknown)(body) : r.json;
     return { ok: (r.status ?? 200) < 400, status: r.status ?? 200,
-      json: async () => r.json, text: async () => JSON.stringify(r.json) } as Response;
+      json: async () => json, text: async () => JSON.stringify(json) } as Response;
   }) as typeof fetch;
   return { calls, restore: () => { globalThis.fetch = orig; } };
 }
@@ -127,6 +130,68 @@ test('markReady calls GraphQL markPullRequestReadyForReview with the node id', a
   } finally { s.restore(); }
 });
 
+// Shaped like GitHub's GraphQL reviewThreads response, two pages.
+const ghComment = (databaseId: number, login: string | null, body: string, createdAt: string) =>
+  ({ databaseId, author: login ? { login } : null, body, createdAt });
+const THREAD_PAGES: Record<string, unknown> = {
+  first: { data: { repository: { pullRequest: { reviewThreads: {
+    nodes: [
+      { id: 'PRRT_kwA1', isResolved: false, path: 'src/x.ts', line: 3, comments: { nodes: [
+        ghComment(11, 'alice', 'rename this', '2026-09-14T10:00:00Z'),
+        ghComment(12, 'asf-bot', `Renamed in abc123.\n\n${ASF_COMMENT_MARKER}`, '2026-09-14T11:00:00Z'),
+        ghComment(13, 'alice', 'thanks', '2026-09-14T12:00:00Z'),
+      ] } },
+    ],
+    pageInfo: { hasNextPage: true, endCursor: 'CUR1' },
+  } } } } },
+  CUR1: { data: { repository: { pullRequest: { reviewThreads: {
+    nodes: [
+      { id: 'PRRT_kwA2', isResolved: true, path: 'src/y.ts', line: null, comments: { nodes: [
+        ghComment(21, 'asf-bot', `nit: typo\n\n${ASF_COMMENT_MARKER}`, '2026-09-14T10:30:00Z'),
+      ] } },
+    ],
+    pageInfo: { hasNextPage: false, endCursor: 'CUR2' },
+  } } } } },
+};
+
+test('listReviewComments reads every page of review threads over GraphQL', async () => {
+  const s = stubFetch([
+    { m: 'GET', re: /\/user$/, json: { login: 'asf-bot' } },
+    { m: 'POST', re: /\/graphql$/, json: (b: { variables: { cursor: string | null } }) => THREAD_PAGES[b.variables.cursor ?? 'first'] },
+  ]);
+  try {
+    const p = new GithubScmProvider(cfg());
+    const ts = await p.listReviewComments(REPO, 5);
+    const gql = s.calls.filter((c) => c.url.endsWith('/graphql')).map((c) => (c.body as { variables: Record<string, unknown> }).variables);
+    assert.deepEqual(gql, [
+      { owner: 'acme', name: 'scratch', number: 5, cursor: null },
+      { owner: 'acme', name: 'scratch', number: 5, cursor: 'CUR1' },
+    ]);
+    assert.deepEqual(ts.map((t) => [t.id, t.resolved, t.path, t.line, t.author, t.authorIsTokenAccount, t.own]), [
+      ['PRRT_kwA1', false, 'src/x.ts', 3, 'alice', false, false],
+      ['PRRT_kwA2', true, 'src/y.ts', null, 'asf-bot', true, true],
+    ]);
+    assert.equal(ts[0].body, 'rename this');
+    assert.deepEqual(ts[0].replies.map((r) => [r.id, r.author, r.own]), [['12', 'asf-bot', true], ['13', 'alice', false]]);
+    assert.deepEqual(ts[1].replies, []);
+    // The login is cached: a second read doesn't ask /user again.
+    await p.listReviewComments(REPO, 5);
+    assert.equal(s.calls.filter((c) => c.url.endsWith('/user')).length, 1);
+  } finally { s.restore(); }
+});
+
+test('replyToThread posts addPullRequestReviewThreadReply on the thread id, with the marker', async () => {
+  const s = stubFetch([
+    { m: 'POST', re: /\/graphql$/, json: { data: { addPullRequestReviewThreadReply: { comment: { id: 'PRRC_1' } } } } },
+  ]);
+  try {
+    await new GithubScmProvider(cfg()).replyToThread(REPO, 5, 'PRRT_kwA1', 'Fixed in abc123.');
+    const gql = s.calls[0].body as { query: string; variables: { id: string; body: string } };
+    assert.match(gql.query, /addPullRequestReviewThreadReply\(input: \{ pullRequestReviewThreadId: \$id, body: \$body \}\)/);
+    assert.deepEqual(gql.variables, { id: 'PRRT_kwA1', body: `Fixed in abc123.\n\n${ASF_COMMENT_MARKER}` });
+  } finally { s.restore(); }
+});
+
 test('merge uses the requested method', async () => {
   const s = stubFetch([{ m: 'PUT', re: /\/pulls\/5\/merge$/, json: { merged: true } }]);
   try {
@@ -145,11 +210,13 @@ test('comment: plain body → issue comment; anchored → review line comment', 
   try {
     const p = new GithubScmProvider(cfg());
     await p.comment(REPO, 5, 'ship it');
-    assert.ok(s.calls.some((c) => /\/issues\/5\/comments$/.test(c.url)));
+    const plain = s.calls.find((c) => /\/issues\/5\/comments$/.test(c.url))!.body as { body: string };
+    assert.equal(plain.body, `ship it\n\n${ASF_COMMENT_MARKER}`);
     await p.comment(REPO, 5, 'nit', { path: 'src/x.ts', line: 10 });
-    const line = s.calls.find((c) => /\/pulls\/5\/comments$/.test(c.url))!.body as { commit_id: string; line: number };
+    const line = s.calls.find((c) => /\/pulls\/5\/comments$/.test(c.url))!.body as { commit_id: string; line: number; body: string };
     assert.equal(line.commit_id, 'headsha');
     assert.equal(line.line, 10);
+    assert.equal(line.body, `nit\n\n${ASF_COMMENT_MARKER}`);
   } finally { s.restore(); }
 });
 

@@ -77,8 +77,26 @@ sent again; Hive dedupes it.
 
 When `HIVE_URL` is set, the api also asks Hive for a briefing on the ticket
 (`POST <HIVE_URL>/v1/brief`) when a worker fetches a step's context, and the
-**planner** and **implementer** get it as a `## TEAM MEMORY (Hive)` section just
-above their role skill. The tester and reviewer get nothing.
+**planner**, **implementer** and **reviewer** get it as a `## TEAM MEMORY (Hive)`
+section just above their role skill. The tester gets nothing.
+
+- The **planner** and **implementer** are told to follow it. The planner also
+  ends `plan.md` with a `## Team memory` section (just before `Change-Type:`),
+  one line per Gotchas/Facts line in the briefing:
+
+  ```
+  ## Team memory
+  - [hive:0456204e] Keep human review of Hive facts: applied
+  - [hive:2793498f] Planner chat renders markdown: overridden: the ticket replaces the chat
+  - [hive:2d48f8c8] Things-to-do without MCP: doesn't apply here
+  ```
+
+  With no gotchas or facts it is the single line `Nothing remembered applies to
+  this ticket.` `parseTeamMemory` (`packages/shared/src/hive-brief.ts`) reads
+  the section back as `id8 → applied | overridden (+ reason) | not_applicable`.
+- The **reviewer** treats a change that contradicts a remembered decision as a
+  finding citing its `[hive:<id8>]`, unless the plan's Team memory section
+  overrode that fact with a reason.
 
 - **What is asked:** the ticket title and body (cut to 4,000 characters), the
   run's repo as `repo_key`, the other repositories the ticket names as

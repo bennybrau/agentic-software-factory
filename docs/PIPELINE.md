@@ -20,6 +20,8 @@ Changes apply to the next dispatch — no redeploy.
 
 Each stage's output is visible on the run (the **Stage output** card); the created MR/PR and its state show in the **Delivery** card.
 
+With Hive on, the reviewer gets the ticket's team-memory briefing too: a change that contradicts a remembered decision is a finding citing its `[hive:<id8>]`, unless the plan's `## Team memory` section overrode that fact with a reason. See [HIVE.md](HIVE.md#what-the-planner-reads).
+
 ## Gate modes
 
 - **Human approves** (`required`) — the run pauses; a person approves or rejects (a reject sends the work back with a note).

@@ -8,6 +8,12 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Skills can come from private repositories.** Settings → Skills now reads a private GitHub or
+  GitLab folder with the token you already saved for that host (`GITHUB_TOKEN`, or `GITLAB_TOKEN`
+  for the `GITLAB_BASE_URL` host). The token goes only to its own host, in a header, with redirects
+  off; a link to any other host is still fetched anonymously. Skills are still fetched by the api and
+  stored pinned to a commit, so workers never see the token. If the host refuses the token, the error
+  says so. See [docs/PIPELINE.md](docs/PIPELINE.md#role-skills--standing-per-role-guidance).
 - **The planner and implementer read Hive's briefing.** With `HIVE_URL` set, they get a
   `TEAM MEMORY (Hive)` section with what the team already settled for the ticket's repo (playbook,
   gotchas, facts, where to look, past runs, tests), and cite `[hive:<id>]`. 2 s timeout; turn it off

@@ -4,12 +4,32 @@ import type { ThirdPartySkill } from '@asf/shared';
 import { registry } from '../registry/client.js';
 import { resolveIdentity } from '../identity.js';
 import { fetchSkill } from '../skills/fetch.js';
+import type { SkillCredentials } from '../skills/fetch.js';
+import { cfg } from '../settings.js';
+import { resolveProviderSecret } from '../providers/secrets.js';
 
 /**
- * Third-party skills: an operator points at a public GitHub or GitLab folder
- * holding a SKILL.md; the api fetches it (pinned to a commit) and the registry
- * stores it, off until enabled for some roles. Refresh re-reads the same link.
+ * Third-party skills: an operator points at a GitHub or GitLab folder holding a
+ * SKILL.md; the api fetches it (pinned to a commit) and the registry stores it,
+ * off until enabled for some roles. Refresh re-reads the same link.
+ *
+ * A private repository is read with the SCM token already saved in Settings
+ * (GITHUB_TOKEN, or GITLAB_TOKEN for the GITLAB_BASE_URL host), sent only to
+ * that host. The workers never fetch skills, so they never see the token.
  */
+
+/** The saved SCM tokens, resolved now so a token changed in Settings applies at once. A bad pointer means anonymous. */
+export async function savedSkillCredentials(): Promise<SkillCredentials> {
+  const creds: SkillCredentials = {};
+  const resolve = async (v: string) => (v ? resolveProviderSecret(v).catch(() => '') : '');
+  const github = await resolve(cfg('GITHUB_TOKEN'));
+  if (github) creds.github = github;
+  const gitlab = await resolve(cfg('GITLAB_TOKEN'));
+  let host = '';
+  try { host = new URL(cfg('GITLAB_BASE_URL')).hostname.toLowerCase(); } catch { /* not a URL: no GitLab token */ }
+  if (gitlab && host) creds.gitlab = { host, token: gitlab };
+  return creds;
+}
 
 const bad = (reply: FastifyReply, code: number, error: string, reason: string) => reply.code(code).send({ error, reason });
 
@@ -35,8 +55,9 @@ export function idFromName(name: string): string | null {
 /** The registry's reason when it refused with a 409 (skill_error), else null. */
 const conflict = (e: unknown): string | null => /registry rpc \w+ failed: 409 (.*)$/.exec((e as Error).message)?.[1]?.trim() ?? null;
 
-export function registerSkillRoutes(app: FastifyInstance, deps: { fetchSkill?: typeof fetchSkill } = {}): void {
-  const fetcher = deps.fetchSkill ?? fetchSkill;
+export function registerSkillRoutes(app: FastifyInstance, deps: { fetchSkill?: typeof fetchSkill; credentials?: () => Promise<SkillCredentials> } = {}): void {
+  const credentials = deps.credentials ?? savedSkillCredentials;
+  const fetcher = async (url: string) => (deps.fetchSkill ?? fetchSkill)(url, { credentials: await credentials() });
 
   /** The stored skill for a route id, or null (an id that can't exist is just unknown). */
   const find = async (id: string) => (SKILL_ID_RE.test(id) ? (await registry.getSkill(id)).skill : null);

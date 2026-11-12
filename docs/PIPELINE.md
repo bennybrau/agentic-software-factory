@@ -129,3 +129,18 @@ editing the shipped template or re-typing it per ticket.
   can't silently derail a run.
 - Leave a role's skill blank to append nothing (the prompt is byte-identical to
   the shipped template).
+
+### Skills from private repositories
+
+Settings → Skills accepts a link to a folder in a private GitHub or GitLab repository. The api
+fetches it with the token you already saved in Settings: `GITHUB_TOKEN` for github.com, `GITLAB_TOKEN`
+for the host in `GITLAB_BASE_URL` (a self-managed GitLab works). The token is never sent to any other
+host, never put in a URL, and redirects are refused while it is attached. A link to a different host is
+fetched anonymously, so it only works for a public repository.
+
+- **Scopes:** reading skills needs only read access to the repository's contents (`read_repository`
+  on GitLab, Contents: read on a GitHub fine-grained token). The SCM provider's own scopes are unchanged.
+- **Who holds the token:** only the api. Skills are stored in the registry as text, pinned to a commit,
+  and delivered to workers in the run context, so workers and agents never see the token.
+- **Refresh** re-reads the link with the token saved at that moment, so rotating it in Settings needs
+  no other change.

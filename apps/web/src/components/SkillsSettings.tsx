@@ -69,7 +69,7 @@ function AddSkill({ onAdded }: { onAdded: () => void }) {
     <div className="guided skill-add">
       <span>
         <label className="q-title" htmlFor="skill-url">Add a skill</label>
-        <span className="muted">A link to a public folder with a SKILL.md, like <span className="mono">https://github.com/owner/repo/tree/main/skills/my-skill</span>.</span>
+        <span className="muted">A link to a folder with a SKILL.md, like <span className="mono">https://github.com/owner/repo/tree/main/skills/my-skill</span>. Private repositories work too: ASF uses the GitHub or GitLab token saved in Settings, for that host only.</span>
         <span className="row">
           <input id="skill-url" type="url" value={url} placeholder="https://github.com/…" disabled={busy}
             onChange={(e) => { setUrl(e.target.value); setPreview(null); }}

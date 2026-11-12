@@ -129,7 +129,7 @@ export const SETTINGS = {
     description: 'Jira: comma-separated Agile board ids that make up the backlog scope. When set, the provider reads the boards\' issues over the Agile API (scoped to each board\'s saved filter and paginated in Jira) instead of pulling a whole project — the way to avoid loading all of a large project. When empty, it falls back to the JIRA_PROJECTS / JIRA_JQL_TEMPLATE path.' }),
   JIRA_TEAMS: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
     description: 'Jira: optional named groups of boards for the Team shortcut in the backlog UI, e.g. "payments=42,43; identity=51". Purely a grouping of JIRA_BOARDS ids — no Jira Team field is read.' }),
-  GITHUB_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Providers', readBy: ['api'], description: 'GitHub: fine-grained PAT or App token; repo + issues scopes.' }),
+  GITHUB_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Providers', readBy: ['api'], description: 'GitHub: fine-grained PAT or App token; repo + issues scopes. Also used, only against github.com, to read skills from private repositories (needs read access to contents).' }),
   GITHUB_REPOS: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'], description: 'GitHub: comma-separated owner/repo the backlog and repo picker cover.' }),
   GITHUB_BUCKET_MAP: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
     description: 'GitHub: comma-separated label=bucket rules mapping issue labels to a bucket (e.g. "status:in progress=inflight,status:review=review"). First matching rule wins; unmatched open issues fall to backlog, closed to done.' }),
@@ -140,7 +140,7 @@ export const SETTINGS = {
   TRELLO_LIST_BUCKET_MAP: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
     description: 'Trello: comma-separated listName=bucket rules mapping a card\'s list to a bucket (e.g. "Doing=inflight,Review=review"). First matching rule wins; unmatched cards fall back to a position heuristic (first list→backlog, last→done, else inflight).' }),
   GITLAB_BASE_URL: S({ type: 'string', default: 'https://gitlab.com', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'], description: 'GitLab instance base URL (self-managed or gitlab.com).' }),
-  GITLAB_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Providers', readBy: ['api'], description: 'GitLab: PAT with api scope (Developer+ on the target projects).' }),
+  GITLAB_TOKEN: S({ type: 'string', default: '', tiers: ['env', 'org'], secret: true, group: 'Providers', readBy: ['api'], description: 'GitLab: PAT with api scope (Developer+ on the target projects). Also used, only against the GITLAB_BASE_URL host, to read skills from private repositories (read_repository is enough for that).' }),
   GITLAB_REPOS: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'], description: 'GitLab: comma-separated group/repo (path_with_namespace) the backlog and repo picker cover.' }),
 
   // ------------------------------------------------- ticket workflow (status transitions)

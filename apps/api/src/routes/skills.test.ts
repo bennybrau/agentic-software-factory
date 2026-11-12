@@ -190,3 +190,18 @@ test('DELETE /api/skills/:id removes a skill; unknown is 404', async () => {
   assert.equal((await a.inject({ method: 'DELETE', url: '/api/skills/NOT_AN_ID' })).statusCode, 404);
   await a.close();
 });
+
+test('routes hand the saved credentials to the fetcher, for preview, add and refresh', async () => {
+  stubRegistry([stored('pdf-tools')]);
+  const seen: unknown[] = [];
+  const a = Fastify();
+  registerSkillRoutes(a, {
+    credentials: async () => ({ github: 'ghp-x' }),
+    fetchSkill: async (_url, opts) => { seen.push(opts?.credentials); return fetched(); },
+  });
+  await a.ready();
+  await a.inject({ method: 'POST', url: '/api/skills/preview', payload: { url: URL_ } });
+  await a.inject({ method: 'POST', url: '/api/skills', payload: { url: URL_, id: 'another' } });
+  await a.inject({ method: 'POST', url: '/api/skills/pdf-tools/refresh' });
+  assert.deepEqual(seen, [{ github: 'ghp-x' }, { github: 'ghp-x' }, { github: 'ghp-x' }]);
+});

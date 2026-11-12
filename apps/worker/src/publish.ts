@@ -8,7 +8,7 @@ import { changeType } from './commit-type.js';
 
 /** Role artifacts belong in the run dir, not the delivered repo. An agent that wrote one
  *  with a relative path lands it in the worktree; drop those before the publish commit. */
-const ARTIFACT_FILES = ['plan.md', 'test-report.md', 'review.md', 'human-reply.md'];
+const ARTIFACT_FILES = ['plan.md', 'test-report.md', 'review.md', 'human-reply.md', 'thread-replies.json'];
 async function dropStrayArtifacts(worktree: string): Promise<void> {
   await Promise.all(ARTIFACT_FILES.map((f) => rm(join(worktree, f), { force: true }).catch(() => {})));
 }
@@ -50,6 +50,14 @@ export async function runPublish(claim: ClaimResponse & object, ctx: RunContext,
     // Changes requested on a PR this run already opened: the push updated it. Never open a second one.
     if (run.changeRequestNumber != null) {
       await api.event(run.id, 'change_request:updated', { number: run.changeRequestNumber, url: run.changeRequestUrl }, task.id);
+      // Answer the review threads this round addressed (#109). A failed reply never fails the push.
+      try {
+        await api.replyToThreads(run.id, run.changeRequestNumber);
+      } catch (e) {
+        const reason = (e as Error).message;
+        log(`replying on review threads failed: ${reason}`);
+        await api.event(run.id, 'review_threads:reply_failed', { reason }, task.id);
+      }
       return { outcome: 'done', reason: null, costUsd: 0 };
     }
 

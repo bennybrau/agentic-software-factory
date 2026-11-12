@@ -33,8 +33,13 @@ const ctx = (): RunContext => ({
 } as unknown as RunContext);
 
 type Call = { what: string; args: unknown[] };
-function stubApi(artifacts: { name: string; content: string }[] = []): Call[] {
+function stubApi(artifacts: { name: string; content: string }[] = [], replyError: string | null = null): Call[] {
   const calls: Call[] = [];
+  api.replyToThreads = async (...args: unknown[]) => {
+    calls.push({ what: 'replyToThreads', args });
+    if (replyError) throw new Error(replyError);
+    return { replied: [], failed: [] };
+  };
   api.event = async (...args: unknown[]) => { calls.push({ what: 'event', args }); };
   api.openChangeRequest = async (...args: unknown[]) => { calls.push({ what: 'open', args }); return { number: 3, url: 'https://github.com/o/r/pull/3' }; };
   api.markReadyChangeRequest = async (...args: unknown[]) => { calls.push({ what: 'markReady', args }); };
@@ -67,6 +72,7 @@ test('push_open opens one PR; after changes are requested it pushes onto that PR
   assert.equal(first.outcome, 'done');
   assert.equal(calls.filter((c) => c.what === 'open').length, 1);
   assert.ok(calls.some((c) => c.what === 'event' && c.args[1] === 'change_request:opened'));
+  assert.ok(!calls.some((c) => c.what === 'replyToThreads'), 'nothing to reply on when the PR is new');
 
   // Round 2: the run carries the PR, the worktree is gone, the revision is committed on the rebuilt branch.
   const r2 = run({ changeRequestNumber: 3, changeRequestUrl: 'https://github.com/o/r/pull/3', changeRequestState: 'ready' });
@@ -81,6 +87,7 @@ test('push_open opens one PR; after changes are requested it pushes onto that PR
   assert.equal(calls.filter((c) => c.what === 'open').length, 0, 'no second PR');
   const updated = calls.find((c) => c.what === 'event' && c.args[1] === 'change_request:updated');
   assert.deepEqual(updated?.args[2], { number: 3, url: 'https://github.com/o/r/pull/3' });
+  assert.deepEqual(calls.filter((c) => c.what === 'replyToThreads').map((c) => c.args), [['run_pub0000001', 3]], 'the update push replies on the threads');
   const pushed = (await exec('git', ['show', `${ws2.branchName}:feature.txt`], { cwd: originDir })).stdout;
   assert.equal(pushed, 'round 2\n', 'the revision is on the PR branch');
 
@@ -108,4 +115,18 @@ test('push_open types the commit and the PR title from review.md, then plan.md',
   assert.equal((open?.args[1] as { title: string }).title, 'feat: ASF-P: Publish it');
   const subject = (await exec('git', ['log', '-1', '--format=%s', ws.branchName], { cwd: originDir })).stdout.trim();
   assert.equal(subject, 'feat: ASF-P Publish it');
+});
+
+test('push_open onto an open PR: a failed thread reply is recorded and the push still succeeds', async () => {
+  const r = run({ id: 'run_pubreply01', changeRequestNumber: 3, changeRequestUrl: 'https://github.com/o/r/pull/3' });
+  const ws = await git.ensureWorkspace(r, ctx().repo!, ctx().cloneCredential!, () => {});
+  await writeFile(join(ws.worktreePath, 'reply.txt'), 'x\n');
+  await git.commitPending(ws, r, 'implementer', 'wip', () => {});
+
+  const calls = stubApi([], 'POST /api/scm/thread-replies -> 502 {}');
+  const res = await publish.runPublish({ run: r, task: task('publish:push_open'), team: STANDARD_TEAM }, ctx(), () => {});
+  assert.equal(res.outcome, 'done', res.reason ?? '');
+  assert.equal(calls.filter((c) => c.what === 'replyToThreads').length, 1);
+  const failed = calls.find((c) => c.what === 'event' && c.args[1] === 'review_threads:reply_failed');
+  assert.deepEqual(failed?.args[2], { reason: 'POST /api/scm/thread-replies -> 502 {}' });
 });

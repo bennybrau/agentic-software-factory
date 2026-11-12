@@ -72,7 +72,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 | `JIRA_BUCKET_MAP` | string | *(blank)* | env, org | api | Jira: comma-separated status=bucket rules mapping a raw status name to a bucket (e.g. "In Progress=inflight,In Review=review"). First matching rule wins; unmatched statuses fall back to the issue statusCategory (new→backlog, indeterminate→inflight, done→done). |
 | `JIRA_BOARDS` | string | *(blank)* | env, org | api | Jira: comma-separated Agile board ids that make up the backlog scope. When set, the provider reads the boards' issues over the Agile API (scoped to each board's saved filter and paginated in Jira) instead of pulling a whole project — the way to avoid loading all of a large project. When empty, it falls back to the JIRA_PROJECTS / JIRA_JQL_TEMPLATE path. |
 | `JIRA_TEAMS` | string | *(blank)* | env, org | api | Jira: optional named groups of boards for the Team shortcut in the backlog UI, e.g. "payments=42,43; identity=51". Purely a grouping of JIRA_BOARDS ids — no Jira Team field is read. |
-| `GITHUB_TOKEN` | string | *(secret)* | env, org | api | GitHub: fine-grained PAT or App token; repo + issues scopes. |
+| `GITHUB_TOKEN` | string | *(secret)* | env, org | api | GitHub: fine-grained PAT or App token; repo + issues scopes. Also used, only against github.com, to read skills from private repositories (needs read access to contents). |
 | `GITHUB_REPOS` | string | *(blank)* | env, org | api | GitHub: comma-separated owner/repo the backlog and repo picker cover. |
 | `GITHUB_BUCKET_MAP` | string | *(blank)* | env, org | api | GitHub: comma-separated label=bucket rules mapping issue labels to a bucket (e.g. "status:in progress=inflight,status:review=review"). First matching rule wins; unmatched open issues fall to backlog, closed to done. |
 | `GITHUB_API_URL` | string | `https://api.github.com` | env, org | api | GitHub REST/GraphQL API base (change for GitHub Enterprise Server). |
@@ -81,7 +81,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 | `TRELLO_BOARDS` | string | *(blank)* | env, org | api | Trello: comma-separated board ids the backlog covers. |
 | `TRELLO_LIST_BUCKET_MAP` | string | *(blank)* | env, org | api | Trello: comma-separated listName=bucket rules mapping a card's list to a bucket (e.g. "Doing=inflight,Review=review"). First matching rule wins; unmatched cards fall back to a position heuristic (first list→backlog, last→done, else inflight). |
 | `GITLAB_BASE_URL` | string | `https://gitlab.com` | env, org | api | GitLab instance base URL (self-managed or gitlab.com). |
-| `GITLAB_TOKEN` | string | *(secret)* | env, org | api | GitLab: PAT with api scope (Developer+ on the target projects). |
+| `GITLAB_TOKEN` | string | *(secret)* | env, org | api | GitLab: PAT with api scope (Developer+ on the target projects). Also used, only against the GITLAB_BASE_URL host, to read skills from private repositories (read_repository is enough for that). |
 | `GITLAB_REPOS` | string | *(blank)* | env, org | api | GitLab: comma-separated group/repo (path_with_namespace) the backlog and repo picker cover. |
 
 ## Ticket workflow

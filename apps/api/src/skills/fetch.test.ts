@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SKILL_MAX_FILES, SKILL_MAX_TOTAL_BYTES } from '@asf/shared';
-import { fetchSkill, parseFrontmatter, parseSkillUrl } from './fetch.js';
+import { fetchSkill, parseFrontmatter, parseSkillUrl, tokenFor } from './fetch.js';
 
 const SHA = 'a'.repeat(40);
 const SKILL_MD = '---\nname: pdf-tools\ndescription: "Work with PDFs: split, merge."\n---\n# PDF tools\n';
@@ -192,4 +192,80 @@ test('too many files, or too many bytes, are refused', async () => {
   const r3 = await fetchSkill('https://github.com/acme/skills/tree/main/skills/pdf', { fetch: byBytes.fetch });
   assert.ok(!r3.ok);
   assert.match(r3.reason, /bigger than/);
+});
+
+// ---- private repositories: the token goes only to its own host -------------------------
+
+const headersOf = (init?: RequestInit) => new Headers(init?.headers);
+
+/** Like fakeFetch, but only answers a request that carries `want`, and records every request's headers by URL. */
+function guarded(routes: Routes, want: (h: Headers) => boolean) {
+  const seen: { url: string; headers: Headers; redirect?: string }[] = [];
+  const f = (async (input: string, init?: RequestInit) => {
+    const h = headersOf(init);
+    seen.push({ url: input, headers: h, redirect: init?.redirect });
+    if (!want(h)) return new Response('nope', { status: 404 });
+    const r = routes[input];
+    return r ? r() : new Response('not found', { status: 404 });
+  }) as unknown as typeof fetch;
+  return { fetch: f, seen };
+}
+
+test('GitLab: a private repo is read with the token for that host, in a header, never in the URL', async () => {
+  const api = 'https://git.corp.example/api/v4/projects/team%2Fskills/repository';
+  const { fetch, seen } = guarded({
+    [`${api}/commits/main`]: json({ id: SHA }),
+    [`${api}/tree?recursive=true&ref=${SHA}&path=pdf&per_page=100&page=1`]: json([{ path: 'pdf/SKILL.md', type: 'blob', mode: '100644' }]),
+    [`${api}/files/pdf%2FSKILL.md/raw?ref=${SHA}`]: text(SKILL_MD),
+  }, (h) => h.get('private-token') === 'glpat-secret');
+  const url = 'https://git.corp.example/team/skills/-/tree/main/pdf';
+  const r = await fetchSkill(url, { fetch, credentials: { gitlab: { host: 'git.corp.example', token: 'glpat-secret' } } });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.equal(seen.length, 3);
+  assert.ok(seen.every((s) => s.redirect === 'error' && !s.url.includes('glpat-secret')));
+  // The same link with no token behaves as before, and the error says how to fix it.
+  const anon = await fetchSkill(url, { fetch });
+  assert.ok(!anon.ok);
+  assert.match(anon.reason, /GITLAB_TOKEN/);
+});
+
+test('GitLab: a token for another host is never sent', async () => {
+  const { fetch, seen } = guarded({}, () => true);
+  const r = await fetchSkill('https://gitlab.com/team/skills/-/tree/main/pdf', { fetch, credentials: { gitlab: { host: 'git.corp.example', token: 'glpat-secret' }, github: 'ghp-secret' } });
+  assert.ok(!r.ok);
+  assert.ok(seen.length > 0);
+  assert.ok(seen.every((s) => !s.headers.has('private-token') && !s.headers.has('authorization')));
+});
+
+test('GitHub: a private repo is read through the API with a bearer token; raw.githubusercontent is not used', async () => {
+  const contents = `${GH}/contents/skills/pdf/SKILL.md?ref=${SHA}`;
+  const { fetch, seen } = guarded({
+    [`${GH}/commits/main`]: json({ sha: SHA }),
+    [`${GH}/git/trees/${SHA}?recursive=1`]: json({ truncated: false, tree: [{ path: 'skills/pdf/SKILL.md', type: 'blob', mode: '100644', size: SKILL_MD.length }] }),
+    [contents]: text(SKILL_MD),
+  }, (h) => h.get('authorization') === 'Bearer ghp-secret');
+  const r = await fetchSkill('https://github.com/acme/skills/tree/main/skills/pdf', { fetch, credentials: { github: 'ghp-secret' } });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.ok(seen.every((s) => !s.url.includes('raw.githubusercontent.com') && s.redirect === 'error'));
+  assert.equal(seen.find((s) => s.url === contents)?.headers.get('accept'), 'application/vnd.github.raw+json');
+  const anon = await fetchSkill('https://github.com/acme/skills/tree/main/skills/pdf', { fetch });
+  assert.ok(!anon.ok);
+  assert.match(anon.reason, /GITHUB_TOKEN/);
+});
+
+test('a token the host rejects gives a clear reason that does not repeat the token', async () => {
+  const { fetch } = guarded({}, () => false);
+  const r = await fetchSkill('https://github.com/acme/skills/tree/main/skills/pdf', { fetch, credentials: { github: 'ghp-secret' } });
+  assert.ok(!r.ok);
+  assert.match(r.reason, /saved access token/);
+  assert.ok(!r.reason.includes('ghp-secret'));
+});
+
+test('tokenFor matches the GitLab host case-insensitively and ignores blank tokens', () => {
+  const loc = parseSkillUrl('https://git.corp.example/g/p/-/tree/main/x');
+  assert.ok(loc.ok);
+  assert.equal(tokenFor(loc, { gitlab: { host: 'git.corp.example', token: ' t ' } }), 't');
+  assert.equal(tokenFor(loc, { gitlab: { host: 'git.corp.example', token: '  ' } }), undefined);
+  assert.equal(tokenFor(loc, { github: 'x' }), undefined);
+  assert.equal(tokenFor(loc, undefined), undefined);
 });

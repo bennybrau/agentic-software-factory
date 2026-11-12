@@ -4,8 +4,10 @@ import {
 import type { SkillFile } from '@asf/shared';
 
 /**
- * Third-party skills from a public GitHub or GitLab folder. Anonymous only:
- * no token is ever sent. The ref in the URL is pinned to the commit it names
+ * Third-party skills from a GitHub or GitLab folder. Public repositories are
+ * read anonymously. For a private one, the caller may pass the SCM token that
+ * belongs to that exact host (`SkillCredentials`); it is sent only there and
+ * never follows a redirect. The ref in the URL is pinned to the commit it names
  * right now, and only text files make it in; anything else is skipped and
  * reported so the operator sees what was left out.
  */
@@ -39,6 +41,16 @@ export interface FetchedSkill {
   sourceRef: string;
   commitSha: string;
   files: SkillFile[];
+}
+
+/**
+ * Tokens the fetcher may use. A token is only ever sent to its own host: `github`
+ * to github.com, `gitlab.token` to `gitlab.host` (the GITLAB_BASE_URL host).
+ * A link to any other host is fetched anonymously.
+ */
+export interface SkillCredentials {
+  github?: string;
+  gitlab?: { host: string; token: string };
 }
 
 export type SkillFetchResult =
@@ -150,9 +162,14 @@ async function get(fetchImpl: typeof fetch, url: string, init: RequestInit = {})
   }
 }
 
-function failed(res: Response, what: string): Refusal {
+const NO_TOKEN_HINT = 'Only public repositories can be read without a token; to use a private one, set the host\u2019s access token in Settings (GITHUB_TOKEN or GITLAB_TOKEN, with read access to the repository).';
+
+function failed(res: Response, what: string, authed = false): Refusal {
+  if (authed && (res.status === 401 || res.status === 403 || res.status === 404)) {
+    return new Refusal(`${what} was refused (${res.status}) even with the saved access token. Check the token is valid, has read access to the repository (read_repository on GitLab), and that the link is right.`);
+  }
   if (res.status === 403 || res.status === 429) return new Refusal(`${what} was refused (${res.status}); the host may be rate-limiting anonymous requests. Try again later.`);
-  if (res.status === 401 || res.status === 404) return new Refusal(`${what} was not found (${res.status}). Only public repositories can be used.`);
+  if (res.status === 401 || res.status === 404) return new Refusal(`${what} was not found (${res.status}). ${NO_TOKEN_HINT}`);
   return new Refusal(`${what} failed (${res.status}).`);
 }
 
@@ -160,19 +177,21 @@ async function json<T>(res: Response, what: string): Promise<T> {
   try { return (await res.json()) as T; } catch { throw new Refusal(`${what} did not answer with JSON.`); }
 }
 
-function githubSource(loc: SkillLocation, fetchImpl: typeof fetch): Source {
+function githubSource(loc: SkillLocation, fetchImpl: typeof fetch, token?: string): Source {
   const api = `https://api.github.com/repos/${loc.project}`;
-  const headers = { accept: 'application/vnd.github+json', 'user-agent': 'asf-skills' };
+  const headers: Record<string, string> = { accept: 'application/vnd.github+json', 'user-agent': 'asf-skills', ...(token ? { authorization: `Bearer ${token}` } : {}) };
+  // With a token, never follow a redirect: it could carry the token somewhere else.
+  const init: RequestInit = token ? { headers, redirect: 'error' } : { headers };
   return {
     async commit(ref) {
-      const res = await get(fetchImpl, `${api}/commits/${encodeURIComponent(ref)}`, { headers });
+      const res = await get(fetchImpl, `${api}/commits/${encodeURIComponent(ref)}`, init);
       if (res.status === 404 || res.status === 422) return null;
-      if (!res.ok) throw failed(res, `Looking up ${ref} in ${loc.project}`);
+      if (!res.ok) throw failed(res, `Looking up ${ref} in ${loc.project}`, !!token);
       return (await json<{ sha?: string }>(res, 'GitHub')).sha ?? null;
     },
     async tree(sha, path) {
-      const res = await get(fetchImpl, `${api}/git/trees/${sha}?recursive=1`, { headers });
-      if (!res.ok) throw failed(res, `Listing ${loc.project}`);
+      const res = await get(fetchImpl, `${api}/git/trees/${sha}?recursive=1`, init);
+      if (!res.ok) throw failed(res, `Listing ${loc.project}`, !!token);
       const body = await json<{ truncated?: boolean; tree?: { path: string; type: string; mode?: string; size?: number }[] }>(res, 'GitHub');
       if (body.truncated) throw new Refusal(`${loc.project} is too big for GitHub to list in one go. Use a smaller repository.`);
       const prefix = path ? `${path}/` : '';
@@ -182,19 +201,25 @@ function githubSource(loc: SkillLocation, fetchImpl: typeof fetch): Source {
         symlinks: inside.filter((e) => e.mode === '120000').map((e) => e.path),
       };
     },
-    raw: (sha, path) => get(fetchImpl, `https://raw.githubusercontent.com/${loc.project}/${sha}/${path.split('/').map(encodeURIComponent).join('/')}`),
+    // Anonymous: raw.githubusercontent.com. With a token: the contents API, which accepts it for private repositories.
+    raw: (sha, path) => {
+      const enc = path.split('/').map(encodeURIComponent).join('/');
+      if (!token) return get(fetchImpl, `https://raw.githubusercontent.com/${loc.project}/${sha}/${enc}`);
+      return get(fetchImpl, `${api}/contents/${enc}?ref=${sha}`, { headers: { ...headers, accept: 'application/vnd.github.raw+json' }, redirect: 'error' });
+    },
   };
 }
 
-function gitlabSource(loc: SkillLocation, fetchImpl: typeof fetch): Source {
+function gitlabSource(loc: SkillLocation, fetchImpl: typeof fetch, token?: string): Source {
   const api = `https://${loc.host}/api/v4/projects/${encodeURIComponent(loc.project)}/repository`;
   // Any host can be a GitLab; don't follow it somewhere else.
-  const init: RequestInit = { redirect: 'error' };
+  const init: RequestInit = { redirect: 'error', ...(token ? { headers: { 'private-token': token } } : {}) };
+  const authed = !!token;
   return {
     async commit(ref) {
       const res = await get(fetchImpl, `${api}/commits/${encodeURIComponent(ref)}`, init);
       if (res.status === 404) return null;
-      if (!res.ok) throw failed(res, `Looking up ${ref} in ${loc.project}`);
+      if (!res.ok) throw failed(res, `Looking up ${ref} in ${loc.project}`, authed);
       return (await json<{ id?: string }>(res, 'GitLab')).id ?? null;
     },
     async tree(sha, path) {
@@ -203,7 +228,7 @@ function gitlabSource(loc: SkillLocation, fetchImpl: typeof fetch): Source {
       for (let page = 1; page <= MAX_TREE_PAGES; page++) {
         const q = new URLSearchParams({ recursive: 'true', ref: sha, path, per_page: '100', page: String(page) });
         const res = await get(fetchImpl, `${api}/tree?${q}`, init);
-        if (!res.ok) throw failed(res, `Listing ${path || 'the root'} of ${loc.project}`);
+        if (!res.ok) throw failed(res, `Listing ${path || 'the root'} of ${loc.project}`, authed);
         const rows = await json<{ path: string; type: string; mode?: string }[]>(res, 'GitLab');
         for (const e of rows) {
           if (e.type !== 'blob') continue;
@@ -239,12 +264,21 @@ async function readCapped(res: Response, limit: number): Promise<Uint8Array | nu
 
 const tooBig = () => new Refusal(`The skill is bigger than ${SKILL_MAX_TOTAL_BYTES / 1024} KB of text files.`);
 
-/** Fetch a skill folder from a public GitHub or GitLab repository, pinned to the commit its ref names now. */
-export async function fetchSkill(url: string, opts: { fetch?: typeof fetch } = {}): Promise<SkillFetchResult> {
+/** The token that belongs to this link's host, or undefined (anonymous). */
+export function tokenFor(loc: SkillLocation, creds: SkillCredentials | undefined): string | undefined {
+  if (!creds) return undefined;
+  if (loc.kind === 'github') return creds.github?.trim() || undefined;
+  const g = creds.gitlab;
+  return g?.token.trim() && g.host.toLowerCase() === loc.host ? g.token.trim() : undefined;
+}
+
+/** Fetch a skill folder from a GitHub or GitLab repository, pinned to the commit its ref names now. Private ones need `opts.credentials`. */
+export async function fetchSkill(url: string, opts: { fetch?: typeof fetch; credentials?: SkillCredentials } = {}): Promise<SkillFetchResult> {
   const loc = parseSkillUrl(url);
   if (!loc.ok) return loc;
   const fetchImpl = opts.fetch ?? fetch;
-  const source = loc.kind === 'github' ? githubSource(loc, fetchImpl) : gitlabSource(loc, fetchImpl);
+  const token = tokenFor(loc, opts.credentials);
+  const source = loc.kind === 'github' ? githubSource(loc, fetchImpl, token) : gitlabSource(loc, fetchImpl, token);
   try {
     let pinned: { ref: string; path: string; sha: string } | null = null;
     for (let k = 1; k <= Math.min(MAX_REF_SEGMENTS, loc.segments.length); k++) {
@@ -252,7 +286,7 @@ export async function fetchSkill(url: string, opts: { fetch?: typeof fetch } = {
       const sha = await source.commit(ref);
       if (sha) { pinned = { ref, path: loc.segments.slice(k).join('/'), sha }; break; }
     }
-    if (!pinned) return refuse(`Could not find ${loc.ref} in ${loc.project}. Check the link, and that the repository is public.`);
+    if (!pinned) return refuse(`Could not find ${loc.ref} in ${loc.project}. Check the link. ${token ? 'The saved access token could not see it.' : NO_TOKEN_HINT}`);
     const { ref, path, sha } = pinned;
     if (!/^[0-9a-f]{7,64}$/i.test(sha)) return refuse(`${loc.host} answered with an odd commit id for ${ref}.`);
 
@@ -279,7 +313,7 @@ export async function fetchSkill(url: string, opts: { fetch?: typeof fetch } = {
     const utf8 = new TextDecoder('utf-8', { fatal: true });
     for (const e of wanted.sort((a, b) => a.path.localeCompare(b.path))) {
       const res = await source.raw(sha, prefix + e.path);
-      if (!res.ok) throw failed(res, `Downloading ${e.path}`);
+      if (!res.ok) throw failed(res, `Downloading ${e.path}`, !!token);
       const bytes = await readCapped(res, SKILL_MAX_TOTAL_BYTES - total);
       if (!bytes) throw tooBig();
       total += bytes.length;

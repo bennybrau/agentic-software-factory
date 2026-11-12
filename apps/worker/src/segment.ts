@@ -13,6 +13,7 @@ import { auditWorktree, watchCancel } from './guard.js';
 import { skillsForRole, installNativeSkills, writeFallbackSkills, type FallbackSkill } from './skills.js';
 
 const HOOKS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../hooks');
+const THREAD_REPLIES = 'thread-replies.json';
 
 export function roleWrites(team: TeamTemplate, role: string): boolean {
   return team.roles.find((r) => r.role === role)?.writes ?? false;
@@ -479,6 +480,11 @@ async function runSegmentWith(claim: ClaimResponse & object, ctx: RunContext, lo
       if (ws?.worktreePath || art.source === 'reply') await writeFile(join(runDir, outputRef), art.body, 'utf8').catch(() => {});
       await api.saveArtifact(run.id, outputRef, art.body, { taskId: task.id });
     }
+  }
+  // Replies to the review threads the plan addressed (#109): the publish step posts them after the push.
+  if (String(task.role) === 'implementer' && outcome.outcome === 'done') {
+    const replies = await readArtifact(runDir, THREAD_REPLIES, ws?.worktreePath);
+    if (replies?.trim()) await api.saveArtifact(run.id, THREAD_REPLIES, replies, { taskId: task.id });
   }
   // The planner's side of the chat: its questions, or (with the plan written) its
   // short note to the person. The session id rides along so the next turn resumes.

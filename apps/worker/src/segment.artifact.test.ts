@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, chmod, rm, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { ClaimResponse, RunContext, Run, RunAuth } from '@asf/shared';
 import { STANDARD_TEAM, DEFAULT_GATES } from '@asf/shared';
 
@@ -21,6 +23,7 @@ let messages: { kind: string; body: string }[] = [];
 const PATCHED = ['event', 'saveArtifact', 'listArtifacts', 'listArtifactVersions', 'listMessages', 'listAdhoc', 'cancelRequested', 'appendMessage', 'createAdhoc', 'attachment'] as const;
 const realApi = {} as Record<string, unknown>;
 let replyFile: string;
+let originDir: string; // a local origin for the implementer, a writing role that needs a checkout
 let writeFileTo: string; // when set, the fake agent writes its artifact here (the normal case)
 
 async function fakeClaude(): Promise<string> {
@@ -42,7 +45,7 @@ const run = (): Run => ({
   changeRequestUrl: null, changeRequestNumber: null, changeRequestState: null, deliveryOutcome: null, costUsd: 0, maxCostUsd: 15, reviewIterations: 0, dispatchedBy: 'test', reason: null,
   createdAt: new Date().toISOString(), startedAt: null, lastEventAt: null, cancelRequestedAt: null, finishedAt: null,
 });
-const claim = (role: string, outputRef: string): ClaimResponse & object => ({
+const claim = (role: string, outputRef: string | null): ClaimResponse & object => ({
   run: run(), team: STANDARD_TEAM,
   task: { id: `task_${Math.random().toString(36).slice(2, 8)}`, runId: RUN_ID, role, seq: 1, state: 'running', attempt: 1, inputRef: null, outputRef,
     workerId: 'w', runtime: 'claude-code', model: 'claude-sonnet-5', effort: 'low', costUsd: 0, gateChecked: false, startedAt: null, finishedAt: null,
@@ -55,6 +58,9 @@ const ctx = (): RunContext => ({
   repo: null, cloneCredential: null, auth: anth, auths: { anthropic: anth }, roleSkills: {}, thirdPartySkills: [],
   workerSettings: { maxTurns: 40, segmentTimeoutMs: 60_000 },
 }) as unknown as RunContext;
+const ctxWithRepo = (): RunContext => ({ ...ctx(),
+  repo: { id: 'r1', path: 'example/app', url: 'file://origin', defaultBranch: 'main', cloneUrl: originDir },
+  cloneCredential: { url: originDir } }) as unknown as RunContext;
 
 before(async () => {
   dir = await mkdtemp(join(tmpdir(), 'asf-segart-'));
@@ -67,6 +73,10 @@ before(async () => {
   segment = await import('./segment.js');
   for (const k of PATCHED) realApi[k] = (apiMod.api as Record<string, unknown>)[k];
   (cfg.config as { claudeBin: string }).claudeBin = await fakeClaude();
+  originDir = join(dir, 'origin');
+  const exec = promisify(execFile);
+  await exec('git', ['init', '-b', 'main', originDir]);
+  await exec('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '--allow-empty', '-m', 'init'], { cwd: originDir });
 });
 after(async () => {
   for (const k of PATCHED) (apiMod.api as Record<string, unknown>)[k] = realApi[k];
@@ -135,6 +145,23 @@ test('a role that writes its file: the file wins over the reply, and no fallback
   assert.equal(res.outcome, 'done', res.reason ?? '');
   assert.match(saved.find((s) => s.name === 'plan.md')?.body ?? '', /from the file/);
   assert.ok(!events.some((e) => e.kind.startsWith('artifact:')), 'no fallback, no missing');
+});
+
+test('an implementer that wrote thread-replies.json: it is saved for the publish step', async () => {
+  await mkdir(runDir(), { recursive: true });
+  const replies = JSON.stringify([{ thread: 't1', reply: 'Renamed it.' }]);
+  await writeFile(join(runDir(), 'thread-replies.json'), replies);
+  await writeFile(replyFile, 'Done.');
+  const res = await segment.runSegment(claim('implementer', null), ctxWithRepo(), () => {});
+  assert.equal(res.outcome, 'done', res.reason ?? '');
+  assert.deepEqual(saved.filter((s) => s.name === 'thread-replies.json').map((s) => s.body), [replies]);
+});
+
+test('an implementer with no thread-replies.json: nothing saved, still done', async () => {
+  await writeFile(replyFile, 'Done.');
+  const res = await segment.runSegment(claim('implementer', null), ctxWithRepo(), () => {});
+  assert.equal(res.outcome, 'done', res.reason ?? '');
+  assert.ok(!saved.some((s) => s.name === 'thread-replies.json'));
 });
 
 test('resolveOutputArtifact: file, then reply, then missing; whitespace counts as absent', async () => {

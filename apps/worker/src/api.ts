@@ -143,4 +143,8 @@ export const api = {
   async markReadyChangeRequest(runId: string, number: number): Promise<void> {
     await post(config.bffUrl, '/api/scm/mark-ready', { runId, number });
   },
+  /** Post the run's replies on the review threads it was sent (#109); the api decides which, if any. */
+  async replyToThreads(runId: string, number: number): Promise<{ replied: string[]; failed: Array<{ thread: string; reason: string }> }> {
+    return post(config.bffUrl, '/api/scm/thread-replies', { runId, number }) as Promise<{ replied: string[]; failed: Array<{ thread: string; reason: string }> }>;
+  },
 };

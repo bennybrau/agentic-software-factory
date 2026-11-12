@@ -55,7 +55,17 @@ When the MR/PR is **ready for review** (merge off) or the run waits at the **Mer
 3. The implementer, tester and reviewer run again, and the review-loop count starts over.
 4. The publish phase pushes onto the existing branch (`change_request:updated`) and does not open a second MR/PR. The run then ends **awaiting external merge** again, or stops at the Merge gate again.
 
-If the worker's checkout is gone, it is rebuilt from the pushed run branch. The request is refused, with the reason, when the MR/PR is already merged or closed, when the run is still working, when it has no MR/PR, or when another run for the same ticket is live. The run's cost ceiling is not reset: the second round spends from the same budget. SCM review comments are not imported. Put what you want changed in the box.
+If the worker's checkout is gone, it is rebuilt from the pushed run branch. The request is refused, with the reason, when the MR/PR is already merged or closed, when the run is still working, when it has no MR/PR, or when another run for the same ticket is live. The run's cost ceiling is not reset: the second round spends from the same budget.
+
+### Address review comments
+
+Review threads left on the MR/PR can be sent back to the team instead of retyping them. The **Address review comments** button on the Delivery card (coming in #109 part 4) lists the open threads not already answered by the factory. You pick the ones to send, and they become the request-changes message, quoted as data under a note that the ticket and the approved plan outrank them (`review_threads:sent`). At most 20 threads go in one round.
+
+1. The planner lists each thread id in the revised plan, with what will be done about it or why not.
+2. The implementer writes `thread-replies.json` in the run dir: `[{ "thread": "<id>", "reply": "…" }]`. A thread with no entry gets no reply.
+3. After the update push (`change_request:updated`), the factory replies under each thread that was sent and has an entry. Each reply is trimmed, capped at 600 characters, and signed `— ASF run <id>` (`review_threads:replied`, which lists the threads that failed and why). Replies go out once per round, on the update push, even when the run then stops at the Merge gate. A reply that fails never fails the push (`review_threads:reply_failed`).
+
+The factory never resolves a thread, approves or merges because of a review comment; resolving stays with the reviewer.
 
 ## Splits and hand-offs
 

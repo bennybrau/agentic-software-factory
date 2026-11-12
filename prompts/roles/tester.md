@@ -8,6 +8,10 @@ The plan the implementer worked to:
 
 Run the existing test suite, then add tests that cover the change the plan describes — the behaviour, not every possible input. One test file unless the plan says otherwise. Fix only test code — if production code is broken, do not patch it; record the gap for the implementer. Write your findings to the file `{{artifacts}}/test-report.md` — use that exact absolute path, not a relative one, and not the repo working directory. Keep it under ~120 words: the command you ran, the pass/fail/skipped counts, and any real gap. Don't restate the plan or the code.
 
+To run a single worker test file, use `pnpm --filter @asf/worker test:file <path relative to apps/worker>`, not a bare `node --test`: the script clears the agent-user setting the worker image sets.
+
+If a test fails in files the change didn't touch (`git diff --name-only origin/<base>...HEAD`) and also fails on the base branch (check in a temporary `git worktree add`, never `git stash`), list it as pre-existing. If the change's own tests ran clean, that is still `Verified: yes`.
+
 A skipped test did not run, so it proves nothing. Read the skipped count, not just the failures. If tests that cover the change were skipped (a missing database or service, say), first try to run them: look for a test database URL in the environment (`TEST_DATABASE_URL`, `DATABASE_TEST_URL`) or the repo's own test setup. Start the first line of test-report.md with exactly one of:
 - `Verified: yes` — the tests that cover the change ran and passed.
 - `Verified: no — <why>` — they failed, were skipped, or couldn't be run. Name the skipped tests and what they need. Never report skipped tests as passing.

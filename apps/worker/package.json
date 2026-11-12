@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
-    "test": "sh -c 'ts=$(find src -name \"*.test.ts\"); mjs=$(find hooks -name \"*.test.mjs\"); [ -z \"$ts$mjs\" ] && echo \"no tests\" || node --test --import tsx $ts $mjs'"
+    "test": "sh -c 'ts=$(find src -name \"*.test.ts\"); mjs=$(find hooks -name \"*.test.mjs\"); [ -z \"$ts$mjs\" ] && echo \"no tests\" || node --test --import tsx --import ./test-setup.mjs $ts $mjs'",
+    "test:file": "node --test --import tsx --import ./test-setup.mjs"
   },
   "dependencies": {
     "@asf/shared": "workspace:*"

@@ -36,6 +36,13 @@ test('the tester must call skipped tests unverified, and the reviewer must not a
   assert.match(r, /write `ESCALATE`, even if the change looks right to you/);
 });
 
+test('the tester runs one worker test file through test:file, and calls base-branch failures pre-existing (#120)', async () => {
+  const t = await renderPrompt('tester', 'run_x', { ...base, prior: priorsFor.tester });
+  assert.match(t, /`pnpm --filter @asf\/worker test:file <path relative to apps\/worker>`, not a bare `node --test`/);
+  assert.match(t, /also fails on the base branch \(check in a temporary `git worktree add`, never `git stash`\), list it as pre-existing/);
+  assert.match(t, /If the change's own tests ran clean, that is still `Verified: yes`/);
+});
+
 test('roles that run tests are told a scratch test database is already in their environment (#40)', async () => {
   const url = 'postgres://test:pw123@testdb:5432/test';
   const env = { ASF_TEST_DB_ACTIVE: '1', DATABASE_TEST_URL: url, TEST_DATABASE_URL: url };

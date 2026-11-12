@@ -1,4 +1,4 @@
-import type { CreateRecurringTaskInput, RecurringTask, UpdateRecurringTaskInput, SplitFamilyWire, AdhocLimits, AdhocTask, AdhocFileInput, ActiveThemeWire, ThemeSummaryWire, ThemeImageRef, ArtifactWire, ArtifactVersionWire, TaskProgressWire, GateWire, RunMessageWire, Run, RunTask, RunEvent, SettingView, FleetWire, TodayWire, WorkQueueEntry, NotificationWire, TicketScope, TicketSprint, LocalWorkerStatus, UpdateStatus, ThirdPartySkill, SkillRole, VertexCheckState, OllamaSource, OllamaModelsResult, OllamaCheck, HiveBriefFactView } from '@asf/shared';
+import type { CreateRecurringTaskInput, RecurringTask, UpdateRecurringTaskInput, SplitFamilyWire, AdhocLimits, AdhocTask, AdhocFileInput, ActiveThemeWire, ThemeSummaryWire, ThemeImageRef, ArtifactWire, ArtifactVersionWire, TaskProgressWire, GateWire, RunMessageWire, Run, RunTask, RunEvent, SettingView, FleetWire, TodayWire, WorkQueueEntry, NotificationWire, TicketScope, TicketSprint, LocalWorkerStatus, UpdateStatus, ThirdPartySkill, SkillRole, VertexCheckState, OllamaSource, OllamaModelsResult, OllamaCheck, HiveBriefFactView, ReviewThread } from '@asf/shared';
 
 export interface TicketRow { id: string; key: string; title: string; bucket: string; priority: number | null; status: string; url: string; body: string; updatedAt?: string; }
 export interface RunDetail { run: Run; tasks: RunTask[]; gates: GateWire[]; artifacts: ArtifactWire[]; artifactVersions?: ArtifactVersionWire[]; taskProgress?: Record<string, TaskProgressWire>; messages?: RunMessageWire[]; split?: SplitFamilyWire | null;
@@ -8,6 +8,8 @@ export interface RunDetail { run: Run; tasks: RunTask[]; gates: GateWire[]; arti
   request?: string | null;
   /** The Hive facts the agents were given (#108) and the dashboard they link to; null = none saved. */
   hiveBrief?: { facts: HiveBriefFactView[]; dashboardUrl: string | null } | null; }
+/** GET /api/runs/:id/review-threads: the open threads on the run's PR/MR, or why it can't address them. */
+export interface ReviewThreadsWire { eligible: boolean; reason: string | null; url: string | null; threads: ReviewThread[] }
 export interface RunsQuery { state?: string; teamName?: string; deliveryOutcome?: string; search?: string; since?: string; limit?: number; offset?: number }
 export interface Identity { user: string; verified: boolean; mode: string }
 export interface Fleet extends FleetWire { monthCostUsd: number; monthUnpricedRuns?: number }
@@ -124,6 +126,10 @@ export const api = {
   requestChanges: (id: string, message: string, by: string) =>
     fetch(`/api/runs/${encodeURIComponent(id)}/request-changes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message, by }) })
       .then(async (r) => ({ status: r.status, body: await r.json() as { ok?: boolean; reason?: string } })),
+  reviewThreads: (id: string) =>
+    fetch(`/api/runs/${encodeURIComponent(id)}/review-threads`).then((r) => j<ReviewThreadsWire>(r)),
+  addressReviewComments: (id: string, threadIds: string[], note: string | undefined, by: string) =>
+    sendJson<{ ok?: boolean; sentIds?: string[]; notSentIds?: string[] }>('POST', `/api/runs/${encodeURIComponent(id)}/address-review-comments`, { threadIds, note, by }),
   skipRole: (id: string, by: string) =>
     fetch(`/api/runs/${encodeURIComponent(id)}/skip`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ by }) })
       .then(async (r) => ({ status: r.status, body: await r.json() as { ok?: boolean; reason?: string } })),

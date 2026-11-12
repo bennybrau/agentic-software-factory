@@ -10,6 +10,7 @@ import { MemberAvatar } from '../components/MemberAvatar';
 import { HiveStage } from '../components/HiveStage';
 import { TeamMemory } from '../components/TeamMemory';
 import { ActivityStrip } from '../components/ActivityStrip';
+import { AddressReviewComments } from '../components/AddressReviewComments';
 import { useTheme } from '../useTheme';
 import type { RunEvent, RunTask } from '@asf/shared';
 import { parseMergeConflict } from '@asf/shared/ui';
@@ -144,7 +145,13 @@ export function RunView() {
                 : 'A human closed this change without merging. The ticket was left where it is.'}
             </div>
           )}
-          {((awaitingExternal && !externalResolved) || openGate?.gateName === 'before_merge') && <RequestChanges runId={runId} onDone={load} />}
+          {((awaitingExternal && !externalResolved) || openGate?.gateName === 'before_merge') && (
+            <>
+              <RequestChanges runId={runId} onDone={load} />
+              <AddressReviewComments runId={runId} onDone={load}
+                refreshKey={`${run.state}|${run.changeRequestState ?? ''}|${run.deliveryOutcome ?? ''}|${openGate?.id ?? ''}`} />
+            </>
+          )}
         </div>
       )}
 

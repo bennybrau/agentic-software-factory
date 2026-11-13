@@ -17,21 +17,21 @@ const silent = { info: () => {}, error: () => {} };
 function entry(over: Partial<WorkQueueEntry> = {}): WorkQueueEntry {
   return { id: 'wq_1', ticketId: 'asf-1', ticketProvider: 'mock', ticketKey: 'ASF-1', repoId: '1', teamName: null,
     maxCostUsd: null, mode: 'parallel', position: 1, batchId: 'b', state: 'queued', runId: null, reason: null,
-    addedBy: 'jon', addedAt: new Date().toISOString(), dispatchedAt: null, dependsOn: [], ...over };
+    addedBy: 'jon', addedAt: new Date().toISOString(), dispatchedAt: null, dependsOn: [], refusedAt: null, reasonCode: null, ...over };
 }
 
 /** Stub the registry; `ready` is what readyQueueEntries returns; marks are captured. */
 function stub(ready: WorkQueueEntry[], opts: { createFails?: 'conflict' } = {}) {
-  const marks: Array<{ id: string; state: string; runId: string | null; reason: string | null }> = [];
+  const marks: Array<{ id: string; state: string; runId: string | null; reason: string | null; code: string | null }> = [];
   global.fetch = (async (_url: string, init?: { body?: string }) => {
-    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string; id?: string; state?: string; runId?: string | null; reason?: string | null };
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string; id?: string; state?: string; runId?: string | null; reason?: string | null; code?: string | null };
     switch (body.op) {
       case 'readyQueueEntries': return json({ ok: true, result: { entries: ready } });
       case 'monthCost': return json({ ok: true, result: { totalUsd: 0 } });
       case 'createRun':
         if (opts.createFails === 'conflict') return new Response(JSON.stringify({ error: 'run_conflict', reason: 'already live', existingRunId: 'run_existing' }), { status: 409, headers: { 'content-type': 'application/json' } });
         return json({ ok: true, result: { run: { id: 'run_new' } } });
-      case 'markQueueEntry': marks.push({ id: body.id!, state: body.state!, runId: body.runId ?? null, reason: body.reason ?? null }); return json({ ok: true, result: { ok: true } });
+      case 'markQueueEntry': marks.push({ id: body.id!, state: body.state!, runId: body.runId ?? null, reason: body.reason ?? null, code: body.code ?? null }); return json({ ok: true, result: { ok: true } });
       default: return json({ ok: true, result: {} });
     }
   }) as unknown as typeof fetch;
@@ -54,7 +54,7 @@ test('a ready entry is dispatched and marked dispatched with its run id', async 
   const marks = stub([entry()]);
   const n = await tickQueue(deps(), silent);
   assert.equal(n, 1);
-  assert.deepEqual(marks, [{ id: 'wq_1', state: 'dispatched', runId: 'run_new', reason: null }]);
+  assert.deepEqual(marks, [{ id: 'wq_1', state: 'dispatched', runId: 'run_new', reason: null, code: null }]);
 });
 
 test('a run_conflict is treated as dispatched (already running), not failed', async () => {
@@ -65,6 +65,7 @@ test('a run_conflict is treated as dispatched (already running), not failed', as
   assert.equal(n, 0); // not counted as a fresh dispatch
   assert.equal(marks[0].state, 'dispatched');
   assert.equal(marks[0].runId, 'run_existing');
+  assert.equal(marks[0].code, null);
 });
 
 test('an over-cap entry is marked failed with the reason and does not run', async () => {
@@ -75,6 +76,7 @@ test('an over-cap entry is marked failed with the reason and does not run', asyn
   assert.equal(n, 0);
   assert.equal(marks[0].state, 'failed');
   assert.match(marks[0].reason ?? '', /ORG_MAX_COST_USD=5/);
+  assert.equal(marks[0].code, 'cost_cap', 'the refusal code is passed through');
 });
 
 test('a missing ticket is marked failed (not_found), leaving other entries unaffected', async () => {
@@ -85,6 +87,7 @@ test('a missing ticket is marked failed (not_found), leaving other entries unaff
   assert.equal(n, 1);
   const bad = marks.find((m) => m.id === 'wq_bad')!;
   assert.equal(bad.state, 'failed');
+  assert.equal(bad.code, 'not_found');
   assert.equal(marks.find((m) => m.id === 'wq_ok')!.state, 'dispatched');
 });
 

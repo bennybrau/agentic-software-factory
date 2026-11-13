@@ -145,7 +145,7 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
   if (monthlyBudget > 0) {
     const { totalUsd } = await registry.monthCost().catch(() => ({ totalUsd: 0 }));
     if (totalUsd >= monthlyBudget) {
-      return { ok: false, code: 'over_budget', reason: `this month's run cost $${totalUsd.toFixed(2)} has reached ORG_MONTHLY_BUDGET_USD=$${monthlyBudget}. Raise the budget in /admin or wait for the next month.` };
+      return { ok: false, code: 'over_budget', reason: `This month's runs have cost $${totalUsd.toFixed(2)}, which has reached the monthly budget of $${monthlyBudget}. Raise the budget in Settings, or wait for next month.` };
     }
   }
 

@@ -17,6 +17,8 @@ import { upcomingRecurring } from './recurring-store.js';
  *    mini-Hive strip (M12 WP5).
  *  - queued: work_queue entries not yet dispatched (position order) — the "these
  *    will start on their own" list.
+ *  - refused: entries the scheduler refused to start in the last 7 days, newest
+ *    first, unless the ticket has started since (a later run or a newer entry).
  *  - doneToday: runs that finished (any terminal state) since local midnight.
  *
  * Plus comingUp: unpaused recurring tasks due in the next 24h, soonest first.
@@ -26,6 +28,7 @@ export interface TodayView {
   waitingOnYou: WaitingRun[];
   running: RunningRunWire[];
   queued: WorkQueueEntry[];
+  refused: WorkQueueEntry[];
   doneToday: Run[];
   comingUp: TodayWire['comingUp'];
 }
@@ -41,6 +44,7 @@ function rowToEntry(r: Record<string, unknown>): WorkQueueEntry {
     state: r.state as WorkQueueEntry['state'], runId: r.runId ? String(r.runId) : null, reason: r.reason ? String(r.reason) : null,
     addedBy: r.addedBy ? String(r.addedBy) : null, addedAt: iso(r.addedAt)!, dispatchedAt: iso(r.dispatchedAt),
     dependsOn: Array.isArray(r.dependsOn) ? (r.dependsOn as unknown[]).map(String) : [],
+    refusedAt: iso(r.refusedAt), reasonCode: r.reasonCode ? String(r.reasonCode) : null,
   };
 }
 
@@ -78,6 +82,17 @@ export async function today(sql: Sql, since: Date, now: Date = new Date()): Prom
   const queuedRows = await sql`SELECT * FROM work_queue WHERE state = 'queued' ORDER BY position, added_at`;
   const queued = queuedRows.map(rowToEntry);
 
+  // Refused: dismissed entries are cancelled, and a refusal from before #138 has no refused_at.
+  const refusedRows = await sql`SELECT * FROM work_queue q
+    WHERE q.state = 'failed' AND q.refused_at > ${now}::timestamptz - interval '7 days'
+      AND NOT EXISTS (SELECT 1 FROM agent_run r
+        WHERE r.ticket_provider = q.ticket_provider AND r.ticket_id = q.ticket_id AND r.created_at > q.refused_at)
+      AND NOT EXISTS (SELECT 1 FROM work_queue e
+        WHERE e.ticket_provider = q.ticket_provider AND e.ticket_id = q.ticket_id
+          AND e.id > q.id AND e.state IN ('queued', 'dispatched'))
+    ORDER BY q.refused_at DESC`;
+  const refused = refusedRows.map(rowToEntry);
+
   const doneRows = await sql`SELECT * FROM agent_run
     WHERE state IN ('succeeded','failed','cancelled','halted') AND finished_at >= ${since}
     ORDER BY finished_at DESC`;
@@ -87,7 +102,7 @@ export async function today(sql: Sql, since: Date, now: Date = new Date()): Prom
     id: t.id, title: t.title, nextRunAt: t.nextRunAt!, scheduleText: describeSchedule(t.schedule),
   }));
 
-  return { waitingOnYou, running, queued, doneToday, comingUp };
+  return { waitingOnYou, running, queued, refused, doneToday, comingUp };
 }
 
 /**

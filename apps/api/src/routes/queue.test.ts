@@ -17,6 +17,7 @@ function stub() {
     calls.push({ op: body.op, body: body as unknown as Record<string, unknown> });
     if (body.op === 'enqueue') return json({ ok: true, result: { entries: [{ id: 'wq_1', ticketId: 'asf-1', ticketProvider: 'mock', ticketKey: 'ASF-1', repoId: null, teamName: null, maxCostUsd: null, mode: 'parallel', position: 1, batchId: 'b', state: 'queued', runId: null, reason: null, addedBy: 'operator', addedAt: '2026-09-16T00:00:00Z', dispatchedAt: null }] } });
     if (body.op === 'listQueue') return json({ ok: true, result: { entries: [] } });
+    if (body.op === 'retryQueueEntry') return json({ ok: true, result: { ok: true, requeued: true } });
     return json({ ok: true, result: { ok: true } });
   }) as unknown as typeof fetch;
   return calls;
@@ -95,6 +96,18 @@ test('GET /api/queue lists entries; DELETE removes; PATCH reorders', async () =>
   assert.ok(calls.some((c) => c.op === 'removeQueueEntry'));
   const reorder = calls.find((c) => c.op === 'reorderQueue')!;
   assert.equal(reorder.body.beforeId, 'wq_2');
+  await a.close();
+});
+
+test('POST /api/queue/:id/retry puts a refused entry back as the person asking', async () => {
+  const calls = stub();
+  const a = await app();
+  const res = await a.inject({ method: 'POST', url: '/api/queue/wq_1/retry', headers: { 'x-operator': 'Zo%C3%AB' } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true, requeued: true });
+  const retry = calls.find((c) => c.op === 'retryQueueEntry')!;
+  assert.equal(retry.body.id, 'wq_1');
+  assert.equal(retry.body.by, 'Zoë');
   await a.close();
 });
 

@@ -76,7 +76,9 @@ export const registry = {
   hiveDialog: (q: { since?: string; limit?: number; offset?: number } = {}) =>
     rpc({ op: 'hiveDialog', since: q.since, limit: q.limit ?? 500, offset: q.offset ?? 0 }),
   markHiveSent: (kind: 'gate' | 'msg', id: string) => rpc({ op: 'markHiveSent', kind, id }),
-  markQueueEntry: (id: string, state: 'dispatched' | 'failed', runId: string | null, reason: string | null) => rpc({ op: 'markQueueEntry', id, state, runId, reason }),
+  markQueueEntry: (id: string, state: 'dispatched' | 'failed', runId: string | null, reason: string | null, code: string | null = null) =>
+    rpc({ op: 'markQueueEntry', id, state, runId, reason, code }),
+  retryQueueEntry: (id: string, by: string | null) => rpc({ op: 'retryQueueEntry', id, by }),
   today: (since: string) => rpc({ op: 'today', since }),
   listNotifications: (q: { unreadOnly?: boolean; limit?: number } = {}) => rpc({ op: 'listNotifications', unreadOnly: q.unreadOnly ?? false, limit: q.limit ?? 50 }),
   markNotificationRead: (id: string | null) => rpc({ op: 'markNotificationRead', id }),

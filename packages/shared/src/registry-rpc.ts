@@ -121,7 +121,10 @@ export const rpcRequestSchema = z.discriminatedUnion('op', [
   // scheduler-facing: claim the next entries the api may dispatch this tick, and report the outcome.
   z.object({ op: z.literal('readyQueueEntries'), limit: z.number().int().positive().max(50).default(20) }),
   z.object({ op: z.literal('markQueueEntry'), id: z.string(),
-    state: z.enum(['dispatched', 'failed']), runId: z.string().nullable().default(null), reason: z.string().nullable().default(null) }),
+    state: z.enum(['dispatched', 'failed']), runId: z.string().nullable().default(null), reason: z.string().nullable().default(null),
+    code: z.string().nullable().default(null) }),
+  // A refused (failed) entry: back to the tail of the queue, or just cancelled if the ticket is already queued.
+  z.object({ op: z.literal('retryQueueEntry'), id: z.string(), by: z.string().nullable().default(null) }),
   // merge-watcher: runs that finished awaiting an external merge, to poll the SCM for.
   z.object({ op: z.literal('runsAwaitingExternalMerge'), limit: z.number().int().positive().max(100).default(50) }),
   z.object({ op: z.literal('hiveMergedRuns'), since: z.string().datetime({ offset: true }).optional(),
@@ -237,6 +240,8 @@ export interface RpcResults {
   hiveDialog: { items: HiveDialogItem[] };
   markHiveSent: { ok: true };
   markQueueEntry: { ok: true };
+  /** requeued false: the ticket was already queued, so the refused entry was only cancelled. */
+  retryQueueEntry: { ok: true; requeued: boolean };
   today: TodayWire;
   listNotifications: { notifications: NotificationWire[]; unread: number };
   markNotificationRead: { ok: true };
@@ -317,6 +322,8 @@ export interface TodayWire {
   waitingOnYou: WaitingRunWire[];
   running: RunningRunWire[];
   queued: z.infer<typeof workQueueEntrySchema>[];
+  /** Entries the scheduler refused to start in the last 7 days, newest first, unless the ticket has started since. */
+  refused: z.infer<typeof workQueueEntrySchema>[];
   doneToday: z.infer<typeof runSchema>[];
   /** Unpaused recurring tasks due in the next 24h, soonest first. */
   comingUp: { id: string; title: string; nextRunAt: string; scheduleText: string }[];

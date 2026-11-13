@@ -43,7 +43,8 @@ const refs = async (table: string) => (await db.sql`SELECT id, repo_id, repo_con
   .map((r) => [String(r.id), r.repoId, r.repoConnection]);
 
 test('qualifies stored repo ids, is idempotent, and the down migration restores the seed', { skip }, async () => {
-  await migrateDown(db.sql, MIGRATIONS_DIR, '024_hive_sent'); // 023 can only go down as the latest
+  await migrateDown(db.sql, MIGRATIONS_DIR, '025_queue_refusal'); // 023 can only go down as the latest
+  await migrateDown(db.sql, MIGRATIONS_DIR, '024_hive_sent');
   await migrateDown(db.sql, MIGRATIONS_DIR, '023_repo_connection');
   await seed();
   const seeded = await dump();
@@ -67,7 +68,8 @@ test('qualifies stored repo ids, is idempotent, and the down migration restores 
   assert.deepEqual(await qualifyStoredRefs(db.sql, { scm: 'github', tickets: 'jira' }), { agentRun: 0, workQueue: 0, recurringTask: 0 });
   assert.deepEqual(await dump(), qualified);
 
-  await migrateDown(db.sql, MIGRATIONS_DIR, '024_hive_sent'); // 023 can only go down as the latest
+  await migrateDown(db.sql, MIGRATIONS_DIR, '025_queue_refusal'); // 023 can only go down as the latest
+  await migrateDown(db.sql, MIGRATIONS_DIR, '024_hive_sent');
   await migrateDown(db.sql, MIGRATIONS_DIR, '023_repo_connection');
   assert.deepEqual(bare(await dump()), bare(seeded));
   assert.deepEqual((await db.sql`SELECT repo_id FROM agent_run WHERE id = 'r2'`)[0].repoId, 'acme/api');

@@ -8,6 +8,9 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **The bell tells you when a queued start was refused.** If the queue can't start a ticket (over
+  the monthly budget, no repository, ticket gone), a "couldn’t start" notification says why, instead
+  of the ticket quietly leaving the queue.
 - **The browser tab names the run.** On a run page the tab title starts with the ticket key, for
   example `PROJ-123 · Agentic Software Factory`, so open runs are easy to tell apart. Other pages
   keep the app title.

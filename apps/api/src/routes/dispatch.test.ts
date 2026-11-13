@@ -67,6 +67,18 @@ test('dispatch refuses once the month is over ORG_MONTHLY_BUDGET_USD', async () 
   await a.close();
 });
 
+test('the over_budget reason says what was spent against which budget, in plain words', async () => {
+  process.env.ORG_MAX_COST_USD = '100';
+  process.env.ORG_MONTHLY_BUDGET_USD = '250';
+  stubRegistry({ monthTotal: 253.32 });
+  const a = await app();
+  const res = await a.inject({ method: 'POST', url: '/api/tickets/asf-1/dispatch', payload: { repoId: '1', maxCostUsd: 15 } });
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().reason,
+    "This month's runs have cost $253.32, which has reached the monthly budget of $250. Raise the budget in Settings, or wait for next month.");
+  await a.close();
+});
+
 test('dispatch under both caps creates the run (201)', async () => {
   process.env.ORG_MAX_COST_USD = '100';
   process.env.ORG_MONTHLY_BUDGET_USD = '200';

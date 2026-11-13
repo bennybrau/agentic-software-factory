@@ -8,6 +8,9 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Copy a run's link from the run page.** A Copy link button next to the run title copies the
+  page's full address, and reads "Copied" for a moment. This is handy on a phone or in the
+  installed app, where there is no address bar.
 - **Skills can come from private repositories.** Settings → Skills now reads a private GitHub or
   GitLab folder with the token you already saved for that host (`GITHUB_TOKEN`, or `GITLAB_TOKEN`
   for the `GITLAB_BASE_URL` host). The token goes only to its own host, in a header, with redirects

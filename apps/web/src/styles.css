@@ -131,6 +131,7 @@ a { color: var(--accent); text-decoration: none; }
 .run-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-title .pill { line-height: 1.4; white-space: nowrap; }
 .run-title .copy-link { font-size: 13px; font-weight: 500; }
+.run-title .run-duration { font-size: 13px; font-weight: 500; white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }

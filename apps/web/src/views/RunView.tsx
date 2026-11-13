@@ -21,6 +21,7 @@ import { groupStages, type Attempt } from '../stages';
 import { crewName, laneLabel, memberName } from '../theme-view';
 import { useMe } from '../useMe';
 import { runCostText, taskCostText } from '../cost-words';
+import { isRunFinished, runDurationText } from '../duration-words';
 
 // Run page view preferences (#155), kept per browser. localStorage can throw
 // (private mode, disabled storage), so every access is guarded.
@@ -104,7 +105,7 @@ export function RunView() {
     <div>
       <div className="row between">
         <div><Link to="/runs">← {PAGE.activity}</Link>
-          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><CopyLinkButton runId={runId} /></h2>
+          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><RunDuration run={run} /><CopyLinkButton runId={runId} /></h2>
           {review && (
             <div className="muted" style={{ fontSize: 13 }}>
               <a href={review.url} target="_blank" rel="noreferrer">{review.text}</a>
@@ -341,6 +342,19 @@ function dur(iso: string | null): string {
  * stage's caption (M12 WP4); the raw tool-call detail (LiveTaskLine) is behind
  * Advanced → "Show agent commands".
  */
+/** "Took 13 min", or "Running for 4 min" ticking every second until the run finishes (#132). */
+function RunDuration({ run }: { run: RunDetail['run'] }) {
+  const [now, setNow] = useState(() => Date.now());
+  const finished = isRunFinished(run.state);
+  useEffect(() => {
+    if (finished) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [finished]);
+  const text = runDurationText(run, now);
+  return text ? <span className="run-duration muted">{text}</span> : null;
+}
+
 function WorkingLine({ role, p }: { role: string; p: NonNullable<RunDetail['taskProgress']>[string] }) {
   const { theme } = useTheme();
   const [now, setNow] = useState(() => Date.now());

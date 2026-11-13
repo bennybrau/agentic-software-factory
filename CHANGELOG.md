@@ -8,6 +8,8 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **The run page shows how long the run took.** Next to the status, a finished run reads
+  "Took 13 min" and an unfinished one "Running for 4 min", counting up as you watch.
 - **Set your name without signing in.** With `AUTH_MODE=none`, **Set your name** in the sidebar
   keeps a name in this browser and sends it with every request, so gates, chat replies and dispatches
   show who did them instead of `operator`. Nothing checks it. See

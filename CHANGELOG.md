@@ -52,6 +52,11 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **Runs on the same repository no longer fail setting up at the same time, and Retry works after
+  a lost worktree.** Workers now set up a repository's shared clone one at a time (a lock beside
+  it, taken over if its holder dies), so parallel tasks no longer fail on git's `config.lock`. If
+  the run's branch already exists, Retry checks it out with its commits instead of failing with
+  "a branch named … already exists".
 - **A ticket no longer picks up another ticket's merge or pull request.** ASF found a ticket's
   change requests by looking for its key anywhere in the title or branch, so PROJ-12 also matched
   `PROJ-123: …` and `agent/PROJ-123-…`. The key now has to stand on its own, on GitLab and GitHub:

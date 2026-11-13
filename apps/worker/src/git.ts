@@ -6,6 +6,7 @@ import type { CloneCredential, Repo, Run } from '@asf/shared';
 import { isForbiddenBranch, formatMergeConflict, nativeId, redactSecrets } from '@asf/shared';
 import { config } from './config.js';
 import type { ChangeType } from './commit-type.js';
+import { withRepoLock } from './repo-lock.js';
 
 const exec = promisify(execFile);
 
@@ -163,6 +164,14 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
   }
   const worktreePath = join(config.worktreeRoot, 'runs', run.id);
   await mkdir(join(config.worktreeRoot, 'runs'), { recursive: true });
+  // #124: every run of a repo shares its bare clone; set it up one task at a time.
+  return withRepoLock(bareDirFor(repo), () => setUpWorkspace(run, repo, cred, log, branchName, baseBranch, worktreePath));
+}
+
+async function setUpWorkspace(
+  run: Run, repo: Repo, cred: CloneCredential, log: (m: string) => void, branchName: string, baseBranch: string, worktreePath: string,
+): Promise<Workspace> {
+  const review = run.team.reviewTarget ?? null;
   const bareDir = await syncBareClone(repo, cred, log);
   const cloneUrl = cred.url;
 
@@ -199,6 +208,15 @@ export async function ensureWorkspace(run: Run, repo: Repo, cred: CloneCredentia
     await git(bareDir, ['worktree', 'prune']);   // forget a registration whose directory was deleted
     await git(bareDir, ['worktree', 'add', '-B', branchName, worktreePath, `origin/${branchName}`]);
     log(`rebuilt worktree ${worktreePath} from origin/${branchName}`);
+    return { worktreePath, branchName, baseBranch, resumed: true, unborn: !born };
+  }
+  // A retry after the worktree was lost: the local branch is already there (with any
+  // commits the run made), so `-b` would fail. Check it out as it is.
+  const branched = await git(bareDir, ['rev-parse', '--verify', `refs/heads/${branchName}^{commit}`]).then(() => true, () => false);
+  if (branched) {
+    await git(bareDir, ['worktree', 'prune']);   // forget a registration whose directory was deleted
+    await git(bareDir, ['worktree', 'add', worktreePath, branchName]);
+    log(`rebuilt worktree ${worktreePath} from the existing ${branchName}`);
     return { worktreePath, branchName, baseBranch, resumed: true, unborn: !born };
   }
   if (born) {
@@ -239,12 +257,15 @@ export interface ReferenceCheckout {
 export async function addReferenceCheckout(
   repo: Repo, cred: CloneCredential, dir: string, reason: string, log: (m: string) => void, signal?: AbortSignal,
 ): Promise<ReferenceCheckout> {
-  const bareDir = await syncBareClone(repo, cred, log, signal);
-  if (!(await baseBranchExists(bareDir, repo.defaultBranch))) throw new GitError(`${repo.path} has no ${repo.defaultBranch} branch yet`);
-  const start = await resolveStart(bareDir, repo.defaultBranch);
-  await rm(dir, { recursive: true, force: true });
-  await git(bareDir, ['worktree', 'prune'], {}, signal);
-  await git(bareDir, ['worktree', 'add', '--detach', dir, start], {}, signal);
+  const bareDir = await withRepoLock(bareDirFor(repo), async () => {
+    const bare = await syncBareClone(repo, cred, log, signal);
+    if (!(await baseBranchExists(bare, repo.defaultBranch))) throw new GitError(`${repo.path} has no ${repo.defaultBranch} branch yet`);
+    const start = await resolveStart(bare, repo.defaultBranch);
+    await rm(dir, { recursive: true, force: true });
+    await git(bare, ['worktree', 'prune'], {}, signal);
+    await git(bare, ['worktree', 'add', '--detach', dir, start], {}, signal);
+    return bare;
+  }, { signal });
   const sha = (await git(dir, ['rev-parse', 'HEAD'], {}, signal)).trim();
   // Readable, not writable, for the agent user (#68: it shares the worker's group, which the
   // worker's umask 002 makes writable). The worker owns the files, so it can still remove them.

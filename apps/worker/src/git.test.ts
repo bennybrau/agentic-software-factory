@@ -377,3 +377,35 @@ test('a review-only run falls back to the head branch when the remote has no PR 
   const head = (await exec('git', ['rev-parse', 'HEAD'], { cwd: ws.worktreePath })).stdout.trim();
   assert.equal(head, (await exec('git', ['-C', originDir, 'rev-parse', 'feature/pr8'])).stdout.trim());
 });
+
+test('#124: concurrent setups of one repo all succeed (setup is serialized per bare clone)', async () => {
+  // A few rounds: the first races the bare clone itself, the rest race on a cached one.
+  const fresh = (): Repo => ({ ...repo(), id: 'r-concurrent' });
+  for (let round = 0; round < 5; round++) {
+    const all = await Promise.all(Array.from({ length: 8 }, (_, i) =>
+      git.ensureWorkspace(run({ id: `run_c${round}${i}00000`, ticketKey: `ASF-C${round}${i}` }), fresh(), { url: originDir }, () => {})));
+    assert.equal(new Set(all.map((w) => w.worktreePath)).size, 8);
+    for (const ws of all) {
+      assert.equal((await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: ws.worktreePath })).stdout.trim(), ws.branchName);
+    }
+  }
+});
+
+test('#124: a retry whose worktree is gone but whose branch exists resumes on that branch, keeping its commits', async () => {
+  const r = run({ id: 'run_retryaa01', ticketKey: 'ASF-RT' });
+  const ws = await git.ensureWorkspace(r, repo(), { url: originDir }, () => {});
+  await writeFile(join(ws.worktreePath, 'work.txt'), 'kept\n');
+  const sha = await git.commitPending(ws, r, 'implementer', 'work', () => {});
+  await rm(ws.worktreePath, { recursive: true, force: true });
+  const again = await git.ensureWorkspace(r, repo(), { url: originDir }, () => {});
+  assert.equal(again.resumed, true);
+  assert.equal((await exec('git', ['rev-parse', 'HEAD'], { cwd: again.worktreePath })).stdout.trim(), sha);
+
+  // A branch still at its base (no commits yet) resumes too.
+  const r2 = run({ id: 'run_retrybb02', ticketKey: 'ASF-RT' });
+  const ws2 = await git.ensureWorkspace(r2, repo(), { url: originDir }, () => {});
+  await rm(ws2.worktreePath, { recursive: true, force: true });
+  const again2 = await git.ensureWorkspace(r2, repo(), { url: originDir }, () => {});
+  assert.equal(again2.resumed, true);
+  assert.equal((await exec('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: again2.worktreePath })).stdout.trim(), ws2.branchName);
+});

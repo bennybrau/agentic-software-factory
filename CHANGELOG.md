@@ -8,6 +8,8 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Activity shows how long each run took.** A new Took column reads like "13 min" or "1 h 5 min";
+  a run still going reads "4 min so far" (time waiting at a gate counts) and keeps counting.
 - **The run page shows how long the run took.** Next to the status, a finished run reads
   "Took 13 min" and an unfinished one "Running for 4 min", counting up as you watch.
 - **Set your name without signing in.** With `AUTH_MODE=none`, **Set your name** in the sidebar

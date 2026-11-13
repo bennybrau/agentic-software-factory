@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { NotificationBell } from './NotificationBell';
 import { StatusChips } from './StatusChips';
+import { OperatorName } from './OperatorName';
 import { useMe } from '../useMe';
 import { useTheme } from '../useTheme';
 import { useIsPhone } from '../useIsPhone';
@@ -50,6 +51,7 @@ export function Sidebar() {
         <div className="sidebar-foot">
           <StatusChips />
           <NotificationBell />
+          <OperatorName />
           {me.verified && (
             <span className="muted" title={`verified via ${me.mode}`}>
               {me.user} ✓

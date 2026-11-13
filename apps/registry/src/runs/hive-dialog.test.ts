@@ -52,6 +52,13 @@ test('hiveDialog: a human message is paired with the agent message before it; ag
   ]);
 });
 
+test('hiveDialog: a message by a non-ASCII name keeps the name as the author', { skip }, async () => {
+  const runId = await mkRun('name');
+  await msg(runId, 'agent', 'Python or Node?', null);
+  const id = await msg(runId, 'human', 'Node.', 'Zoë');
+  assert.deepEqual((await mine([runId])).map((i) => [i.id, i.author]), [[id, 'Zoë']]);
+});
+
 test('hiveDialog: since filters; a run with no repo is excluded; ordered by time', { skip }, async () => {
   const runId = await mkRun('since');
   const noRepo = await mkRun('norepo', null);

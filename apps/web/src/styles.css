@@ -44,6 +44,10 @@ a { color: var(--accent); text-decoration: none; }
 .sidebar-foot { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 8px; padding: 12px 10px 4px; border-top: 1px solid var(--border); font-size: 12px; position: relative; }
 .sidebar-foot .btn.ghost { display: inline-flex; align-items: center; justify-content: center; }
+/* The name kept in this browser when there's no sign-in (#129); a long name is cut, the box opens like the status pop. */
+.operator-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.operator-name > .muted { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.operator-name .op-chip { display: none; }
 .status-chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
 .status-chip { display: inline-flex; align-items: center; font: inherit; font-size: 12px; color: var(--muted);
   background: transparent; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
@@ -66,8 +70,15 @@ a { color: var(--accent); text-decoration: none; }
   .brand span { display: none; }
   .nav-item { justify-content: center; gap: 0; padding: 10px 0; }
   .nav-label { display: none; }
-  .sidebar-foot { flex-direction: column; }
+  /* One column: wrapping put everything after the status dots in a second column, outside the 72px rail. */
+  .sidebar-foot { flex-direction: column; flex-wrap: nowrap; }
+  .sidebar-foot .status-chips { flex-basis: auto; }
   .sidebar-foot .muted { display: none; }
+  /* The rail is 72px: the name box is one round letter there (its title says the rest), and its box keeps its hint. */
+  .sidebar-foot .operator-name .op-full { display: none; }
+  .sidebar-foot .operator-name .op-chip { display: inline; }
+  .sidebar-foot .operator-name > .btn { width: 32px; height: 32px; padding: 0; border-radius: 50%; font-weight: 600; }
+  .sidebar-foot .operator-name .status-pop .muted { display: block; }
   .status-chips { flex-direction: column; align-items: center; }
   .status-chip { padding: 4px; border-color: transparent; }
   .status-chip .dot { margin-right: 0; }

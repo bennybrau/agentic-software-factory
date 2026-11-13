@@ -8,6 +8,10 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Set your name without signing in.** With `AUTH_MODE=none`, **Set your name** in the sidebar
+  keeps a name in this browser and sends it with every request, so gates, chat replies and dispatches
+  show who did them instead of `operator`. Nothing checks it. See
+  [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
 - **Copy a run's link from the run page.** A Copy link button next to the run title copies the
   page's full address, and reads "Copied" for a moment. This is handy on a phone or in the
   installed app, where there is no address bar.
@@ -52,6 +56,8 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **A planner chat reply no longer reads as a rejection.** Replying to the planner at the plan gate
+  shows "Asked for a change" in the gate notes instead of "Rejected by".
 - **Runs on the same repository no longer fail setting up at the same time, and Retry works after
   a lost worktree.** Workers now set up a repository's shared clone one at a time (a lock beside
   it, taken over if its holder dies), so parallel tasks no longer fail on git's `config.lock`. If

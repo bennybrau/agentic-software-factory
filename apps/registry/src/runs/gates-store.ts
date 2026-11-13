@@ -8,6 +8,7 @@ export interface GateRow {
   afterTask: string | null; artifact: string | null; decidedBy: string | null;
   note: string | null; editedArtifact: string | null; createdAt: string; decidedAt: string | null;
   hiveSentAt: string | null;
+  decision?: string | null;
 }
 
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v == null ? null : String(v));
@@ -16,7 +17,7 @@ function toGate(r: Record<string, unknown>): GateRow {
     afterTask: r.afterTask ? String(r.afterTask) : null, artifact: r.artifact ? String(r.artifact) : null,
     decidedBy: r.decidedBy ? String(r.decidedBy) : null, note: r.note ? String(r.note) : null,
     editedArtifact: r.editedArtifact ? String(r.editedArtifact) : null, createdAt: iso(r.createdAt)!, decidedAt: iso(r.decidedAt),
-    hiveSentAt: iso(r.hiveSentAt) };
+    hiveSentAt: iso(r.hiveSentAt), ...('decision' in r ? { decision: r.decision == null ? null : String(r.decision) } : {}) };
 }
 
 export async function openGate(tx: Db, input: { runId: string; gateName: string; mode: string; afterTask: string | null; artifact: string | null }): Promise<GateRow> {
@@ -38,8 +39,17 @@ export async function getGate(sql: Sql, id: string): Promise<GateRow | null> {
   return rows.length ? toGate(rows[0]) : null;
 }
 
+/**
+ * Every gate on a run, with the decision from its gate:resolved event: the event naming the gate's
+ * id, else the one for the same gate name written at decided_at (both in one transaction, so the
+ * same now()). This is how a planner chat reply, stored as 'rejected', reads as "Asked for a change".
+ */
 export async function listGates(sql: Sql, runId: string): Promise<GateRow[]> {
-  return (await sql`SELECT * FROM run_gate WHERE run_id = ${runId} ORDER BY created_at`).map(toGate);
+  return (await sql`SELECT g.*, (SELECT e.payload->>'decision' FROM run_events e
+      WHERE e.run_id = g.run_id AND e.kind = 'gate:resolved'
+        AND (e.payload->>'gateId' = g.id OR (e.payload->>'gate' = g.gate_name AND e.at = g.decided_at))
+      ORDER BY (e.payload->>'gateId' = g.id) DESC NULLS LAST, e.seq DESC LIMIT 1) AS decision
+    FROM run_gate g WHERE g.run_id = ${runId} ORDER BY g.created_at`).map(toGate);
 }
 
 export async function decideGate(tx: Db, id: string, d: { state: 'approved' | 'rejected'; decidedBy: string | null; note: string | null; editedArtifact: string | null }): Promise<void> {

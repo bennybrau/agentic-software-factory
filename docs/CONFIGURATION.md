@@ -116,7 +116,7 @@ Every decision is a named setting resolved **environment variable > org setting 
 
 | Key | Type | Default | Set from | Read by | Description |
 |---|---|---|---|---|---|
-| `AUTH_MODE` | none \| header | `none` | env | api | Who the operator is. none = single operator, a name box, badge says unverified. header = trust an upstream proxy (IAP, Tailscale, your SSO) that sets AUTH_HEADER; honoured only when the api is not reachable directly. |
+| `AUTH_MODE` | none \| header | `none` | env | api | Who the operator is. none = no sign-in: each browser can set a name (Set your name, in the sidebar), sent as X-Operator and recorded on gates, chat and dispatches; nothing checks it. header = trust an upstream proxy (IAP, Tailscale, your SSO) that sets AUTH_HEADER; honoured only when the api is not reachable directly. |
 | `AUTH_HEADER` | string | `X-Goog-Authenticated-User-Email` | env | api | header mode: the request header carrying the user identity (IAP: X-Goog-Authenticated-User-Email; Tailscale: Tailscale-User-Login). |
 | `SECRETS_SOURCE` | env \| file \| gcp \| aws | `env` | env | registry, api, worker | Where secret:// values in settings are resolved from. env = the value is literal; file = SECRETS_DIR/<name>; gcp = Secret Manager; aws = Secrets Manager. |
 | `SECRETS_DIR` | string | `/run/secrets` | env | registry, api, worker | file mode: directory of one-file-per-secret (Docker/K8s secrets). |

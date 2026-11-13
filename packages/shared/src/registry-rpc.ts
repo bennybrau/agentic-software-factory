@@ -336,6 +336,11 @@ export interface GateWire {
   note: string | null; editedArtifact: string | null; createdAt: string; decidedAt: string | null;
   /** When the Hive hook sent this gate's note to team memory; null = not sent. */
   hiveSentAt: string | null;
+  /**
+   * What the person chose, from the gate:resolved event: 'approve', 'reject', 'reply' (a planner chat
+   * reply at the plan gate, stored as state 'rejected'), 'request_changes'. Null/absent when unknown.
+   */
+  decision?: string | null;
 }
 export interface ArtifactWire { name: string; content: string; updatedAt: string; }
 /** One stored version of an artifact, tied to the task that produced it (M11 WP1). */

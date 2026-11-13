@@ -21,6 +21,14 @@ test('none mode: identity is the claimed X-Operator header, unverified', () => {
   });
 });
 
+test('none mode: a percent-encoded X-Operator is decoded; ASCII and invalid encoding are kept as sent', () => {
+  withEnv({ AUTH_MODE: 'none' }, () => {
+    assert.equal(resolveIdentity(req({ 'x-operator': encodeURIComponent('Zoë') })).user, 'Zoë');
+    assert.equal(resolveIdentity(req({ 'x-operator': 'jon' })).user, 'jon');
+    assert.equal(resolveIdentity(req({ 'x-operator': '100%' })).user, '100%');
+  });
+});
+
 test('none mode: falls back to body.by, then to "operator"', () => {
   withEnv({ AUTH_MODE: 'none' }, () => {
     assert.equal(resolveIdentity(req({}, { by: 'alice' })).user, 'alice');
@@ -38,6 +46,13 @@ test('header mode: trusts the proxy header and strips the IAP prefix, verified',
 test('header mode: a missing header is anonymous+unverified, never a spoofable fallback', () => {
   withEnv({ AUTH_MODE: 'header', AUTH_HEADER: 'X-Goog-Authenticated-User-Email' }, () => {
     assert.deepEqual(resolveIdentity(req({ 'x-operator': 'spoofed' })), { user: 'anonymous', verified: false, mode: 'header' });
+  });
+});
+
+test('header mode: X-Operator is ignored when the proxy header is present', () => {
+  withEnv({ AUTH_MODE: 'header', AUTH_HEADER: 'X-Goog-Authenticated-User-Email' }, () => {
+    const id = resolveIdentity(req({ 'x-goog-authenticated-user-email': 'alice@example.com', 'x-operator': encodeURIComponent('Zoë') }));
+    assert.deepEqual(id, { user: 'alice@example.com', verified: true, mode: 'header' });
   });
 });
 

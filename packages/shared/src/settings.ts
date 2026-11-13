@@ -177,7 +177,7 @@ export const SETTINGS = {
 
   // ---------------------------------------------------------- identity/auth
   AUTH_MODE: S({ type: 'enum', values: ['none', 'header'], default: 'none', tiers: ['env'], group: 'Identity', readBy: ['api'],
-    description: 'Who the operator is. none = single operator, a name box, badge says unverified. header = trust an upstream proxy (IAP, Tailscale, your SSO) that sets AUTH_HEADER; honoured only when the api is not reachable directly.' }),
+    description: 'Who the operator is. none = no sign-in: each browser can set a name (Set your name, in the sidebar), sent as X-Operator and recorded on gates, chat and dispatches; nothing checks it. header = trust an upstream proxy (IAP, Tailscale, your SSO) that sets AUTH_HEADER; honoured only when the api is not reachable directly.' }),
   AUTH_HEADER: S({ type: 'string', default: 'X-Goog-Authenticated-User-Email', tiers: ['env'], group: 'Identity', readBy: ['api'],
     description: 'header mode: the request header carrying the user identity (IAP: X-Goog-Authenticated-User-Email; Tailscale: Tailscale-User-Login).' }),
   SECRETS_SOURCE: S({ type: 'enum', values: ['env', 'file', 'gcp', 'aws'], default: 'env', tiers: ['env'], group: 'Identity', readBy: ['registry', 'api', 'worker'],

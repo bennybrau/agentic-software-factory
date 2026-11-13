@@ -6,6 +6,7 @@ import { PAGE as TITLES, OUTCOME_LABEL, runStateLabel } from '../words';
 import { runResultLabel } from '../review-view';
 import { ActiveWork } from '../components/ActiveWork';
 import { CopyRunLink } from '../components/CopyRunLink';
+import { tookIsLive, tookText } from '../took-words';
 
 const RUN_STATES = ['queued', 'running', 'awaiting_checkpoint', 'succeeded', 'failed', 'cancelled', 'stale', 'halted'];
 const OUTCOMES = Object.entries(OUTCOME_LABEL).map(([v, label]) => ({ v, label }));
@@ -50,6 +51,15 @@ export function Runs() {
   const resetTo = (setter: (v: string) => void) => (v: string) => { setter(v); setOffset(0); };
 
   // Team options: distinct teams on the current page plus the always-present default.
+  // Tick every 30 s while a row is still going, so "so far" counts between SSE reloads.
+  const [now, setNow] = useState(() => Date.now());
+  const anyLive = runs.some(tookIsLive);
+  useEffect(() => {
+    if (!anyLive) return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [anyLive]);
+
   const teamOptions = useMemo(() => Array.from(new Set(runs.map((r) => r.teamName).filter(Boolean))).sort(), [runs]);
 
   const from = total === 0 ? 0 : offset + 1;
@@ -93,7 +103,7 @@ export function Runs() {
 
       <div className="card table-wrap" style={{ padding: 0 }}>
         <table>
-          <thead><tr><th>Ticket</th><th>Status</th><th>Team</th><th>Result</th><th>Cost</th><th>Started</th></tr></thead>
+          <thead><tr><th>Ticket</th><th>Status</th><th>Team</th><th>Result</th><th>Cost</th><th>Took</th><th>Started</th></tr></thead>
           <tbody>
             {runs.map((r) => (
               <tr key={r.id} className="clickable" onClick={() => navigate(`/run/${r.id}`)}>
@@ -102,10 +112,11 @@ export function Runs() {
                 <td className="muted">{r.teamName}</td>
                 <td className="muted">{runResultLabel(r)}</td>
                 <td className="muted">${r.costUsd.toFixed(2)}</td>
+                <td className="muted" style={{ whiteSpace: 'nowrap' }}>{tookText(r, now)}</td>
                 <td className="muted">{r.startedAt ? new Date(r.startedAt).toLocaleString() : '—'}</td>
               </tr>
             ))}
-            {runs.length === 0 && <tr><td colSpan={6} className="muted" style={{ padding: 24, textAlign: 'center' }}>{loading ? 'Loading…' : 'Nothing matches these filters.'}</td></tr>}
+            {runs.length === 0 && <tr><td colSpan={7} className="muted" style={{ padding: 24, textAlign: 'center' }}>{loading ? 'Loading…' : 'Nothing matches these filters.'}</td></tr>}
           </tbody>
         </table>
       </div>

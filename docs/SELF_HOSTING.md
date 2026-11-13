@@ -100,6 +100,13 @@ run as the worker's user.
 
 Everything else has a working default. Full list: [`CONFIGURATION.md`](CONFIGURATION.md).
 
+With `AUTH_MODE=none` there is no sign-in. Each person can click **Set your name**
+at the bottom of the sidebar (in the top bar on a phone): the name is kept in that
+browser and sent with every request, so gate decisions, chat replies and dispatches
+say who did them. Nothing checks it, so anyone can type any name; use `header` mode
+behind a sign-in proxy when that matters. Without a name, actions are recorded as
+`operator`.
+
 ### Secrets from the shell, not `.env`
 
 Secrets do not have to be in `.env` at all: `scripts/asf up` (compose) passes

@@ -47,9 +47,16 @@ export function resolveIdentity(req: FastifyRequest): Identity {
     // spoofable identity; report anonymous+unverified so the UI can say so.
     return { user: 'anonymous', verified: false, mode: 'header' };
   }
+  // The browser percent-encodes the name (a header can't carry "Zoë" as-is); a raw value that
+  // isn't valid encoding is kept as sent.
   const hdr = req.headers['x-operator'];
-  const claimed = (Array.isArray(hdr) ? hdr[0] : hdr) ?? (req.body as { by?: string } | undefined)?.by ?? 'operator';
+  const raw = Array.isArray(hdr) ? hdr[0] : hdr;
+  const claimed = (raw === undefined ? undefined : decodeOperator(raw)) ?? (req.body as { by?: string } | undefined)?.by ?? 'operator';
   return { user: claimed, verified: false, mode: 'none' };
+}
+
+function decodeOperator(raw: string): string {
+  try { return decodeURIComponent(raw); } catch { return raw; }
 }
 
 /**

@@ -66,7 +66,7 @@ export async function sendChatMessage(sql: Sql, runId: string, body: string, by:
       // Replying at the plan gate is neither approve nor reject: the conversation goes on.
       await tx`UPDATE run_gate SET state = 'rejected', decided_by = ${by}, note = ${text}, decided_at = now() WHERE id = ${gate.id}`;
       await appendEventTx(tx, { runId, taskId: targetTaskId, kind: 'gate:resolved', source: 'human',
-        payload: { gate: 'after_plan', decision: 'reply', by, note: text.slice(0, 500) } });
+        payload: { gate: 'after_plan', gateId: String(gate.id), decision: 'reply', by, note: text.slice(0, 500) } });
     }
     await requeueForChat(tx, runId, targetTaskId, text);
     await tx`UPDATE agent_run SET state = 'running' WHERE id = ${runId} AND state = 'awaiting_checkpoint'`;

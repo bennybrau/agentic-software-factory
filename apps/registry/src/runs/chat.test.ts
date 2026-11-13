@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_GATES, STANDARD_TEAM } from '@asf/shared';
 import { createRun, getRun, getEvents, appendEvent } from './store.js';
 import { claimTask, finishTask, registerWorker } from './workers.js';
-import { saveArtifact, getOpenGate } from './gates-store.js';
+import { saveArtifact, getOpenGate, listGates } from './gates-store.js';
 import { resolveGate } from './gates.js';
 import { appendMessage, listMessages, sendChatMessage, requestChanges, ChatError } from './chat.js';
 import { dbAvailable, testDb, runInput, drain } from '../test/harness.js';
@@ -54,6 +54,8 @@ test('replying at the plan gate keeps talking (planner re-runs); approving then 
 
   await sendChatMessage(db.sql, runId, 'Also handle empty input.', 'jon');
   assert.equal(await getOpenGate(db.sql, runId), null, 'the reply closes the gate');
+  const replied = (await listGates(db.sql, runId)).find((g) => g.id === gate!.id)!;
+  assert.deepEqual([replied.state, replied.decision, replied.decidedBy], ['rejected', 'reply', 'jon'], 'stored as rejected, read back as a reply');
   const rerun = await claimTask(db.sql, 'c2', ['claude-code']);
   assert.equal(rerun?.task.role, 'planner');
   assert.equal(rerun?.task.queuedBy, 'chat');
@@ -67,6 +69,7 @@ test('replying at the plan gate keeps talking (planner re-runs); approving then 
   await resolveGate(db.sql, gate2!.id, { decision: 'approve', by: 'jon', note: null, editedArtifact: null });
   const impl = await claimTask(db.sql, 'c2', ['claude-code']);
   assert.equal(impl?.task.role, 'implementer');
+  assert.deepEqual((await listGates(db.sql, runId)).map((g) => g.decision), ['reply', 'approve']);
 });
 
 test('chatting when the planner is not waiting is a ChatError (nothing re-queued)', { skip }, async () => {

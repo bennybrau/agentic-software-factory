@@ -63,6 +63,7 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **Replacing the same theme picture twice in quick succession now always shows the new picture.**
 - **A planner chat reply no longer reads as a rejection.** Replying to the planner at the plan gate
   shows "Asked for a change" in the gate notes instead of "Rejected by".
 - **Runs on the same repository no longer fail setting up at the same time, and Retry works after

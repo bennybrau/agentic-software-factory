@@ -20,6 +20,7 @@ import { reviewHeading, runPillLabel } from '../review-view';
 import { groupStages, type Attempt } from '../stages';
 import { crewName, laneLabel, memberName } from '../theme-view';
 import { useMe } from '../useMe';
+import { usePageSubject } from '../page-title';
 import { runCostText, taskCostText } from '../cost-words';
 import { isRunFinished, runDurationText } from '../duration-words';
 
@@ -64,6 +65,9 @@ export function RunView() {
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
   }, [anyRunning, load]);
+
+  // Name the ticket in the tab title (#134); the layout writes it.
+  usePageSubject(detail?.run.ticketKey ?? null);
 
   if (!detail) return <p className="muted">Loading…</p>;
   const { run, tasks, gates, artifacts } = detail;

@@ -8,6 +8,9 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **The browser tab names the run.** On a run page the tab title starts with the ticket key, for
+  example `PROJ-123 · Agentic Software Factory`, so open runs are easy to tell apart. Other pages
+  keep the app title.
 - **Activity shows how long each run took.** A new Took column reads like "13 min" or "1 h 5 min";
   a run still going reads "4 min so far" (time waiting at a gate counts) and keeps counting.
 - **The run page shows how long the run took.** Next to the status, a finished run reads

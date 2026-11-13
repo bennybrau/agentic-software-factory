@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CLASSIC_THEME, DEFAULT_THEME_TEXT, pickThemeImage, THEME_PICTURE_STATES, type ActiveThemeWire, type ThemePictureState, type ThemeSlot } from '@asf/shared/ui';
 import { api } from './api';
 import { accentOf, appTitleOf, backgroundOf, defaultPictureFor, textOf } from './theme-view';
+import { getPageSubject, pageTitle, subscribePageSubject } from './page-title';
 
 const KEY = ['theme'];
 /** What the app renders with until /api/theme answers (and if it never does): classic, with its placeholder pictures. */
@@ -49,7 +50,8 @@ const DERIVED = ['--panel', '--panel2', '--border', '--muted'] as const;
 /**
  * Put the theme's look on <html>: the accent as --accent, the page colours as
  * --bg / --text (with the panel, border and muted shades mixed from them when a
- * background is set), and the app title as the document title. Anything the
+ * background is set), and the app title as the document title (led by the
+ * ticket key a page names through usePageSubject). Anything the
  * theme leaves out is dropped, so classic looks exactly as the stylesheet says.
  * Mount once, in the layout.
  */
@@ -59,6 +61,7 @@ export function useThemeLook(): void {
   const background = backgroundOf(theme);
   const text = textOf(theme);
   const title = appTitleOf(theme);
+  const subject = useSyncExternalStore(subscribePageSubject, getPageSubject);
   useEffect(() => {
     const root = document.documentElement;
     const set = (name: string, value: string | null) => {
@@ -78,6 +81,6 @@ export function useThemeLook(): void {
       for (const name of DERIVED) set(name, null);
     }
     root.dataset.theme = theme.id;
-    document.title = title;
-  }, [accent, background, text, title, theme.id]);
+  }, [accent, background, text, theme.id]);
+  useEffect(() => { document.title = pageTitle(title, subject); }, [title, subject]);
 }

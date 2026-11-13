@@ -11,6 +11,7 @@ import { HiveStage } from '../components/HiveStage';
 import { TeamMemory } from '../components/TeamMemory';
 import { ActivityStrip } from '../components/ActivityStrip';
 import { AddressReviewComments } from '../components/AddressReviewComments';
+import { CopyLinkButton } from '../components/CopyLinkButton';
 import { useTheme } from '../useTheme';
 import type { RunEvent, RunTask } from '@asf/shared';
 import { parseMergeConflict } from '@asf/shared/ui';
@@ -103,7 +104,7 @@ export function RunView() {
     <div>
       <div className="row between">
         <div><Link to="/runs">← {PAGE.activity}</Link>
-          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span></h2>
+          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><CopyLinkButton runId={runId} /></h2>
           {review && (
             <div className="muted" style={{ fontSize: 13 }}>
               <a href={review.url} target="_blank" rel="noreferrer">{review.text}</a>

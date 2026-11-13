@@ -68,6 +68,19 @@ test('pictures can be set on a built-in theme; an unknown theme is a 404; a repl
   assert.deepEqual(await h.deleteThemeImage({ op: 'deleteThemeImage', themeId: 'hive', slot: 'tester' }), { deleted: 0 });
 });
 
+test('replacing a picture always moves its version forward, even when the stored time is ahead of the clock', { skip }, async () => {
+  const h = rpcHandlers(db.sql);
+  const set = async (b: Buffer) =>
+    (await h.setThemeImages({ op: 'setThemeImages', themeId: 'hive', by: 'ana', images: [{ slot: 'reviewer', mime: 'image/png', contentBase64: b64(b) }] }))
+      .images.find((i) => i.slot === 'reviewer')!;
+  await set(PNG);
+  await db.sql`UPDATE theme_image SET updated_at = now() + interval '1 hour' WHERE theme_id = 'hive' AND slot = 'reviewer'`;
+  const old = (await h.listThemeImages({ op: 'listThemeImages', themeId: 'hive' })).images.find((i) => i.slot === 'reviewer')!;
+  const replaced = await set(GIF);
+  assert.ok(Number(replaced.version) > Number(old.version), `${replaced.version} > ${old.version}`);
+  assert.deepEqual(await h.deleteThemeImage({ op: 'deleteThemeImage', themeId: 'hive', slot: 'reviewer' }), { deleted: 1 });
+});
+
 test('built-in ids cannot be stored or deleted; deleting a custom theme takes its pictures with it', { skip }, async () => {
   const h = rpcHandlers(db.sql);
   await assert.rejects(h.putTheme({ op: 'putTheme', manifest: { ...robots, id: 'hive' }, by: null, images: [] }), /"hive" is a built-in theme/);

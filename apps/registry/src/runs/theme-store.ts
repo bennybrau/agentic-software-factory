@@ -38,10 +38,12 @@ async function writeImages(tx: Sql, themeId: string, images: ThemeImageInput[], 
   for (const i of images) {
     const bytes = Buffer.from(i.contentBase64, 'base64');
     // clock_timestamp, not now(): every picture in one upload still gets a fresh version within one transaction.
+    // A replace moves updated_at at least 1 ms past the old one, so its ms version (the web's cache-buster)
+    // strictly increases even for two replaces within the same ms or after a clock step back.
     await tx`INSERT INTO theme_image (theme_id, slot, state, mime, bytes, updated_by, updated_at)
       VALUES (${themeId}, ${i.slot}, ${i.state ?? 'any'}, ${i.mime}, ${bytes}, ${by}, clock_timestamp())
       ON CONFLICT (theme_id, slot, state) DO UPDATE SET mime = EXCLUDED.mime, bytes = EXCLUDED.bytes,
-        updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`;
+        updated_by = EXCLUDED.updated_by, updated_at = greatest(EXCLUDED.updated_at, theme_image.updated_at + interval '1 millisecond')`;
   }
 }
 

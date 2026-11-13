@@ -63,5 +63,11 @@ export function operatorHeaders(name: string | null = current): Record<string, s
   return name ? { 'X-Operator': encodeURIComponent(name) } : {};
 }
 
+/** The one letter shown where there is no room for the name (the tablet icon rail): its first character, upper-cased; '?' when no name is set. */
+export function nameInitial(name: string | null): string {
+  const first = name ? [...name.trim()][0] : undefined;
+  return first ? first.toLocaleUpperCase() : '?';
+}
+
 /** For tests: read from another store, as if the page had just loaded. */
 export function setNameStore(s: NameStore | null): void { store = s; current = read(); }

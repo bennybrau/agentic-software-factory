@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMe } from '../useMe';
-import { clearOperatorName, getOperatorName, onOperatorNameChange, setOperatorName, MAX_NAME } from '../operator-name';
+import { clearOperatorName, getOperatorName, nameInitial, onOperatorNameChange, setOperatorName, MAX_NAME } from '../operator-name';
 
 /**
  * The name this browser acts under when there is no sign-in (#129): the name with
@@ -40,8 +40,11 @@ export function OperatorName() {
         ? <span className="muted" title="The name your actions are recorded under in this browser">{name}</span>
         : null}
       <button className="btn ghost sm" onClick={() => (editing ? setEditing(false) : open())}
-        title={name ? 'Change the name your actions are recorded under' : 'Set the name your actions are recorded under'}>
-        {name ? 'Change' : 'Set your name'}
+        title={name ? `${name}: change the name your actions are recorded under` : 'Set the name your actions are recorded under'}
+        aria-label={name ? `Change your name (${name})` : 'Set your name'}>
+        {/* The words everywhere except the tablet icon rail, which only has room for one letter. */}
+        <span className="op-full">{name ? 'Change' : 'Set your name'}</span>
+        <span className="op-chip" aria-hidden="true">{nameInitial(name)}</span>
       </button>
       {editing && (
         <form className="card status-pop" onSubmit={(e) => { e.preventDefault(); save(); }}>

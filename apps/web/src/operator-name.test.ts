@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { OPERATOR_NAME_KEY, clearOperatorName, getOperatorName, onOperatorNameChange, operatorHeaders, setNameStore, setOperatorName, validateName } from './operator-name';
+import { OPERATOR_NAME_KEY, clearOperatorName, getOperatorName, nameInitial, onOperatorNameChange, operatorHeaders, setNameStore, setOperatorName, validateName } from './operator-name';
 import { api } from './api';
 import { fallbackMe, loadMe, subscribeMe } from './useMe';
 import type { Identity } from './api';
@@ -100,4 +100,13 @@ test('useMe follows a change: the cached answer is dropped and /api/me asked aga
   assert.equal((await loadMe()).user, 'operator');
   assert.equal(heard.at(-1), 'operator');
   off(); offChange();
+});
+
+test('nameInitial: the first character, upper-cased, for the tablet rail; ? when no name is set', () => {
+  assert.equal(nameInitial('jon'), 'J');
+  assert.equal(nameInitial('  zoë müller'), 'Z');
+  assert.equal(nameInitial('Østergaard'), 'Ø');
+  assert.equal(nameInitial('😀 sam'), '😀', 'one whole character, not half of a pair');
+  assert.equal(nameInitial(null), '?');
+  assert.equal(nameInitial('   '), '?');
 });

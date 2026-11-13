@@ -231,3 +231,8 @@ test('the touch block comes after the base .btn.sm rule', () => {
   const baseSm = css.search(/(^|\n)\.btn\.sm\s*\{/);
   assert.ok(baseSm >= 0 && touchStart > baseSm);
 });
+
+test('the run title wraps, and its duration moves to the next line whole (#132)', () => {
+  assert.match(css, /(^|\n)\.run-title\s*\{[^}]*flex-wrap:\s*wrap[^}]*\}/);
+  assert.match(css, /(^|\n)\.run-title \.run-duration\s*\{[^}]*white-space:\s*nowrap[^}]*\}/);
+});

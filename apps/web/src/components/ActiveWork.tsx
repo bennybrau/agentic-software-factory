@@ -12,14 +12,15 @@ import { MiniHive } from './MiniHive';
  * answer "what needs me, what is the factory doing, and what will it do next":
  *   Waiting on you · Working on now · Couldn't start · Up next (+ Coming up).
  * What got done is the "All work" list below it. It refreshes on every run event
- * so a gate that opens or a run that finishes moves buckets without a reload.
+ * and queue change so a gate that opens, a run that finishes or a refused start
+ * moves buckets without a reload.
  */
 export function ActiveWork() {
   const navigate = useNavigate();
   const [data, setData] = useState<TodayWire | null>(null);
   const me = useMe();
   const load = () => api.today().then(setData).catch(() => {});
-  useEffect(() => { load(); return subscribeEvents(() => load()); }, []);
+  useEffect(() => { load(); return subscribeEvents(() => load(), undefined, { onQueue: () => load() }); }, []);
 
   if (!data) return <div className="muted" style={{ marginBottom: 16 }}>Loading…</div>;
   const { waitingOnYou, running, queued } = data;

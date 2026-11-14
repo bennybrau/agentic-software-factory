@@ -5,8 +5,9 @@ import type { NotificationWire } from '@asf/shared';
 
 /**
  * The web notification sink: a bell with an unread count and a dropdown inbox.
- * It refetches on every run event (the moments notifications are written), so a
- * gate opening or a run finishing bumps the count without a reload. It opens
+ * It refetches on every run event and queue change (the moments notifications are
+ * written), and when the stream (re)opens, so a gate opening, a run finishing or a
+ * refused start bumps the count without a reload. It opens
  * upward in the sidebar footer and downward (`drop="down"`) in the phone top bar.
  */
 export function NotificationBell({ drop = 'up' }: { drop?: 'up' | 'down' }) {
@@ -17,7 +18,7 @@ export function NotificationBell({ drop = 'up' }: { drop?: 'up' | 'down' }) {
   const ref = useRef<HTMLDivElement>(null);
 
   const load = () => api.notifications().then((d) => { setItems(d.notifications); setUnread(d.unread); }).catch(() => {});
-  useEffect(() => { load(); return subscribeEvents(() => load()); }, []);
+  useEffect(() => { load(); return subscribeEvents(() => load(), () => load(), { onQueue: () => load() }); }, []);
   useEffect(() => {
     const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', onDoc);

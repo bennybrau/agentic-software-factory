@@ -1,4 +1,4 @@
-import type { Sql } from './pool.js';
+import type { Db, Sql } from './pool.js';
 
 /**
  * One LISTEN connection per registry process. `appendEvent` NOTIFYs
@@ -15,4 +15,25 @@ export async function listenRunEvents(sql: Sql, listener: RunEventListener): Pro
     listener(payload.slice(0, idx), Number(payload.slice(idx + 1)));
   });
   return { unlisten };
+}
+
+/**
+ * `markQueueEntry` NOTIFYs `work_queue` with "<entryId>:<state>" when the
+ * scheduler moves an entry, so the SSE route can tell browsers to refetch the
+ * bell and Activity right away rather than on the next unrelated run event.
+ */
+export type QueueChangeListener = (id: string, state: string) => void;
+
+export async function listenQueueChanges(sql: Sql, listener: QueueChangeListener): Promise<{ unlisten: () => Promise<void> }> {
+  const { unlisten } = await sql.listen('work_queue', (payload) => {
+    const idx = payload.lastIndexOf(':');
+    if (idx <= 0) return;
+    listener(payload.slice(0, idx), payload.slice(idx + 1));
+  });
+  return { unlisten };
+}
+
+/** Inside the transaction that moved the entry, so it only fires on commit. */
+export async function notifyQueueChange(tx: Db, id: string, state: string): Promise<void> {
+  await tx`SELECT pg_notify('work_queue', ${`${id}:${state}`})`;
 }

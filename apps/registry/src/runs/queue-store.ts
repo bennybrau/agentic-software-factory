@@ -3,6 +3,7 @@ import { workQueueEntrySchema } from '@asf/shared';
 import type { Sql } from '../db/pool.js';
 import { newId } from './ids.js';
 import { recordNotification } from './notification-store.js';
+import { notifyQueueChange } from '../db/notify.js';
 
 /**
  * The only module that writes work_queue. Enqueue/list/reorder/remove serve the
@@ -161,7 +162,7 @@ export async function readyQueueEntries(sql: Sql, limit: number): Promise<WorkQu
 /**
  * The scheduler's outcome for one entry. Only a queued entry moves. A refusal
  * (failed) is stamped with when and why, and puts exactly one notification in
- * the bell, in the same transaction.
+ * the bell, in the same transaction. A move NOTIFYs `work_queue` so open pages refetch.
  */
 export async function markQueueEntry(sql: Sql, id: string, state: 'dispatched' | 'failed', runId: string | null, reason: string | null, code: string | null = null): Promise<void> {
   await sql.begin(async (tx) => {
@@ -172,7 +173,9 @@ export async function markQueueEntry(sql: Sql, id: string, state: 'dispatched' |
       reason_code = CASE WHEN ${state} = 'failed' THEN ${code} ELSE reason_code END
       WHERE id = ${id} AND state = 'queued'
       RETURNING ticket_key, reason`;
-    if (rows.length === 0 || state !== 'failed') return;
+    if (rows.length === 0) return;
+    await notifyQueueChange(tx, id, state);
+    if (state !== 'failed') return;
     await recordNotification(tx, {
       runId: null, queueEntryId: id, kind: 'refused',
       title: `${String(rows[0].ticketKey)}: couldn\u2019t start`, body: rows[0].reason == null ? '' : String(rows[0].reason),

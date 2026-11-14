@@ -70,6 +70,9 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **The bell shows a refused start right away.** When the queue can't start a ticket, the bell,
+  Activity's "Couldn’t start" list and the Planned tasks pill update at once instead of waiting for
+  some other run to change.
 - **Uploading a role's avatar twice in quick succession now always shows the new picture.**
 - **A refused ticket's row on Planned tasks now reads "Couldn’t start".** This works for tracker tickets
   and for tasks added here, with the reason under it. The page also updates on its own while something

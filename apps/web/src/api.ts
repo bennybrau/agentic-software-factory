@@ -203,14 +203,20 @@ export const api = {
   },
 };
 
+/** A queue entry the scheduler just started or refused (a `queue:changed` frame). */
+export interface QueueChange { id: string; state: string }
+
 /**
  * Subscribe to the run event stream. Calls back on every run:event frame, and
  * `onOpen` each time the stream opens — again after a reconnect, so a caller can
- * fetch what it missed.
+ * fetch what it missed. `onQueue` gets each queue:changed frame on the same
+ * connection (browsers allow only ~6 per origin, so no second stream).
  */
-export function subscribeEvents(onEvent: (e: RunEvent) => void, onOpen?: () => void): () => void {
+export function subscribeEvents(onEvent: (e: RunEvent) => void, onOpen?: () => void, opts: { onQueue?: (c: QueueChange) => void } = {}): () => void {
   const es = new EventSource('/api/events');
   if (onOpen) es.onopen = () => onOpen();
   es.addEventListener('run:event', (ev) => { try { onEvent(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
+  const { onQueue } = opts;
+  if (onQueue) es.addEventListener('queue:changed', (ev) => { try { onQueue(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
   return () => es.close();
 }

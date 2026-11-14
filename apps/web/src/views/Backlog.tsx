@@ -42,15 +42,17 @@ export function Backlog() {
 
   // Tickets the queue couldn't start (shown in their pill), and whether the monthly budget is spent.
   // A refusal sends no run event, so the queue is checked every few seconds while
-  // something waits to start; a run event (the ticket's run starting) refetches too.
+  // something waits to start; a run event (the ticket's run starting) or a queue:changed
+  // event (an entry refused or dispatched) refetches too, on the one stream connection.
   const { data: today, refetch: refetchToday } = useQuery({ queryKey: ['today'], queryFn: api.today, refetchInterval: (q) => queuePollInterval(q.state.data) });
   const refused = today?.refused ?? []; // older apis send no refused
-  useEffect(() => subscribeEvents(() => { void refetchToday(); }), [refetchToday]);
   const [fleet, setFleet] = useState<Fleet | null>(null);
   const loadRefusals = () => {
     void refetchToday();
     api.fleet().then(setFleet).catch(() => {});
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => subscribeEvents(() => { void refetchToday(); }, undefined, { onQueue: () => loadRefusals() }), [refetchToday]);
   useEffect(() => { api.fleet().then(setFleet).catch(() => {}); }, []);
   const budgetLine = fleet ? budgetReachedText(fleet.monthCostUsd, fleet.monthlyBudgetUsd) : null;
 

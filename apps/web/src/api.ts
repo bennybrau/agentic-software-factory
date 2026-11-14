@@ -12,7 +12,7 @@ export interface RunDetail { run: Run; tasks: RunTask[]; gates: GateWire[]; arti
 export interface ReviewThreadsWire { eligible: boolean; reason: string | null; url: string | null; threads: ReviewThread[] }
 export interface RunsQuery { state?: string; teamName?: string; deliveryOutcome?: string; search?: string; since?: string; limit?: number; offset?: number }
 export interface Identity { user: string; verified: boolean; mode: string }
-export interface Fleet extends FleetWire { monthCostUsd: number; monthUnpricedRuns?: number }
+export interface Fleet extends FleetWire { monthCostUsd: number; monthUnpricedRuns?: number; /** 0 or absent (an older api): no budget. */ monthlyBudgetUsd?: number }
 // Mirrors SetupItem/SetupStatus in apps/api/src/routes/setup.ts (the first-run checklist, #83).
 export interface SetupItem { id: string; title: string; done: boolean; optional?: boolean; reason?: string; warning?: string; identity?: string; envPinned?: boolean; link: string; problem?: 'credential-rejected' | 'connection-failed' }
 export interface SetupStatus { items: SetupItem[]; complete: boolean }
@@ -178,6 +178,8 @@ export const api = {
   reorderQueue: (id: string, beforeId: string | null) =>
     send(`/api/queue/${encodeURIComponent(id)}/reorder`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ beforeId }) }).then(j),
   removeQueueEntry: (id: string) => send(`/api/queue/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(j),
+  // A refused entry: back on Up next (requeued false: the ticket was already there, so it was only dismissed).
+  retryQueueEntry: (id: string) => send(`/api/queue/${encodeURIComponent(id)}/retry`, { method: 'POST' }).then(j<{ ok: true; requeued: boolean }>),
   notifications: (unreadOnly = false) => send(`/api/notifications${unreadOnly ? '?unreadOnly=true' : ''}`).then(j<{ notifications: NotificationWire[]; unread: number }>),
   markNotificationsRead: (id: string | null) => send('/api/notifications/read', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }).then(j),
   clearNotifications: () => send('/api/notifications/clear', { method: 'POST' }).then(j),

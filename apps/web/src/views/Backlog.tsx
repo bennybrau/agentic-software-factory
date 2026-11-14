@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import type { AdhocTask, TicketScope, TicketSprint } from '@asf/shared';
+import { Link, useNavigate } from 'react-router-dom';
+import type { AdhocTask, TicketScope, TicketSprint, WorkQueueEntry } from '@asf/shared';
 import { keyPrefixes, looksLikeTicketRef, nativeId, ticketMatches } from '@asf/shared/ui';
-import { api, encodeTicketId, type TicketRow } from '../api';
+import { api, encodeTicketId, type Fleet, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
 import { addedBy, removeAdhoc } from '../new-task';
 import { BUCKETS, latestOnly, loadBacklogFilters, nextSort, restoreScope, saveBacklogFilters, sortTickets, type SortKey } from '../backlog-filters';
@@ -10,6 +10,7 @@ import { checkedAgo } from '../updates-view';
 import { NoRepo } from './Dispatch';
 import { chooseForAll, chooseRepo, initialChoices, needsRepoConfirm, queueItems, stillNeedRepo, type QueueChoice } from '../queue-repos';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
+import { budgetReachedText, refusedByTicket, wherePill } from '../refusal-words';
 
 // Done is excluded from the default load; the bucket sub-filter (BUCKETS) is over active work only.
 const PAGE = 10;
@@ -37,6 +38,16 @@ export function Backlog() {
   const [adhoc, setAdhoc] = useState<AdhocTask[]>([]);
   const loadAdhoc = () => api.listAdhoc().then((d) => setAdhoc(d.tasks)).catch(() => {});
   useEffect(() => { loadAdhoc(); }, []);
+
+  // Tickets the queue couldn't start (shown in their pill), and whether the monthly budget is spent.
+  const [refused, setRefused] = useState<Map<string, WorkQueueEntry>>(new Map());
+  const [fleet, setFleet] = useState<Fleet | null>(null);
+  const loadRefusals = () => {
+    api.today().then((d) => setRefused(refusedByTicket(d.refused ?? []))).catch(() => {}); // older apis send no refused
+    api.fleet().then(setFleet).catch(() => {});
+  };
+  useEffect(() => { loadRefusals(); }, []);
+  const budgetLine = fleet ? budgetReachedText(fleet.monthCostUsd, fleet.monthlyBudgetUsd) : null;
 
   // Done is fetched lazily and only for the recent window, on demand.
   const [showDone, setShowDone] = useState(saved.showDone);
@@ -219,6 +230,7 @@ export function Backlog() {
       setSelected(new Set());
       setConfirm(null);
       load();
+      loadRefusals();
     } else setErr(res.body.reason ?? `Couldn’t add them (${res.status}).`);
   };
   const queue = async (mode: 'serial' | 'parallel') => {
@@ -295,9 +307,14 @@ export function Backlog() {
       {msg && <div className="card" style={{ color: 'var(--good, #2a7)' }}>{msg} <button className="btn ghost" onClick={() => navigate('/runs')}>See {TITLES.activity} →</button></div>}
 
       {selected.size > 0 && (
-        <div className="card row between" style={{ marginBottom: 12, alignItems: 'center' }}>
+        <div className="card row between" style={{ marginBottom: 12, alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          {budgetLine && (
+            <div className="muted" style={{ flexBasis: '100%', overflowWrap: 'anywhere' }}>
+              {budgetLine} <Link to="/settings#spending">Spending settings</Link>
+            </div>
+          )}
           <span>{selected.size} selected</span>
-          <span className="row">
+          <span className="row" style={{ flexWrap: 'wrap' }}>
             <button className="btn" disabled={Boolean(blocked) || checking || Boolean(confirm)} onClick={() => queue('parallel')} title={blocked ? 'Connect a repository first' : 'Work on all of them at the same time'}>Start all at once</button>
             <button className="btn" disabled={Boolean(blocked) || checking || Boolean(confirm)} onClick={() => queue('serial')} title={blocked ? 'Connect a repository first' : 'Finish each one before starting the next'}>Start one at a time</button>
             <button className="btn ghost" onClick={() => { setSelected(new Set()); setConfirm(null); }}>Clear</button>
@@ -388,7 +405,7 @@ export function Backlog() {
                   <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
                   <td className="mono">{t.key}</td>
                   <td>{t.title}</td>
-                  <td><span className="pill">{bucketLabel(t.bucket)}</span></td>
+                  <td><WherePill bucket={t.bucket} refused={refused.get(t.id)} /></td>
                   <td className="muted">{t.priority ?? '—'}</td>
                   <td className="muted" title={t.updatedAt ? new Date(t.updatedAt).toLocaleString() : undefined}>{t.updatedAt ? checkedAgo(t.updatedAt) : '—'}</td>
                 </tr>
@@ -402,7 +419,7 @@ export function Backlog() {
                   <td />
                   <td className="mono">{t.key}</td>
                   <td>{t.title} <span className="muted">(not in this view)</span></td>
-                  <td><span className={t.bucket === 'done' ? 'pill done' : 'pill'}>{t.bucket === 'done' ? t.status : bucketLabel(t.bucket)}</span></td>
+                  <td>{t.bucket === 'done' ? <span className="pill done">{t.status}</span> : <WherePill bucket={t.bucket} refused={refused.get(t.id)} />}</td>
                   <td className="muted">{t.priority ?? '—'}</td>
                   <td className="muted">{t.updatedAt ? checkedAgo(t.updatedAt) : '—'}</td>
                 </tr>
@@ -450,5 +467,16 @@ export function Backlog() {
         </div>
       )}
     </div>
+  );
+}
+
+/** A ticket row's "Where it is": its board bucket, or "Couldn't start" with the reason wrapping under it (the column is nowrap). */
+function WherePill({ bucket, refused }: { bucket: string; refused?: WorkQueueEntry }) {
+  const { label, note } = wherePill(bucket, refused);
+  return (
+    <>
+      <span className="pill">{label}</span>
+      {note && <div className="muted" style={{ fontSize: '0.85em', whiteSpace: 'normal', overflowWrap: 'anywhere', maxWidth: 220, marginTop: 4 }}>{note}</div>}
+    </>
   );
 }

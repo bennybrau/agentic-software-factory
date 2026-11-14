@@ -10,7 +10,7 @@ import { MiniHive } from './MiniHive';
 /**
  * The "Now and next" block at the top of Activity (it was the Today page). Its buckets
  * answer "what needs me, what is the factory doing, and what will it do next":
- *   Waiting on you · Working on now · Up next (+ Coming up).
+ *   Waiting on you · Working on now · Couldn't start · Up next (+ Coming up).
  * What got done is the "All work" list below it. It refreshes on every run event
  * so a gate that opens or a run that finishes moves buckets without a reload.
  */
@@ -24,12 +24,14 @@ export function ActiveWork() {
   if (!data) return <div className="muted" style={{ marginBottom: 16 }}>Loading…</div>;
   const { waitingOnYou, running, queued } = data;
   const comingUp = data.comingUp ?? []; // older apis send no comingUp
+  const refused = data.refused ?? []; // nor refused (before #138)
 
   const decide = async (gateId: string, decision: 'approve' | 'reject') => {
     await api.resolveGate(gateId, decision, me.user).catch(() => {});
     load();
   };
   const dequeue = async (id: string) => { await api.removeQueueEntry(id).catch(() => {}); load(); };
+  const retry = async (id: string) => { await api.retryQueueEntry(id).catch(() => {}); load(); };
 
   return (
     <div>
@@ -51,6 +53,8 @@ export function ActiveWork() {
           </div>
         ))}
       </Section>
+
+      <CouldntStart refused={refused} onRetry={retry} onDismiss={dequeue} />
 
       <Section title={PAGE.upNext} count={queued.length}>
         {queued.length === 0 && <Empty>Nothing lined up. Pick tickets from <Link to="/backlog">{PAGE.todo}</Link>.</Empty>}
@@ -110,5 +114,27 @@ function QueueRow({ q, n, onRemove }: { q: WorkQueueEntry; n: number; onRemove: 
         {q.dependsOn.length > 0 && <span className="muted" style={{ fontSize: 13 }}> · waits for {q.dependsOn.length} earlier part{q.dependsOn.length === 1 ? '' : 's'} to merge</span>}</span>
       <button className="btn ghost" onClick={() => onRemove(q.id)}>Remove</button>
     </div>
+  );
+}
+
+/** Queued tickets the scheduler refused to start (#138), with why, until retried or dismissed. */
+export function CouldntStart({ refused, onRetry, onDismiss }: { refused: WorkQueueEntry[]; onRetry: (id: string) => void; onDismiss: (id: string) => void }) {
+  if (refused.length === 0) return null;
+  return (
+    <Section title="Couldn’t start" count={refused.length}>
+      {refused.map((q) => (
+        <div key={q.id} className="row between" style={{ ...rowStyle, flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+            <span className="mono">{q.ticketKey}</span>{' '}
+            <span className="muted">· {q.reason ?? 'It was refused.'}</span>
+            {q.reasonCode === 'over_budget' && <> <Link to="/settings#spending">Spending settings</Link></>}
+          </span>
+          <span className="row" style={{ flexWrap: 'wrap' }}>
+            <button className="btn" onClick={() => onRetry(q.id)}>Try again</button>
+            <button className="btn ghost" onClick={() => onDismiss(q.id)}>Dismiss</button>
+          </span>
+        </div>
+      ))}
+    </Section>
   );
 }

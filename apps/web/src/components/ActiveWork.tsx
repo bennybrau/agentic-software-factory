@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, subscribeEvents } from '../api';
 import type { TodayWire, WaitingRunWire, WorkQueueEntry } from '@asf/shared';
@@ -15,11 +15,14 @@ import { MiniHive } from './MiniHive';
  * and queue change so a gate that opens, a run that finishes or a refused start
  * moves buckets without a reload.
  */
-export function ActiveWork() {
+export function ActiveWork({ onToday }: { onToday?: (t: TodayWire) => void } = {}) {
   const navigate = useNavigate();
   const [data, setData] = useState<TodayWire | null>(null);
   const me = useMe();
-  const load = () => api.today().then(setData).catch(() => {});
+  // Latest callback without re-subscribing; called on every load so the parent follows the same refreshes.
+  const onTodayRef = useRef(onToday);
+  onTodayRef.current = onToday;
+  const load = () => api.today().then((t) => { setData(t); onTodayRef.current?.(t); }).catch(() => {});
   useEffect(() => { load(); return subscribeEvents(() => load(), undefined, { onQueue: () => load() }); }, []);
 
   if (!data) return <div className="muted" style={{ marginBottom: 16 }}>Loading…</div>;

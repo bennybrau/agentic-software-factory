@@ -170,6 +170,26 @@ test('GET /api/fleet passes each worker\'s runtime status through (#69)', async 
   await a.close();
 });
 
+test('GET /api/fleet carries the monthly budget beside the spend', async () => {
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
+    const result = body.op === 'listFleet' ? { workers: [], capacity: 0, running: 0 }
+      : body.op === 'monthUnpricedRuns' ? { count: 0 } : { totalUsd: 253.32 };
+    return new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  const before = process.env.ORG_MONTHLY_BUDGET_USD;
+  process.env.ORG_MONTHLY_BUDGET_USD = '250';
+  try {
+    const a = await app(new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'));
+    const res = await a.inject({ method: 'GET', url: '/api/fleet' });
+    assert.equal(res.json().monthCostUsd, 253.32);
+    assert.equal(res.json().monthlyBudgetUsd, 250);
+    await a.close();
+  } finally {
+    if (before === undefined) delete process.env.ORG_MONTHLY_BUDGET_USD; else process.env.ORG_MONTHLY_BUDGET_USD = before;
+  }
+});
+
 test('GET /api/models returns the runnable catalogue, narrowed by MODEL_ALLOWLIST', async () => {
   stubRegistry();
   const reg = new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock');

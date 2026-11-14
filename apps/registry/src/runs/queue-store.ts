@@ -2,6 +2,7 @@ import type { WorkQueueEntry, QueueMode, EnqueueItem } from '@asf/shared';
 import { workQueueEntrySchema } from '@asf/shared';
 import type { Sql } from '../db/pool.js';
 import { newId } from './ids.js';
+import { recordNotification } from './notification-store.js';
 
 /**
  * The only module that writes work_queue. Enqueue/list/reorder/remove serve the
@@ -22,6 +23,7 @@ function rowToEntry(r: Row): WorkQueueEntry {
     runId: r.runId ?? null, reason: r.reason ?? null, addedBy: r.addedBy ?? null,
     addedAt: iso(r.addedAt), dispatchedAt: iso(r.dispatchedAt),
     dependsOn: Array.isArray(r.dependsOn) ? (r.dependsOn as unknown[]).map(String) : [],
+    refusedAt: iso(r.refusedAt), reasonCode: r.reasonCode ?? null,
   });
 }
 
@@ -80,8 +82,37 @@ export async function reorderQueue(sql: Sql, id: string, beforeId: string | null
   });
 }
 
+/** Remove a queued entry, or dismiss a refused (failed) one along with its bell notification. */
 export async function removeQueueEntry(sql: Sql, id: string, by: string | null): Promise<void> {
-  await sql`UPDATE work_queue SET state = 'cancelled', reason = ${`removed by ${by ?? 'operator'}`} WHERE id = ${id} AND state = 'queued'`;
+  await sql.begin(async (tx) => {
+    await tx`UPDATE work_queue SET state = 'cancelled', reason = ${`removed by ${by ?? 'operator'}`}
+      WHERE id = ${id} AND state IN ('queued', 'failed')`;
+    await tx`DELETE FROM notification WHERE queue_entry_id = ${id}`;
+  });
+}
+
+/**
+ * Try a refused entry again. It goes back to the tail of the queue as `by`'s,
+ * with its repo, team, cost cap, batch and depends_on kept and the refusal
+ * cleared. If the ticket is already queued again (one live entry per ticket),
+ * the refused entry is only cancelled. Either way its notification goes.
+ */
+export async function retryQueueEntry(sql: Sql, id: string, by: string | null): Promise<{ requeued: boolean }> {
+  return sql.begin(async (tx) => {
+    const rows = await tx`SELECT ticket_provider, ticket_id FROM work_queue WHERE id = ${id} AND state = 'failed' FOR UPDATE`;
+    if (rows.length === 0) return { requeued: false };
+    await tx`DELETE FROM notification WHERE queue_entry_id = ${id}`;
+    const live = await tx`SELECT 1 FROM work_queue
+      WHERE ticket_provider = ${rows[0].ticketProvider} AND ticket_id = ${rows[0].ticketId} AND state = 'queued'`;
+    if (live.length) {
+      await tx`UPDATE work_queue SET state = 'cancelled', reason = 'already queued' WHERE id = ${id}`;
+      return { requeued: false };
+    }
+    const [{ tail }] = await tx<{ tail: number }[]>`SELECT coalesce(max(position), 0) AS tail FROM work_queue WHERE state = 'queued'`;
+    await tx`UPDATE work_queue SET state = 'queued', position = ${Number(tail) + 1}, added_by = ${by},
+      reason = NULL, reason_code = NULL, refused_at = NULL WHERE id = ${id}`;
+    return { requeued: true };
+  });
 }
 
 /**
@@ -127,9 +158,25 @@ export async function readyQueueEntries(sql: Sql, limit: number): Promise<WorkQu
   return rows.map(rowToEntry);
 }
 
-export async function markQueueEntry(sql: Sql, id: string, state: 'dispatched' | 'failed', runId: string | null, reason: string | null): Promise<void> {
-  await sql`UPDATE work_queue SET state = ${state}, run_id = coalesce(${runId}, run_id),
-    reason = coalesce(${reason}, reason),
-    dispatched_at = CASE WHEN ${state} = 'dispatched' THEN now() ELSE dispatched_at END
-    WHERE id = ${id} AND state = 'queued'`;
+/**
+ * The scheduler's outcome for one entry. Only a queued entry moves. A refusal
+ * (failed) is stamped with when and why, and puts exactly one notification in
+ * the bell, in the same transaction.
+ */
+export async function markQueueEntry(sql: Sql, id: string, state: 'dispatched' | 'failed', runId: string | null, reason: string | null, code: string | null = null): Promise<void> {
+  await sql.begin(async (tx) => {
+    const rows = await tx`UPDATE work_queue SET state = ${state}, run_id = coalesce(${runId}, run_id),
+      reason = coalesce(${reason}, reason),
+      dispatched_at = CASE WHEN ${state} = 'dispatched' THEN now() ELSE dispatched_at END,
+      refused_at = CASE WHEN ${state} = 'failed' THEN now() ELSE refused_at END,
+      reason_code = CASE WHEN ${state} = 'failed' THEN ${code} ELSE reason_code END
+      WHERE id = ${id} AND state = 'queued'
+      RETURNING ticket_key, reason`;
+    if (rows.length === 0 || state !== 'failed') return;
+    await recordNotification(tx, {
+      runId: null, queueEntryId: id, kind: 'refused',
+      title: `${String(rows[0].ticketKey)}: couldn\u2019t start`, body: rows[0].reason == null ? '' : String(rows[0].reason),
+      actions: [{ label: 'Open Activity', url: '/runs' }],
+    });
+  });
 }

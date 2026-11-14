@@ -41,7 +41,7 @@ export async function tickQueue(deps: { tickets: TicketProvider; scm: ScmProvide
         await registry.markQueueEntry(e.id, 'dispatched', result.existingRunId ?? null, result.reason);
         log.info({ entry: e.id, ticket: e.ticketKey, reason: result.reason }, 'queue: already running');
       } else {
-        await registry.markQueueEntry(e.id, 'failed', null, result.reason);
+        await registry.markQueueEntry(e.id, 'failed', null, result.reason, result.code);
         log.info({ entry: e.id, ticket: e.ticketKey, code: result.code, reason: result.reason }, 'queue: refused');
       }
     } catch (err) {

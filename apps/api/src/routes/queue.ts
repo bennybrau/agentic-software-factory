@@ -50,4 +50,11 @@ export function registerQueueRoutes(app: FastifyInstance, deps: { tickets: Ticke
     await registry.removeQueueEntry(req.params.id, by);
     return { ok: true };
   });
+
+  // Try a refused start again: back to the tail of the queue as this person's.
+  app.post<{ Params: { id: string } }>('/api/queue/:id/retry', async (req) => {
+    const by = resolveIdentity(req).user;
+    const { requeued } = await registry.retryQueueEntry(req.params.id, by);
+    return { ok: true, requeued };
+  });
 }

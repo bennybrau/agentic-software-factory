@@ -35,6 +35,10 @@ export const workQueueEntrySchema = z.object({
   dispatchedAt: z.string().nullable(),
   /** Ticket ids whose pull requests must be merged before this entry may start (a planner split). */
   dependsOn: z.array(z.string()).default([]),
+  /** When the scheduler refused to start it (state failed). null for anything else, and for refusals before #138. */
+  refusedAt: z.string().nullable().default(null),
+  /** The refusal's code (e.g. over_budget, repo_missing), beside the human `reason`. */
+  reasonCode: z.string().nullable().default(null),
 });
 export type WorkQueueEntry = z.infer<typeof workQueueEntrySchema>;
 

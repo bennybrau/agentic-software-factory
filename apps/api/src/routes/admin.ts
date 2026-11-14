@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { SettingError } from '@asf/shared';
 import { registry } from '../registry/client.js';
-import { describe, putSetting, deleteSetting } from '../settings.js';
+import { cfg, describe, putSetting, deleteSetting } from '../settings.js';
 import { resolveIdentity } from '../identity.js';
 import { checkCredentials, forgetCredentialHealth, lastCredentialHealth, withHealth } from '../credential-health.js';
 import { resetPreflightCache } from '../provider-preflights.js';
@@ -94,6 +94,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: { tickets: Ticke
   app.get('/api/fleet', async () => {
     const [fleet, month, unpriced] = await Promise.all([registry.listFleet(), registry.monthCost(),
       registry.monthUnpricedRuns().catch(() => ({ count: 0 }))]);
-    return { ...fleet, monthCostUsd: month.totalUsd, monthUnpricedRuns: unpriced.count };
+    return { ...fleet, monthCostUsd: month.totalUsd, monthUnpricedRuns: unpriced.count, monthlyBudgetUsd: cfg('ORG_MONTHLY_BUDGET_USD') };
   });
 }

@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { today } from './today-store.js';
 import { createRun, setRunState } from './store.js';
-import { enqueue } from './queue-store.js';
+import { enqueue, markQueueEntry, removeQueueEntry } from './queue-store.js';
 import { claimTask, finishTask, registerWorker } from './workers.js';
 import { openGate } from './gates-store.js';
 import { createRecurring } from './recurring-store.js';
@@ -113,4 +113,25 @@ test('comingUp: unpaused recurring tasks due within 24h, soonest first', { skip 
     { id: soon.id, title: 'Update deps', nextRunAt: h(1).toISOString(), scheduleText: 'Every day at 9:00 AM' },
     { id: late.id, title: 'Dead code sweep', nextRunAt: h(23).toISOString(), scheduleText: 'Every day at 9:00 AM' },
   ]);
+});
+
+test('refused: a refusal in the last 7 days is listed with its reason, unless dismissed, old, or the ticket started since', { skip }, async () => {
+  await db.sql`UPDATE work_queue SET state = 'cancelled'`;
+  const [shown, dismissed, old, legacy, disp, ranLater, queuedLater] = await enqueue(db.sql,
+    ['rx-shown', 'rx-dismissed', 'rx-old', 'rx-legacy', 'rx-disp', 'rx-ran', 'rx-requeued'].map(item), 'parallel', 'jon');
+  for (const e of [shown, dismissed, old, legacy, ranLater, queuedLater]) {
+    await markQueueEntry(db.sql, e.id, 'failed', null, `refused ${e.ticketId}`, 'over_budget');
+  }
+  await markQueueEntry(db.sql, disp.id, 'dispatched', null, null);
+  await removeQueueEntry(db.sql, dismissed.id, 'jon');
+  await db.sql`UPDATE work_queue SET refused_at = now() - interval '8 days' WHERE id = ${old.id}`;
+  await db.sql`UPDATE work_queue SET refused_at = NULL WHERE id = ${legacy.id}`; // refused before #138
+  await createRun(db.sql, runInput({ ticketId: 'rx-ran', ticketKey: 'RX-RAN' }));
+  await enqueue(db.sql, [item('rx-requeued')], 'parallel', 'jon');
+
+  const v = await today(db.sql, midnight());
+  assert.deepEqual(v.refused.map((e) => e.ticketId), ['rx-shown']);
+  assert.equal(v.refused[0].reason, 'refused rx-shown');
+  assert.equal(v.refused[0].reasonCode, 'over_budget');
+  assert.ok(v.refused[0].refusedAt);
 });

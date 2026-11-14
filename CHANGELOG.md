@@ -8,6 +8,10 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **See and fix starts that were refused.** Activity has a "Couldn’t start" list above Up next with
+  each ticket's reason and **Try again** / **Dismiss**; on Planned tasks such a ticket's pill reads
+  "Couldn’t start" with the reason, and once the monthly budget is spent the Start panel says so,
+  with a link to the spending settings.
 - **The bell tells you when a queued start was refused.** If the queue can't start a ticket (over
   the monthly budget, no repository, ticket gone), a "couldn’t start" notification says why, instead
   of the ticket quietly leaving the queue.

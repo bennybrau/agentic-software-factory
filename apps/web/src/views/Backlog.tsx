@@ -2,15 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { AdhocTask, TicketScope, TicketSprint, WorkQueueEntry } from '@asf/shared';
 import { keyPrefixes, looksLikeTicketRef, nativeId, ticketMatches } from '@asf/shared/ui';
-import { api, encodeTicketId, type Fleet, type TicketRow } from '../api';
+import { api, encodeTicketId, subscribeEvents, type Fleet, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
-import { addedBy, removeAdhoc } from '../new-task';
+import { removeAdhoc } from '../new-task';
 import { BUCKETS, latestOnly, loadBacklogFilters, nextSort, restoreScope, saveBacklogFilters, sortTickets, type SortKey } from '../backlog-filters';
 import { checkedAgo } from '../updates-view';
 import { NoRepo } from './Dispatch';
 import { chooseForAll, chooseRepo, initialChoices, needsRepoConfirm, queueItems, stillNeedRepo, type QueueChoice } from '../queue-repos';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
-import { budgetReachedText, refusedByTicket, wherePill } from '../refusal-words';
+import { budgetReachedText, queuePollInterval, refusalFor, wherePill } from '../refusal-words';
+import { AddedHere } from '../components/AddedHere';
 
 // Done is excluded from the default load; the bucket sub-filter (BUCKETS) is over active work only.
 const PAGE = 10;
@@ -40,13 +41,17 @@ export function Backlog() {
   useEffect(() => { loadAdhoc(); }, []);
 
   // Tickets the queue couldn't start (shown in their pill), and whether the monthly budget is spent.
-  const [refused, setRefused] = useState<Map<string, WorkQueueEntry>>(new Map());
+  // A refusal sends no run event, so the queue is checked every few seconds while
+  // something waits to start; a run event (the ticket's run starting) refetches too.
+  const { data: today, refetch: refetchToday } = useQuery({ queryKey: ['today'], queryFn: api.today, refetchInterval: (q) => queuePollInterval(q.state.data) });
+  const refused = today?.refused ?? []; // older apis send no refused
+  useEffect(() => subscribeEvents(() => { void refetchToday(); }), [refetchToday]);
   const [fleet, setFleet] = useState<Fleet | null>(null);
   const loadRefusals = () => {
-    api.today().then((d) => setRefused(refusedByTicket(d.refused ?? []))).catch(() => {}); // older apis send no refused
+    void refetchToday();
     api.fleet().then(setFleet).catch(() => {});
   };
-  useEffect(() => { loadRefusals(); }, []);
+  useEffect(() => { api.fleet().then(setFleet).catch(() => {}); }, []);
   const budgetLine = fleet ? budgetReachedText(fleet.monthCostUsd, fleet.monthlyBudgetUsd) : null;
 
   // Done is fetched lazily and only for the recent window, on demand.
@@ -361,31 +366,9 @@ export function Backlog() {
         </div>
       )}
 
-      {adhoc.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div className="row between" style={{ marginBottom: 6 }}>
-            <span className="muted">Added here</span>
-          </div>
-          <div className="card table-wrap" style={{ padding: 0 }}>
-            <table>
-              <thead><tr><th>Title</th><th>Added by</th><th></th></tr></thead>
-              <tbody>
-                {adhoc.map((t) => (
-                  <tr key={t.id}>
-                    <td>{t.title}</td>
-                    <td className="muted">{addedBy(t, readiness?.ok ? readiness.repos : [])}</td>
-                    <td className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-                      <button className="btn" disabled={Boolean(blocked)} onClick={() => navigate(`/dispatch/${encodeTicketId(t.id)}`)}
-                        title={blocked ? 'Connect a repository first' : 'Choose the repository and models, then run it'}>Start</button>
-                      <button className="btn ghost" onClick={() => removeAdhoc({ delete: api.deleteAdhoc, refetch: loadAdhoc }, t.id)} title={`Remove from ${TITLES.todo}`}>Remove</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <AddedHere tasks={adhoc} repos={readiness?.ok ? readiness.repos : []} refused={refused} blocked={Boolean(blocked)}
+        onStart={(id) => navigate(`/dispatch/${encodeTicketId(id)}`)}
+        onRemove={(id) => removeAdhoc({ delete: api.deleteAdhoc, refetch: loadAdhoc }, id)} />
 
       <div className="row between" style={{ marginBottom: 6 }}>
         <span className="muted row" style={{ gap: 6 }}>
@@ -405,7 +388,7 @@ export function Backlog() {
                   <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
                   <td className="mono">{t.key}</td>
                   <td>{t.title}</td>
-                  <td><WherePill bucket={t.bucket} refused={refused.get(t.id)} /></td>
+                  <td><WherePill bucket={t.bucket} refused={refusalFor(refused, t.id)} /></td>
                   <td className="muted">{t.priority ?? '—'}</td>
                   <td className="muted" title={t.updatedAt ? new Date(t.updatedAt).toLocaleString() : undefined}>{t.updatedAt ? checkedAgo(t.updatedAt) : '—'}</td>
                 </tr>
@@ -419,7 +402,7 @@ export function Backlog() {
                   <td />
                   <td className="mono">{t.key}</td>
                   <td>{t.title} <span className="muted">(not in this view)</span></td>
-                  <td>{t.bucket === 'done' ? <span className="pill done">{t.status}</span> : <WherePill bucket={t.bucket} refused={refused.get(t.id)} />}</td>
+                  <td>{t.bucket === 'done' ? <span className="pill done">{t.status}</span> : <WherePill bucket={t.bucket} refused={refusalFor(refused, t.id)} />}</td>
                   <td className="muted">{t.priority ?? '—'}</td>
                   <td className="muted">{t.updatedAt ? checkedAgo(t.updatedAt) : '—'}</td>
                 </tr>

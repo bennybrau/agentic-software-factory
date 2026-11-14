@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Sql } from '../db/pool.js';
-import { listenQueueChanges, listenRunEvents } from '../db/notify.js';
+import { listenNotifications, listenQueueChanges, listenRunEvents } from '../db/notify.js';
 import { getEventBySeq, getEvents } from '../runs/store.js';
 
 /**
@@ -8,7 +8,8 @@ import { getEventBySeq, getEvents } from '../runs/store.js';
  * subscriber. `Last-Event-ID` is "<runId>:<seq>"; on reconnect a client may
  * also pass ?runs=a,b to have events after that seq replayed for those runs.
  * A queue entry the scheduler moves is sent as `queue:changed` with no `id:`
- * line, so it never disturbs the run-event `Last-Event-ID`.
+ * line, so it never disturbs the run-event `Last-Event-ID`. Likewise every
+ * notification row, as it commits, is sent as `notification` with no `id:` line.
  */
 export async function registerStream(app: FastifyInstance, sql: Sql): Promise<() => Promise<void>> {
   const clients = new Set<FastifyReply>();
@@ -29,6 +30,10 @@ export async function registerStream(app: FastifyInstance, sql: Sql): Promise<()
   });
   const queue = await listenQueueChanges(sql, (id, state) => {
     const frame = `event: queue:changed\ndata: ${JSON.stringify({ id, state })}\n\n`;
+    for (const c of clients) c.raw.write(frame);
+  });
+  const notifications = await listenNotifications(sql, (id, kind) => {
+    const frame = `event: notification\ndata: ${JSON.stringify({ id, kind })}\n\n`;
     for (const c of clients) c.raw.write(frame);
   });
 
@@ -52,5 +57,5 @@ export async function registerStream(app: FastifyInstance, sql: Sql): Promise<()
     await new Promise(() => {}); // held open until the client disconnects
   });
 
-  return async () => { await unlisten(); await queue.unlisten(); for (const c of clients) c.raw.end(); };
+  return async () => { await unlisten(); await queue.unlisten(); await notifications.unlisten(); for (const c of clients) c.raw.end(); };
 }

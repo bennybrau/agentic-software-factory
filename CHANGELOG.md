@@ -70,6 +70,8 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **The bell shows a failing credential right away.** When a tracker or SCM token stops working,
+  the bell updates as soon as the alert is written instead of waiting for some run to change.
 - **The bell shows a refused start right away.** When the queue can't start a ticket, the bell,
   Activity's "Couldn’t start" list and the Planned tasks pill update at once instead of waiting for
   some other run to change.

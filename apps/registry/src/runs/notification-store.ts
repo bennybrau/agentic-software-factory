@@ -1,4 +1,5 @@
 import type { Db, Sql } from '../db/pool.js';
+import { notifyNotification } from '../db/notify.js';
 
 /**
  * The notification store. Rows are written by the orchestrator inside the same
@@ -31,10 +32,15 @@ function toRow(r: Record<string, unknown>): NotificationRow {
   };
 }
 
-/** Record a notification. Called from the orchestrator's tx so it commits atomically with the state change. */
+/**
+ * Record a notification. Called from the orchestrator's tx so it commits atomically with the state change.
+ * NOTIFYs `notification` in the same tx, so the bell refetches the moment the row commits.
+ */
 export async function recordNotification(tx: Db, n: { runId: string | null; gateId?: string | null; queueEntryId?: string | null; kind: string; title: string; body?: string; actions?: { label: string; url: string }[] }): Promise<void> {
-  await tx`INSERT INTO notification (run_id, gate_id, queue_entry_id, kind, title, body, actions)
-    VALUES (${n.runId}, ${n.gateId ?? null}, ${n.queueEntryId ?? null}, ${n.kind}, ${n.title}, ${n.body ?? ''}, ${tx.json((n.actions ?? []) as never)})`;
+  const [row] = await tx<{ id: string }[]>`INSERT INTO notification (run_id, gate_id, queue_entry_id, kind, title, body, actions)
+    VALUES (${n.runId}, ${n.gateId ?? null}, ${n.queueEntryId ?? null}, ${n.kind}, ${n.title}, ${n.body ?? ''}, ${tx.json((n.actions ?? []) as never)})
+    RETURNING id`;
+  await notifyNotification(tx, String(row!.id), n.kind);
 }
 
 export async function listNotifications(sql: Sql, q: { unreadOnly?: boolean; limit: number }): Promise<{ notifications: NotificationRow[]; unread: number }> {

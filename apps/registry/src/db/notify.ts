@@ -37,3 +37,24 @@ export async function listenQueueChanges(sql: Sql, listener: QueueChangeListener
 export async function notifyQueueChange(tx: Db, id: string, state: string): Promise<void> {
   await tx`SELECT pg_notify('work_queue', ${`${id}:${state}`})`;
 }
+
+/**
+ * `recordNotification` NOTIFYs `notification` with "<id>:<kind>" for every row it
+ * writes, so the SSE route can tell browsers to refetch the bell at once. This
+ * covers notifications with no run event behind them (a failing credential).
+ */
+export type NotificationListener = (id: string, kind: string) => void;
+
+export async function listenNotifications(sql: Sql, listener: NotificationListener): Promise<{ unlisten: () => Promise<void> }> {
+  const { unlisten } = await sql.listen('notification', (payload) => {
+    const idx = payload.lastIndexOf(':');
+    if (idx <= 0) return;
+    listener(payload.slice(0, idx), payload.slice(idx + 1));
+  });
+  return { unlisten };
+}
+
+/** Inside the transaction that wrote the row, so it only fires on commit. */
+export async function notifyNotification(tx: Db, id: string, kind: string): Promise<void> {
+  await tx`SELECT pg_notify('notification', ${`${id}:${kind}`})`;
+}

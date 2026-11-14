@@ -260,7 +260,7 @@ export function Backlog() {
 
   return (
     <div>
-      <div className="row between" style={{ marginBottom: 12 }}>
+      <div className="row between" style={{ marginBottom: 4 }}>
         <span className="row" style={{ gap: 8, alignItems: 'baseline' }}>
           <h2 style={{ margin: 0 }}>{TITLES.todo}</h2>
           {upNextCount && <span className="muted" style={{ whiteSpace: 'nowrap' }}>{upNextCount}</span>}
@@ -313,6 +313,7 @@ export function Backlog() {
           <button className="btn" onClick={() => navigate('/')} title="Describe work that has no ticket in your tracker">New chat</button>
         </span>
       </div>
+      <div className="muted" style={{ marginBottom: 12 }}>Tickets from your trackers and tasks you've written. Pick some and start them.</div>
       {blocked && <NoRepo reason={blocked.reason} link={blocked.link} />}
       {err && <div className="card" style={{ color: 'var(--bad)' }}>{err}</div>}
       {msg && <div className="card" style={{ color: 'var(--good, #2a7)' }}>{msg} <button className="btn ghost" onClick={() => navigate('/runs')}>See {TITLES.activity} →</button></div>}

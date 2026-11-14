@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { subscribeEvents, type QueueChange } from './api';
+import { subscribeEvents, type NotificationWritten, type QueueChange } from './api';
 
 // A stand-in EventSource: records listeners so the test can fire frames by name.
 class FakeEventSource {
@@ -35,5 +35,23 @@ test('subscribeEvents without onQueue ignores queue:changed', () => {
   const events: unknown[] = [];
   subscribeEvents((e) => events.push(e));
   FakeEventSource.last!.fire('queue:changed', { id: 'q1', state: 'failed' });
+  assert.deepEqual(events, []);
+});
+
+test('subscribeEvents: notification goes to onNotification on the same stream, not to onEvent', () => {
+  const events: unknown[] = [];
+  const written: NotificationWritten[] = [];
+  subscribeEvents((e) => events.push(e), undefined, { onNotification: (n) => written.push(n) });
+  FakeEventSource.last!.fire('notification', { id: '7', kind: 'credential' });
+  assert.deepEqual(written, [{ id: '7', kind: 'credential' }]);
+  assert.deepEqual(events, []);
+});
+
+test('subscribeEvents without onNotification ignores notification', () => {
+  const events: unknown[] = [];
+  subscribeEvents((e) => events.push(e));
+  const es = FakeEventSource.last!;
+  assert.equal(es.listeners.has('notification'), false);
+  es.fire('notification', { id: '7', kind: 'credential' });
   assert.deepEqual(events, []);
 });

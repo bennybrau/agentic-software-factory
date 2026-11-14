@@ -206,17 +206,22 @@ export const api = {
 /** A queue entry the scheduler just started or refused (a `queue:changed` frame). */
 export interface QueueChange { id: string; state: string }
 
+/** A notification row that just committed (a `notification` frame). */
+export interface NotificationWritten { id: string; kind: string }
+
 /**
  * Subscribe to the run event stream. Calls back on every run:event frame, and
  * `onOpen` each time the stream opens — again after a reconnect, so a caller can
  * fetch what it missed. `onQueue` gets each queue:changed frame on the same
- * connection (browsers allow only ~6 per origin, so no second stream).
+ * connection (browsers allow only ~6 per origin, so no second stream), and
+ * `onNotification` each notification frame.
  */
-export function subscribeEvents(onEvent: (e: RunEvent) => void, onOpen?: () => void, opts: { onQueue?: (c: QueueChange) => void } = {}): () => void {
+export function subscribeEvents(onEvent: (e: RunEvent) => void, onOpen?: () => void, opts: { onQueue?: (c: QueueChange) => void; onNotification?: (n: NotificationWritten) => void } = {}): () => void {
   const es = new EventSource('/api/events');
   if (onOpen) es.onopen = () => onOpen();
   es.addEventListener('run:event', (ev) => { try { onEvent(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
-  const { onQueue } = opts;
+  const { onQueue, onNotification } = opts;
   if (onQueue) es.addEventListener('queue:changed', (ev) => { try { onQueue(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
+  if (onNotification) es.addEventListener('notification', (ev) => { try { onNotification(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
   return () => es.close();
 }

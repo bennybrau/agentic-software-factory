@@ -104,6 +104,45 @@ test('SSE sends queue:changed when the scheduler moves a queue entry, and nothin
   }
 });
 
+test('SSE sends notification when a notification is written, even with no run behind it', { skip }, async () => {
+  const schema = `t_server_n_${Date.now().toString(36)}`;
+  const admin = postgres(TEST_URL, { onnotice: () => {} });
+  await admin.unsafe(`CREATE SCHEMA ${schema}`);
+  const { buildServer } = await import('./server.js');
+  const { app, secret } = await buildServer({ secret: 's3cret', migrate: true, sweeper: false, recurring: false, databaseUrl: TEST_URL, schema });
+  await app.listen({ port: 0, host: '127.0.0.1' });
+  const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+  const H = { 'content-type': 'application/json', 'x-run-secret': secret };
+  const rpc = async (body: unknown) => (await fetch(`${base}/internal/rpc`, { method: 'POST', headers: H, body: JSON.stringify(body) })).json();
+  try {
+    const sse = await fetch(`${base}/internal/events/runs`, { headers: { 'x-run-secret': secret } });
+    const reader = sse.body!.getReader();
+    let buf = '';
+    const readUntil = async (needle: string) => { while (!buf.includes(needle)) { const { value, done } = await reader.read(); if (done) break; buf += new TextDecoder().decode(value); } };
+    await readUntil('event: hello');
+
+    const fail = (key: string) => rpc({ op: 'recordCredentialHealth', key, ok: false, reason: 'bad token', label: key });
+    await fail('JIRA_API_TOKEN');
+    await readUntil('"kind":"credential"');
+    assert.match(buf, /event: notification\ndata: \{"id":"[^"]+","kind":"credential"\}\n\n/);
+    assert.doesNotMatch(buf, /\nid: /); // no Last-Event-ID for a notification frame
+
+    // Already alerted for this key: no new row, so no frame; the next failing key is the only one that follows.
+    await fail('JIRA_API_TOKEN');
+    await fail('GITHUB_TOKEN');
+    const { result } = await rpc({ op: 'listNotifications', limit: 10 });
+    assert.equal(result.notifications.length, 2);
+    const github = (result.notifications as { id: string; title: string }[]).find((n) => n.title.includes('GITHUB_TOKEN'))!;
+    await readUntil(`"id":"${github.id}"`);
+    assert.equal([...buf.matchAll(/event: notification/g)].length, 2);
+    await reader.cancel().catch(() => {});
+  } finally {
+    await app.close();
+    await admin.unsafe(`DROP SCHEMA ${schema} CASCADE`);
+    await admin.end();
+  }
+});
+
 test('POST /workers/:id/heartbeat over HTTP: a valid preflight body is stored, a malformed one is refused (#69)', { skip }, async () => {
   const schema = `t_server_hb_${Date.now().toString(36)}`;
   const admin = postgres(TEST_URL, { onnotice: () => {} });

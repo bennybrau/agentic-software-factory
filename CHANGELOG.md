@@ -70,6 +70,9 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **A refused ticket's row on Planned tasks now reads "Couldn’t start".** This works for tracker tickets
+  and for tasks added here, with the reason under it. The page also updates on its own while something
+  waits to start.
 - **Replacing the same theme picture twice in quick succession now always shows the new picture.**
 - **A stale run's page stops counting.** A run the sweeper marked stale now reads "Ran for 7 min",
   measured to its last event, instead of "Running for …" growing forever.

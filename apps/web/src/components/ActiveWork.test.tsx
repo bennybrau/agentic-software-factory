@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import type { WorkQueueEntry } from '@asf/shared';
@@ -32,4 +33,21 @@ test('a refused start shows its key, the reason and both actions, without a sett
 test('an over-budget refusal links to the spending settings', () => {
   const html = render([entry({ reasonCode: 'over_budget', reason: 'This month’s runs have cost $50.00…' })]);
   assert.match(html, /href="\/settings#spending"/);
+});
+
+/** Every element in a rendered tree (as ThemeSettings.test.tsx does). */
+function elements(node: ReactNode): ReactElement<Record<string, unknown>>[] {
+  if (Array.isArray(node)) return node.flatMap(elements);
+  if (!isValidElement<Record<string, unknown>>(node)) return [];
+  return [node, ...elements(node.props.children as ReactNode)];
+}
+
+test('Dismiss dismisses and Try again retries, each for its own entry only', () => {
+  const calls: string[] = [];
+  const tree = CouldntStart({ refused: [entry({})], onRetry: (id) => calls.push(`retry:${id}`), onDismiss: (id) => calls.push(`dismiss:${id}`) });
+  const button = (label: string) => elements(tree).find((e) => e.type === 'button' && e.props.children === label);
+  (button('Dismiss')!.props.onClick as () => void)();
+  assert.deepEqual(calls, ['dismiss:q1']);
+  (button('Try again')!.props.onClick as () => void)();
+  assert.deepEqual(calls, ['dismiss:q1', 'retry:q1']);
 });

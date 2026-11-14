@@ -70,6 +70,7 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **Uploading a role's avatar twice in quick succession now always shows the new picture.**
 - **A refused ticket's row on Planned tasks now reads "Couldn’t start".** This works for tracker tickets
   and for tasks added here, with the reason under it. The page also updates on its own while something
   waits to start.

@@ -45,6 +45,19 @@ test('the avatar RPC ops round-trip; a partial upload keeps the other roles', { 
   assert.deepEqual((await h.listAvatars({ op: 'listAvatars' })).avatars.map((a) => a.role), ['planner']);
 });
 
+test('replacing an avatar always moves its version forward, even when the stored time is ahead of the clock', { skip }, async () => {
+  const h = rpcHandlers(db.sql);
+  const set = async (b: Buffer, mime: 'image/png' | 'image/gif') =>
+    (await h.setAvatars({ op: 'setAvatars', by: 'ana', avatars: [{ role: 'reviewer', mime, contentBase64: b64(b) }] }))
+      .avatars.find((a) => a.role === 'reviewer')!;
+  await set(PNG, 'image/png');
+  await db.sql`UPDATE agent_avatar SET updated_at = now() + interval '1 hour' WHERE role = 'reviewer'`;
+  const old = (await h.getAvatar({ op: 'getAvatar', role: 'reviewer' })).avatar!;
+  const replaced = await set(GIF, 'image/gif');
+  assert.ok(Number(replaced.version) > Number(old.version), `${replaced.version} > ${old.version}`);
+  assert.deepEqual(await h.deleteAvatar({ op: 'deleteAvatar', role: 'reviewer' }), { deleted: true });
+});
+
 test('the table refuses a role that is not one of the four', { skip }, async () => {
   await assert.rejects(db.sql`INSERT INTO agent_avatar (role, mime, bytes) VALUES ('designer', 'image/png', ${PNG})`);
 });

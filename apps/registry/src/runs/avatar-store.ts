@@ -4,7 +4,7 @@ import type { Sql } from '../db/pool.js';
 /**
  * Agent avatars: one image per role, org-wide. The api has already checked the
  * type and size. An upload replaces only the roles it carries; the others keep
- * their current image. `version` is updated_at in ms, so it changes on every replace.
+ * their current image. `version` is updated_at in ms, so it strictly increases on every replace.
  */
 
 const meta = (r: Record<string, unknown>): AvatarMetaWire => {
@@ -20,10 +20,12 @@ export async function setAvatars(sql: Sql, avatars: AvatarInput[], by: string | 
     for (const a of avatars) {
       const bytes = Buffer.from(a.contentBase64, 'base64');
       // clock_timestamp, not now(): every role in one upload still gets a fresh version even within one transaction.
+      // A replace moves updated_at at least 1 ms past the old one, so its ms version (the api's ETag and
+      // cache-buster) strictly increases even for two replaces within the same ms or after a clock step back.
       await tx`INSERT INTO agent_avatar (role, mime, bytes, updated_by, updated_at)
         VALUES (${a.role}, ${a.mime}, ${bytes}, ${by}, clock_timestamp())
         ON CONFLICT (role) DO UPDATE SET mime = EXCLUDED.mime, bytes = EXCLUDED.bytes,
-          updated_by = EXCLUDED.updated_by, updated_at = EXCLUDED.updated_at`;
+          updated_by = EXCLUDED.updated_by, updated_at = greatest(EXCLUDED.updated_at, agent_avatar.updated_at + interval '1 millisecond')`;
     }
   });
   return listAvatars(sql);

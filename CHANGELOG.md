@@ -26,9 +26,10 @@ publishes a `vX.Y.Z` release of the GHCR images
   keeps a name in this browser and sends it with every request, so gates, chat replies and dispatches
   show who did them instead of `operator`. Nothing checks it. See
   [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
-- **Copy a run's link from the run page.** A Copy link button next to the run title copies the
-  page's full address, and reads "Copied" for a moment. This is handy on a phone or in the
-  installed app, where there is no address bar.
+- **Copy a run's link.** A small link icon next to the ticket key, on the run page and on each
+  Activity row, copies the run page's full address. It turns into a green check for a moment
+  (or a crossed-out link if the browser refuses). On an Activity row it doesn't open the run. This
+  is handy on a phone or in the installed app, where there is no address bar.
 - **Skills can come from private repositories.** Settings → Skills now reads a private GitHub or
   GitLab folder with the token you already saved for that host (`GITHUB_TOKEN`, or `GITLAB_TOKEN`
   for the `GITLAB_BASE_URL` host). The token goes only to its own host, in a header, with redirects

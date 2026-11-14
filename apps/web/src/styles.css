@@ -130,7 +130,21 @@ a { color: var(--accent); text-decoration: none; }
 .pill.failed, .pill.halted { color: var(--bad); border-color: var(--bad); }
 .run-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-title .pill { line-height: 1.4; white-space: nowrap; }
-.run-title .copy-link { font-size: 13px; font-weight: 500; }
+/* The copy-link icon stays glued to the end of the ticket key, even when the title wraps. */
+.run-key { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.run-key .mono { overflow-wrap: anywhere; }
+/* Icon-only button (e.g. copy link): small and quiet, a Material Symbol inside. */
+.icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0;
+  background: transparent; border: 0; border-radius: 6px; color: var(--muted); cursor: pointer; vertical-align: middle; flex: none;
+  transition: background-color .12s, color .12s; }
+.icon-btn .material-symbols-outlined { font-size: 18px; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20; }
+.icon-btn:hover { background: var(--panel2); color: var(--text); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.icon-btn.copied { color: var(--good); }
+.icon-btn.failed { color: var(--bad); }
+/* Touch screens: a 44px hit area around the same small icon, without moving the layout. */
+@media (pointer: coarse) { .icon-btn::after { content: ''; position: absolute; inset: -9px; } }
+@media (prefers-reduced-motion: reduce) { .icon-btn { transition: none; } }
 .run-title .run-duration { font-size: 13px; font-weight: 500; white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }

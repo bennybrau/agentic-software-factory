@@ -5,7 +5,7 @@ import type { Run } from '@asf/shared';
 import { PAGE as TITLES, OUTCOME_LABEL, runStateLabel } from '../words';
 import { runResultLabel } from '../review-view';
 import { ActiveWork } from '../components/ActiveWork';
-import { CopyRunLink } from '../components/CopyRunLink';
+import { CopyLinkButton } from '../components/CopyLinkButton';
 import { tookIsLive, tookText } from '../took-words';
 
 const RUN_STATES = ['queued', 'running', 'awaiting_checkpoint', 'succeeded', 'failed', 'cancelled', 'stale', 'halted'];
@@ -107,7 +107,7 @@ export function Runs() {
           <tbody>
             {runs.map((r) => (
               <tr key={r.id} className="clickable" onClick={() => navigate(`/run/${r.id}`)}>
-                <td className="mono" style={{ whiteSpace: 'nowrap' }}>{r.ticketKey} <CopyRunLink runId={r.id} /></td>
+                <td className="mono" style={{ whiteSpace: 'nowrap' }}>{r.ticketKey} <CopyLinkButton runId={r.id} /></td>
                 <td><span className={`pill ${r.state}`}>{runStateLabel(r.state)}</span></td>
                 <td className="muted">{r.teamName}</td>
                 <td className="muted">{runResultLabel(r)}</td>

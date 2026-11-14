@@ -109,7 +109,7 @@ export function RunView() {
     <div>
       <div className="row between">
         <div><Link to="/runs">← {PAGE.activity}</Link>
-          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="mono">{run.ticketKey}</span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><RunDuration run={run} /><CopyLinkButton runId={runId} /></h2>
+          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="run-key"><span className="mono">{run.ticketKey}</span><CopyLinkButton runId={runId} /></span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><RunDuration run={run} /></h2>
           {review && (
             <div className="muted" style={{ fontSize: 13 }}>
               <a href={review.url} target="_blank" rel="noreferrer">{review.text}</a>

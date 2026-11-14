@@ -16,15 +16,27 @@ export function isRunFinished(state: string): boolean {
   return FINISHED.includes(state);
 }
 
-/** "Took 13 min" once finished, "Running for 4 min" until then; null when it never started. */
+/** Whether the run's clock still counts up: not finished and not stale (a stale run stopped at its last event). */
+export function isRunTicking(state: string): boolean {
+  return !isRunFinished(state) && state !== 'stale';
+}
+
+/**
+ * "Took 13 min" once finished, "Ran for 7 min" (to its last event) when stale, "Running for 4 min"
+ * until then; null when it never started or the end time is missing.
+ */
 export function runDurationText(
-  run: { state: string; startedAt: string | null; finishedAt: string | null },
+  run: { state: string; startedAt: string | null; finishedAt: string | null; lastEventAt: string | null },
   now: number,
 ): string | null {
   if (!run.startedAt) return null;
   const start = new Date(run.startedAt).getTime();
   if (isRunFinished(run.state)) {
     return run.finishedAt ? `Took ${durationText(new Date(run.finishedAt).getTime() - start)}` : null;
+  }
+  if (run.state === 'stale') {
+    const last = run.lastEventAt ? new Date(run.lastEventAt).getTime() : NaN;
+    return Number.isNaN(last) ? null : `Ran for ${durationText(last - start)}`;
   }
   return `Running for ${durationText(now - start)}`;
 }

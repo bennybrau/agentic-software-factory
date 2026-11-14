@@ -22,7 +22,7 @@ import { crewName, laneLabel, memberName } from '../theme-view';
 import { useMe } from '../useMe';
 import { usePageSubject } from '../page-title';
 import { runCostText, taskCostText } from '../cost-words';
-import { isRunFinished, runDurationText } from '../duration-words';
+import { isRunTicking, runDurationText } from '../duration-words';
 
 // Run page view preferences (#155), kept per browser. localStorage can throw
 // (private mode, disabled storage), so every access is guarded.
@@ -346,15 +346,15 @@ function dur(iso: string | null): string {
  * stage's caption (M12 WP4); the raw tool-call detail (LiveTaskLine) is behind
  * Advanced → "Show agent commands".
  */
-/** "Took 13 min", or "Running for 4 min" ticking every second until the run finishes (#132). */
+/** "Took 13 min", "Ran for 7 min" when stale, or "Running for 4 min" ticking every second until the run stops (#132). */
 function RunDuration({ run }: { run: RunDetail['run'] }) {
   const [now, setNow] = useState(() => Date.now());
-  const finished = isRunFinished(run.state);
+  const ticking = isRunTicking(run.state);
   useEffect(() => {
-    if (finished) return;
+    if (!ticking) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [finished]);
+  }, [ticking]);
   const text = runDurationText(run, now);
   return text ? <span className="run-duration muted">{text}</span> : null;
 }

@@ -1,6 +1,6 @@
 import type { TodayWire, WorkQueueEntry } from '@asf/shared';
 import { nativeId, parseRef } from '@asf/shared/ui';
-import { bucketLabel } from './words';
+import { PAGE, bucketLabel } from './words';
 
 /**
  * Words for refused starts (#138): a queued ticket the scheduler couldn't start,
@@ -35,6 +35,11 @@ export const QUEUE_POLL_MS = 3_000;
 /** The refetch interval for the queue: on while something is queued, off otherwise. */
 export function queuePollInterval(today: TodayWire | undefined): number | false {
   return today && today.queued.length > 0 ? QUEUE_POLL_MS : false;
+}
+
+/** The count beside the Planned tasks title ("4 in Up next"), or null when nothing is queued. */
+export function upNextCountText(n: number): string | null {
+  return n > 0 ? `${n} in ${PAGE.upNext}` : null;
 }
 
 /** A ticket row's "Where it is" pill: "Couldn't start" with the reason when it was refused. */

@@ -10,7 +10,7 @@ import { checkedAgo } from '../updates-view';
 import { NoRepo } from './Dispatch';
 import { chooseForAll, chooseRepo, initialChoices, needsRepoConfirm, queueItems, stillNeedRepo, type QueueChoice } from '../queue-repos';
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
-import { budgetReachedText, queuePollInterval, refusalFor, wherePill } from '../refusal-words';
+import { budgetReachedText, queuePollInterval, refusalFor, upNextCountText, wherePill } from '../refusal-words';
 import { AddedHere } from '../components/AddedHere';
 
 // Done is excluded from the default load; the bucket sub-filter (BUCKETS) is over active work only.
@@ -54,6 +54,7 @@ export function Backlog() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => subscribeEvents(() => { void refetchToday(); }, undefined, { onQueue: () => loadRefusals() }), [refetchToday]);
   useEffect(() => { api.fleet().then(setFleet).catch(() => {}); }, []);
+  const upNextCount = upNextCountText(today?.queued.length ?? 0);
   const budgetLine = fleet ? budgetReachedText(fleet.monthCostUsd, fleet.monthlyBudgetUsd) : null;
 
   // Done is fetched lazily and only for the recent window, on demand.
@@ -260,7 +261,10 @@ export function Backlog() {
   return (
     <div>
       <div className="row between" style={{ marginBottom: 12 }}>
-        <h2 style={{ margin: 0 }}>{TITLES.todo}</h2>
+        <span className="row" style={{ gap: 8, alignItems: 'baseline' }}>
+          <h2 style={{ margin: 0 }}>{TITLES.todo}</h2>
+          {upNextCount && <span className="muted" style={{ whiteSpace: 'nowrap' }}>{upNextCount}</span>}
+        </span>
         <span className="row" style={{ gap: 8 }}>
           {teams.length > 0 && (
             <select value={team} onChange={(e) => onTeam(e.target.value)} title="Team">

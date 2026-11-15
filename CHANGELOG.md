@@ -10,6 +10,9 @@ publishes a `vX.Y.Z` release of the GHCR images
 ### Added
 - **Activity says how many runs finished today.** Next to "All work", a line like "3 finished today"
   counts runs that ended since your local midnight. It updates as runs end and clears at midnight.
+- **Planned tasks shows how many tickets are in Up next.** Beside the title, for example
+  "4 in Up next"; it updates as tickets are added, start or are removed, and is hidden when the
+  queue is empty.
 - **See and fix starts that were refused.** Activity has a "Couldn’t start" list above Up next with
   each ticket's reason and **Try again** / **Dismiss**; on Planned tasks such a ticket's pill reads
   "Couldn’t start" with the reason, and once the monthly budget is spent the Start panel says so,

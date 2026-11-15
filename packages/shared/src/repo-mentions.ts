@@ -6,7 +6,8 @@
 
 import { isAdhocId, withoutRepoList } from './adhoc.js';
 
-export interface MentionableRepo { id: string; path: string }
+/** `url` (the provider web URL) and `connection` (the SCM connection) tell same-path repos on different hosts apart. */
+export interface MentionableRepo { id: string; path: string; url?: string; connection?: string }
 export interface RepoMention { id: string; path: string; where: 'title' | 'body'; /** The name as it is matched (the full path or the last segment), lower case. */ name: string }
 
 /** Characters that can be part of a repository name. A '.' is too, except at the end (sentence punctuation). */
@@ -31,30 +32,79 @@ function wholeToken(text: string, start: number, end: number): boolean {
   return next === undefined || !NAME_CHAR_NO_DOT.test(next);
 }
 
-/** The names each repository answers to: its full path (and id, when that is a path too), and its last segment when that is unique and long enough. */
+/**
+ * The names each repository answers to: its full path (and id, when that is a path too), and
+ * its last segment when that is unique and long enough. A path that repos on two or more
+ * connections share (`acme/web` on GitHub and on GitLab) names neither; their qualified ids
+ * (`github:acme/web`) and URLs still do.
+ */
 function namesFor(repos: MentionableRepo[]): Map<MentionableRepo, string[]> {
   const lastSegment = (p: string) => p.slice(p.lastIndexOf('/') + 1).toLowerCase();
   const shortCount = new Map<string, number>();
+  const connections = new Map<string, Set<string>>();
   for (const r of repos) {
     const s = lastSegment(r.path);
     shortCount.set(s, (shortCount.get(s) ?? 0) + 1);
+    const p = r.path.toLowerCase();
+    // Repos without a connection count as one: a one-connection install behaves as before.
+    connections.set(p, (connections.get(p) ?? new Set()).add(r.connection ?? ''));
   }
   const out = new Map<MentionableRepo, string[]>();
   for (const r of repos) {
     const names = new Set<string>();
-    if (r.path) names.add(r.path.toLowerCase());
-    if (r.id.includes('/')) names.add(r.id.toLowerCase());
+    const path = r.path.toLowerCase();
+    const onSeveralHosts = (connections.get(path)?.size ?? 0) > 1;
+    if (path && !onSeveralHosts) names.add(path);
+    const id = r.id.toLowerCase();
+    if (id.includes('/') && !(onSeveralHosts && id === path)) names.add(id);
     const s = lastSegment(r.path);
-    // Two repos called `shared-ui` in different groups: the bare name could be either, so neither.
-    if (s.length >= MIN_SHORT_NAME && shortCount.get(s) === 1) names.add(s);
+    // Two repos called `shared-ui` in different groups (or hosts): the bare name could be either, so neither.
+    if (s.length >= MIN_SHORT_NAME && shortCount.get(s) === 1 && !onSeveralHosts) names.add(s);
     out.set(r, [...names].filter(Boolean));
   }
   return out;
 }
 
+/** A repo URL's host and path (no trailing slash), lower case; null when it doesn't parse. */
+function hostAndPath(url: string | undefined): { host: string; path: string } | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return { host: u.host.toLowerCase(), path: u.pathname.replace(/\/+$/, '').toLowerCase() };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `https://host/…` links to a repository: same host as the repo's URL, and a path that is the
+ * repo's or continues past it (`/-/issues/3`, `/tree/main`, `.git`). The longest repo path wins.
+ */
+function urlHitsIn(text: string, where: 'title' | 'body', repos: MentionableRepo[]): Hit[] {
+  const targets = repos.flatMap((repo) => {
+    const at = hostAndPath(repo.url);
+    return at && at.path ? [{ repo, ...at }] : [];
+  });
+  if (!targets.length) return [];
+  const hits: Hit[] = [];
+  for (const m of text.matchAll(/https?:\/\/[^\s<>()[\]{}"'`]+/gi)) {
+    const token = m[0].replace(/[.,;:!?]+$/, '');
+    const at = hostAndPath(token);
+    if (!at) continue;
+    let best: (typeof targets)[number] | undefined;
+    for (const t of targets) {
+      if (t.host !== at.host || !at.path.startsWith(t.path)) continue;
+      if (!/^(?:$|\/|\.git(?:\/|$))/.test(at.path.slice(t.path.length))) continue;
+      if (!best || t.path.length > best.path.length) best = t;
+    }
+    if (best) hits.push({ repo: best.repo, name: best.repo.path.toLowerCase(), where, start: m.index, end: m.index + token.length });
+  }
+  return hits;
+}
+
 function hitsIn(text: string, where: 'title' | 'body', names: Map<MentionableRepo, string[]>): Hit[] {
   const lower = text.toLowerCase();
-  const hits: Hit[] = [];
+  const hits: Hit[] = urlHitsIn(text, where, [...names.keys()]);
   for (const [repo, list] of names) {
     for (const name of list) {
       for (let at = lower.indexOf(name); at >= 0; at = lower.indexOf(name, at + 1)) {
@@ -70,8 +120,10 @@ function hitsIn(text: string, where: 'title' | 'body', names: Map<MentionableRep
  * The repositories `text` names, best first: title mentions before description
  * mentions, then by where the first mention is. Matches the full path
  * (`acme/platform/web/shared-ui`, also inside URLs and backticks) or the last
- * segment (`shared-ui`), case-insensitively and as a whole name only. Each repo
- * appears once.
+ * segment (`shared-ui`), case-insensitively and as a whole name only. A link to
+ * the repo (`https://gitlab.example.com/acme/web/-/issues/3`) names it by host, so
+ * `acme/web` on GitHub and on GitLab are told apart; the bare shared path names
+ * neither. Each repo appears once.
  */
 export function reposMentioned(text: { title: string; body: string }, repos: MentionableRepo[]): RepoMention[] {
   if (!repos.length) return [];

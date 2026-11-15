@@ -77,6 +77,9 @@ publishes a `vX.Y.Z` release of the GHCR images
 
 ### Changed
 - **Planned tasks has a one-line description under its title, like Activity.**
+- **A ticket's link tells same-named repositories on GitHub and GitLab apart.** With `acme/web` on
+  both, a URL in the ticket picks the repository on that host; the bare `acme/web` no longer counts
+  as naming either, so you're asked which one.
 
 ### Fixed
 - **Up next and its count update at once when tickets are added or removed from elsewhere.**

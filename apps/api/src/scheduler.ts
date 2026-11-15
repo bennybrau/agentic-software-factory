@@ -4,6 +4,7 @@ import { registry } from './registry/client.js';
 import { cfg } from './settings.js';
 import { dispatchTicket } from './routes/dispatch.js';
 import { startReadiness } from './start-readiness.js';
+import { runTicketRef } from './tickets/route.js';
 
 type Log = { info: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
 
@@ -29,7 +30,7 @@ export async function tickQueue(deps: { tickets: TicketProvider; scm: ScmProvide
   for (const e of entries) {
     try {
       const result = await dispatchTicket(deps, {
-        ticketId: e.ticketId, repoId: e.repoId, teamName: e.teamName,
+        ticketId: runTicketRef(e), repoId: e.repoId, teamName: e.teamName,
         maxCostUsd: e.maxCostUsd, by: e.addedBy,
       });
       if (result.ok) {

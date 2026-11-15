@@ -2,7 +2,7 @@ import type { TicketProvider } from '@asf/shared';
 import { registry } from '../registry/client.js';
 import { cfg } from '../settings.js';
 import { transitionTicketTo, parsePreferredStatuses } from './transition.js';
-import { ticketsFor } from './route.js';
+import { runTicketRef, ticketsFor } from './route.js';
 
 type Log = { info: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
 
@@ -24,8 +24,8 @@ export async function closeSplitParentIfDone(tracker: TicketProvider, runId: str
     if (!family?.parts?.length || family.currentPart == null) return; // not a part of a split
     if (!family.parts.every((p) => p.merged || p.run?.id === runId)) return;
     const parent = await registry.getRun(family.parent.runId);
-    const ticketId = parent?.run.ticketId;
-    if (!ticketId) return;
+    if (!parent?.run.ticketId) return;
+    const ticketId = runTicketRef(parent.run);
     const tickets = ticketsFor(tracker, ticketId);
     const moved = await transitionTicketTo(tickets, ticketId, parsePreferredStatuses(cfg('TICKET_STATUS_DONE')));
     if (moved) {

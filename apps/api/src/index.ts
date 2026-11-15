@@ -9,9 +9,8 @@
 import './boot-secrets.js';
 import Fastify from 'fastify';
 import { config } from './config.js';
-import { ticketRegistry } from './providers/tickets/index.js';
+import { ticketSet } from './providers/tickets/index.js';
 import { scmSet } from './providers/scm/index.js';
-import { qualifyTickets } from './providers/tickets/set.js';
 import { registry } from './registry/client.js';
 import { registerRunRoutes } from './routes/runs.js';
 import { registerScmRoutes } from './routes/scm.js';
@@ -29,10 +28,9 @@ import { registerOllamaRoutes } from './routes/ollama.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerWorkerRoutes } from './routes/workers.js';
 import { cfg, loadOrgSettings, loadOrgSettingsWithRetry, orgSettingsLoaded } from './settings.js';
-import { findTicketsByRef } from './tickets/find.js';
 import { assertIdentityConfig } from './identity.js';
-import { ticketsFor } from './tickets/route.js';
 import { registerAdhocRoutes } from './routes/adhoc.js';
+import { registerTicketRoutes } from './routes/tickets.js';
 import { registerAvatarRoutes } from './routes/avatars.js';
 import { registerThemeRoutes } from './routes/themes.js';
 import { registerSkillRoutes } from './routes/skills.js';
@@ -71,7 +69,7 @@ catch (e) {
     // The provider registries were built from the empty org tier (mock/mock);
     // invalidate so the next request rebuilds them from the real config — same
     // as a settings write does.
-    ticketRegistry.invalidate(); scmSet.invalidate();
+    ticketSet.invalidate(); scmSet.invalidate();
     app.log.info('org settings loaded (after retry); providers reloaded');
     qualifyStoredRefs();
   });
@@ -82,57 +80,24 @@ catch (e) {
 // currently-configured provider. A settings write in the /providers UI invalidates
 // both registries so the next request rebuilds — no restart. Both are wrapped so
 // ticket and repository ids leave the api qualified with their connection (M12).
-// `scm` routes each repository to its own code host (M12 WP2).
-const tickets = qualifyTickets(ticketRegistry.live);
+// `tickets` routes each ticket to its own tracker (M12 WP3) and `scm` each
+// repository to its own code host (M12 WP2).
+const tickets = ticketSet.live;
 const scm = scmSet.live;
-// Admin, setup and credential checks see the default code host; a settings write invalidates every host.
+// Admin, setup and credential checks see the default tracker and code host; a settings write invalidates every one.
+const defaultTickets = { current: () => ticketSet.registryFor(ticketSet.defaultConnection).current(), invalidate: () => ticketSet.invalidate() };
 const defaultScm = { current: () => scmSet.registryFor(scmSet.defaultConnection).current(), invalidate: () => scmSet.invalidate() };
 
 app.get('/health', async () => ({ ok: true, orgSettingsLoaded: orgSettingsLoaded(), tickets: tickets.kind, scm: scm.kind }));
 
-app.get('/api/tickets', async (req) => {
-  const q = req.query as { scope?: string; search?: string; bucket?: string; sprint?: string; status?: string; excludeDone?: string; updatedWithinDays?: string; limit?: string };
-  const csv = (s?: string) => (s ? s.split(',').map((v) => v.trim()).filter(Boolean) : undefined);
-  const scope = csv(q.scope) ?? [];
-  const days = Number(q.updatedWithinDays);
-  return tickets.list({
-    scope, search: q.search, bucket: csv(q.bucket) as never,
-    sprint: csv(q.sprint), status: csv(q.status),
-    excludeDone: q.excludeDone === 'true',
-    updatedWithinDays: Number.isFinite(days) && days > 0 ? days : undefined,
-    limit: Number(q.limit ?? 200),
-  });
-});
-
-// Backlog-scoping discovery (capability-gated: a tracker that does not support a
-// dimension reports it in capabilities() and returns [] here rather than erroring,
-// so the UI can render only the controls the tracker offers).
-app.get('/api/tickets/scopes', async () => (tickets.capabilities().boards ? tickets.listScopes() : []));
-app.get<{ Params: { id: string } }>('/api/tickets/scopes/:id/sprints', async (req) =>
-  tickets.capabilities().sprints ? tickets.listSprints(req.params.id) : []);
-app.get('/api/tickets/statuses', async (req) => {
-  const q = req.query as { scope?: string };
-  return tickets.capabilities().statuses ? tickets.listStatuses(q.scope || undefined) : [];
-});
-
-// Find by ticket number across the whole tracker (Planned tasks search): the
-// page's own list is limited to the selected board/sprint and open tickets.
-app.get('/api/tickets/find', async (req) => {
-  const q = req.query as { q?: string; prefixes?: string };
-  const configured = tickets.kind === 'jira' ? String(cfg('JIRA_PROJECTS') ?? '').split(',') : [];
-  const prefixes = [...configured, ...(q.prefixes ?? '').split(',')].map((s) => s.trim()).filter(Boolean);
-  return { tickets: await findTicketsByRef((id) => tickets.get(id), q.q ?? '', prefixes) };
-});
-
-app.get<{ Params: { id: string } }>('/api/tickets/:id', async (req) => ticketsFor(tickets, req.params.id).get(req.params.id));
-
+registerTicketRoutes(app, { set: ticketSet });
 registerRunRoutes(app, { tickets, scm });
 registerScmRoutes(app, { scm, tickets });
 registerDispatchRoutes(app, { tickets, scm });
 registerQueueRoutes(app, { tickets, scm });
 registerBrowserRoutes(app, { tickets, scm });
-registerAdminRoutes(app, { tickets: ticketRegistry, scm: defaultScm });
-registerSetupRoutes(app, { tickets: ticketRegistry, scm: defaultScm });
+registerAdminRoutes(app, { tickets: defaultTickets, scm: defaultScm });
+registerSetupRoutes(app, { tickets: defaultTickets, scm: defaultScm });
 registerVertexRoutes(app);
 registerOllamaRoutes(app);
 registerWorkerRoutes(app);
@@ -170,12 +135,14 @@ for (const connection of scmSet.connections) {
     app.log.warn({ provider: connection, err: (e as Error).message }, 'SCM preflight threw — provider likely unconfigured; configure it in the UI (/providers)');
   }
 }
-try {
-  const pf = await tickets.preflight();
-  if (pf.ok) app.log.info({ provider: tickets.kind, identity: pf.identity }, 'ticket preflight ok');
-  else app.log.warn({ provider: tickets.kind, reason: pf.reason }, 'ticket preflight failed — configure the provider in the UI (/providers)');
-} catch (e) {
-  app.log.warn({ err: (e as Error).message }, 'ticket preflight threw — provider likely unconfigured; configure it in the UI (/providers)');
+for (const connection of ticketSet.connections) {
+  try {
+    const pf = await (await ticketSet.registryFor(connection).current()).preflight();
+    if (pf.ok) app.log.info({ provider: connection, identity: pf.identity }, 'ticket preflight ok');
+    else app.log.warn({ provider: connection, reason: pf.reason }, 'ticket preflight failed — configure the provider in the UI (/providers)');
+  } catch (e) {
+    app.log.warn({ provider: connection, err: (e as Error).message }, 'ticket preflight threw — provider likely unconfigured; configure it in the UI (/providers)');
+  }
 }
 await app.listen({ port: config.port, host: config.host });
 // The work-queue scheduler turns queued tickets into runs (M6 WP6.1).
@@ -187,7 +154,7 @@ const stopMergeWatch = startMergeWatch({ tickets, scm }, app.log);
 // The Hive hook sends each merged run to Hive (#76, #78); off while HIVE_URL is blank.
 const stopHiveHook = startHiveHook({ tickets, scm }, app.log);
 // Credential health (#139): re-test the tracker/SCM tokens and the subscription token's age.
-const stopCredentialChecks = startCredentialChecks({ tickets: ticketRegistry, scm: defaultScm }, app.log);
+const stopCredentialChecks = startCredentialChecks({ tickets: defaultTickets, scm: defaultScm }, app.log);
 // Update check: is a newer ASF release published? At boot, then daily while UPDATE_CHECK_ENABLED.
 const stopUpdateChecks = startUpdateChecks(app.log);
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, async () => { stopScheduler(); stopNotifier(); stopMergeWatch(); stopHiveHook(); stopCredentialChecks(); stopUpdateChecks(); await app.close(); process.exit(0); });

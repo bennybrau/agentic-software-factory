@@ -2,7 +2,7 @@ import { connectionKind, formatHiveBrief, formatRef, hiveBriefFacts, parseRef } 
 import type { ArtifactWire, HiveBrief, HiveDialogItem, ReferenceRepo, Run, RunTask, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import { registry } from './registry/client.js';
 import { cfg } from './settings.js';
-import { ticketsFor } from './tickets/route.js';
+import { runTicketRef, ticketsFor } from './tickets/route.js';
 import { resolveProviderSecret } from './providers/secrets.js';
 import { scmConnections } from './providers/scm/set.js';
 
@@ -88,7 +88,7 @@ export function buildDialogEpisode(item: HiveDialogItem): HiveDialogEpisode | nu
 
 /** Ticket title from the tracker; the ticket key when the tracker can't be read. */
 async function ticketTitle(tracker: TicketProvider, run: Run): Promise<string> {
-  try { return (await ticketsFor(tracker, run.ticketId).get(run.ticketId)).title; }
+  try { return (await ticketsFor(tracker, runTicketRef(run)).get(runTicketRef(run))).title; }
   catch { return run.ticketKey; }
 }
 

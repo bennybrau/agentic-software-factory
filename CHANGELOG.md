@@ -8,6 +8,11 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Several trackers at once.** Set `TICKET_PROVIDERS` to a comma list (for example
+  `jira,github`) and `/api/tickets` lists every tracker's tickets together, with each tracker's
+  status in `sources`; a tracker that errors drops out and the rest still list. A run's comments
+  and status moves go back to its own ticket's tracker, so a Jira ticket worked in a GitHub
+  repository moves on Jira when the pull request merges. Blank keeps `TICKET_PROVIDER`.
 - **Several code hosts at once.** Set `SCM_PROVIDERS` to a comma list (for example
   `gitlab,github`) and the repository list combines every host. Each run's pull or merge request,
   merge watch and team memory key use its repository's own host. A host that is down drops out

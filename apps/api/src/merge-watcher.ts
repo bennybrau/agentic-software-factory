@@ -3,7 +3,7 @@ import { resolve } from '@asf/shared';
 import { registry } from './registry/client.js';
 import { cfg } from './settings.js';
 import { transitionTicketTo, parsePreferredStatuses } from './tickets/transition.js';
-import { ticketsFor } from './tickets/route.js';
+import { runTicketRef, ticketsFor } from './tickets/route.js';
 import { closeSplitParentIfDone } from './tickets/split-parent.js';
 
 type Log = { info: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
@@ -60,7 +60,7 @@ async function checkOne(deps: { tickets: TicketProvider; scm: ScmProvider }, run
       payload: { url: cr.url, number: cr.number, external: true },
     });
     // Merged → the work landed; move the ticket to Done, same as the internal merge route.
-    const moved = await transitionTicketTo(ticketsFor(deps.tickets, run.ticketId), run.ticketId, parsePreferredStatuses(cfg('TICKET_STATUS_DONE')));
+    const moved = await transitionTicketTo(ticketsFor(deps.tickets, runTicketRef(run)), runTicketRef(run), parsePreferredStatuses(cfg('TICKET_STATUS_DONE')));
     log.info({ runId: run.id, ticket: run.ticketKey, number: cr.number, ticketMovedTo: moved }, 'merge-watch: merged externally');
     await closeSplitParentIfDone(deps.tickets, run.id, log);
     return true;

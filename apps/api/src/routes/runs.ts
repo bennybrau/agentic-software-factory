@@ -5,7 +5,7 @@ import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { computeRunAuth, computeRunAuths, describeAgentAuth } from '../agent-auth.js';
 import { cfg } from '../settings.js';
-import { ticketsFor } from '../tickets/route.js';
+import { runTicketRef, ticketsFor } from '../tickets/route.js';
 import { adhocTickets } from '../providers/tickets/index.js';
 import { startReadiness } from '../start-readiness.js';
 import { fetchHiveBrief } from '../hive.js';
@@ -115,7 +115,7 @@ export function registerRunRoutes(app: FastifyInstance, deps: { tickets: TicketP
     if (!got) return reply.code(404).send({ error: 'not_found', reason: `no run ${req.params.id}` });
     const { run } = got;
 
-    const ticket = await ticketsFor(deps.tickets, run.ticketId).get(run.ticketId);
+    const ticket = await ticketsFor(deps.tickets, runTicketRef(run)).get(runTicketRef(run));
     // An ad-hoc task's files (#179): the worker downloads each from /api/runs/:id/attachments/:name.
     const attachments = isAdhocId(run.ticketId) ? await adhocTickets.attachments(run.ticketId) : undefined;
     let repo: RunContext['repo'] = null;

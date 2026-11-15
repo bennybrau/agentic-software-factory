@@ -4,7 +4,7 @@ import { addressableThreads, addressMessage, isAdhocId, reviewComments, runRepor
 import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { cfg } from '../settings.js';
-import { ticketsFor } from '../tickets/route.js';
+import { runTicketRef, ticketsFor } from '../tickets/route.js';
 import { withoutRepoList } from './adhoc.js';
 
 /** Assemble the report input for a run from the registry (tasks + events + artifact versions). */
@@ -60,7 +60,7 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
   app.get<{ Params: { id: string } }>('/api/runs/:id', async (req, reply) => {
     const run = await registry.getRun(req.params.id);
     if (!run) return reply.code(404).send({ error: 'not_found' });
-    const ticketId = run.run.ticketId;
+    const ticketId = runTicketRef(run.run);
     const [gates, artifacts, versions, chat, split, adhocTicket] = await Promise.all([
       registry.listGates(req.params.id),
       registry.listArtifacts(req.params.id),

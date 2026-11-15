@@ -1,6 +1,6 @@
 import type { TicketProvider } from '@asf/shared';
 import { cfg } from '../../settings.js';
-import { TicketProviderRegistry } from './registry.js';
+import { TicketSet } from './set.js';
 import { resolveProviderSecret } from './secrets.js';
 import { MockTicketProvider } from './mock.js';
 import { GithubTicketProvider, parseBucketMap } from './github.js';
@@ -49,12 +49,14 @@ export async function buildTicketProvider(kind: string): Promise<TicketProvider>
 }
 
 /**
- * The api's hot-swappable ticket provider. Routes and the scheduler are injected
- * `ticketRegistry.live` (a stable proxy) and never hold a fixed instance; the
- * admin route calls `ticketRegistry.invalidate()` after a settings write so the
- * next request rebuilds from the new config.
+ * The api's trackers (M12 WP3): one hot-swappable registry per connection in
+ * TICKET_PROVIDERS (or just TICKET_PROVIDER). Routes and the scheduler are
+ * injected `ticketSet.live` (a stable proxy that routes each ticket to its
+ * tracker) and never hold a fixed instance; the admin route calls
+ * `ticketSet.invalidate()` after a settings write so the next request rebuilds
+ * from the new config.
  */
-export const ticketRegistry = new TicketProviderRegistry(buildTicketProvider, () => cfg('TICKET_PROVIDER'));
+export const ticketSet = new TicketSet(buildTicketProvider);
 
 /**
  * Ad-hoc tasks (#179) live in the registry, not the tracker, so they are not a

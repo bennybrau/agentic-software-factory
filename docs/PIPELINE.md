@@ -69,7 +69,7 @@ The factory never resolves a thread, approves or merges because of a review comm
 
 ## Splits and hand-offs
 
-A planner can end its plan with an `asf-split` block: 2–8 parts, each a `title`, a `body` and the earlier parts it waits on (`dependsOn`). When you approve the plan, each part becomes its own ad-hoc task in Up next, and the parent run finishes as *split*.
+A planner can end its plan with an `asf-split` block: 2–8 parts, each a `title`, a `body` and the earlier parts it waits on (`dependsOn`). When you approve the plan, each part becomes its own ad-hoc task in Up next, and the parent run finishes as *split*. Once every part's pull request has merged (by ASF or outside it), the parent's ticket moves to Done and gets one comment listing the parts and their pull requests; a part closed without merging leaves it open.
 
 A part may also set `repo` to the path of another connected repository. That part is queued for that repository; a part without `repo` goes into the parent run's repository. A single part is allowed only when it sets `repo`, which hands the work off to another repository. The repository is not checked when you approve: if the queue can't reach it, the entry fails with the reason when it is dispatched. Every planner's prompt lists the connected repositories, with the run's own marked, whatever the ticket came from (a Jira or GitHub ticket, the chat, an ad-hoc task), so it knows which paths it can use. The api sends the list with the run context (`connectedRepos`); with only one repository connected the prompt says so, and if the list can't be fetched the planner is told to keep every part in its own repository. A part of a split can't be split or handed off again.
 

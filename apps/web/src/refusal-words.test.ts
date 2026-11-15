@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TodayWire, WorkQueueEntry } from '@asf/shared';
-import { QUEUE_POLL_MS, budgetReachedText, queuePollInterval, refusalFor, wherePill } from './refusal-words';
+import { QUEUE_POLL_MS, budgetReachedText, queuePollInterval, refusalFor, upNextCountText, wherePill } from './refusal-words';
 
 const entry = (over: Partial<WorkQueueEntry>): WorkQueueEntry => ({
   id: 'q1', ticketId: 't1', ticketProvider: 'jira', ticketKey: 'PROJ-1', repoId: null, teamName: null, maxCostUsd: null,
@@ -59,4 +59,11 @@ test('the pill says where it is, or that it couldn’t start and why', () => {
   assert.deepEqual(wherePill('backlog'), { label: 'Not started' });
   assert.deepEqual(wherePill('backlog', entry({})), { label: 'Couldn’t start', note: 'No repository.' });
   assert.deepEqual(wherePill('inflight', entry({ reason: null })), { label: 'Couldn’t start' });
+});
+
+test('the Up next count beside the title, hidden when nothing is queued', () => {
+  assert.equal(upNextCountText(0), null);
+  assert.equal(upNextCountText(-1), null);
+  assert.equal(upNextCountText(1), '1 in Up next');
+  assert.equal(upNextCountText(4), '4 in Up next');
 });

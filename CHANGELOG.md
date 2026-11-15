@@ -8,6 +8,10 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Several code hosts at once.** Set `SCM_PROVIDERS` to a comma list (for example
+  `gitlab,github`) and the repository list combines every host. Each run's pull or merge request,
+  merge watch and team memory key use its repository's own host. A host that is down drops out
+  and the rest keep working; nothing starts only when none is ready. Blank keeps `SCM_PROVIDER`.
 - **Activity says how many runs finished today.** Next to "All work", a line like "3 finished today"
   counts runs that ended since your local midnight. It updates as runs end and clears at midnight.
 - **Planned tasks shows how many tickets are in Up next.** Beside the title, for example

@@ -10,9 +10,8 @@ import './boot-secrets.js';
 import Fastify from 'fastify';
 import { config } from './config.js';
 import { ticketRegistry } from './providers/tickets/index.js';
-import { scmRegistry } from './providers/scm/index.js';
+import { scmSet } from './providers/scm/index.js';
 import { qualifyTickets } from './providers/tickets/set.js';
-import { qualifyScm } from './providers/scm/set.js';
 import { registry } from './registry/client.js';
 import { registerRunRoutes } from './routes/runs.js';
 import { registerScmRoutes } from './routes/scm.js';
@@ -50,7 +49,7 @@ assertIdentityConfig();
 // org tier is loaded, so it never runs with the default `mock`. A refusal is
 // logged and the api keeps booting: nothing reads the qualified form yet.
 function qualifyStoredRefs(): void {
-  registry.qualifyStoredRefs(String(cfg('SCM_PROVIDER')), String(cfg('TICKET_PROVIDER'))).then(
+  registry.qualifyStoredRefs(scmSet.defaultConnection, String(cfg('TICKET_PROVIDER'))).then(
     (counts) => app.log.info({ counts }, 'stored refs qualified'),
     (err: Error) => app.log.warn({ err: err.message }, 'stored refs not qualified'),
   );
@@ -72,7 +71,7 @@ catch (e) {
     // The provider registries were built from the empty org tier (mock/mock);
     // invalidate so the next request rebuilds them from the real config — same
     // as a settings write does.
-    ticketRegistry.invalidate(); scmRegistry.invalidate();
+    ticketRegistry.invalidate(); scmSet.invalidate();
     app.log.info('org settings loaded (after retry); providers reloaded');
     qualifyStoredRefs();
   });
@@ -83,8 +82,11 @@ catch (e) {
 // currently-configured provider. A settings write in the /providers UI invalidates
 // both registries so the next request rebuilds — no restart. Both are wrapped so
 // ticket and repository ids leave the api qualified with their connection (M12).
+// `scm` routes each repository to its own code host (M12 WP2).
 const tickets = qualifyTickets(ticketRegistry.live);
-const scm = qualifyScm(scmRegistry.live);
+const scm = scmSet.live;
+// Admin, setup and credential checks see the default code host; a settings write invalidates every host.
+const defaultScm = { current: () => scmSet.registryFor(scmSet.defaultConnection).current(), invalidate: () => scmSet.invalidate() };
 
 app.get('/health', async () => ({ ok: true, orgSettingsLoaded: orgSettingsLoaded(), tickets: tickets.kind, scm: scm.kind }));
 
@@ -129,8 +131,8 @@ registerScmRoutes(app, { scm, tickets });
 registerDispatchRoutes(app, { tickets, scm });
 registerQueueRoutes(app, { tickets, scm });
 registerBrowserRoutes(app, { tickets, scm });
-registerAdminRoutes(app, { tickets: ticketRegistry, scm: scmRegistry });
-registerSetupRoutes(app, { tickets: ticketRegistry, scm: scmRegistry });
+registerAdminRoutes(app, { tickets: ticketRegistry, scm: defaultScm });
+registerSetupRoutes(app, { tickets: ticketRegistry, scm: defaultScm });
 registerVertexRoutes(app);
 registerOllamaRoutes(app);
 registerWorkerRoutes(app);
@@ -159,12 +161,14 @@ if (config.webDist) {
 // UI, so a failing preflight is logged, not fatal. The /providers "Test
 // connection" buttons (registerAdminRoutes) are how the operator confirms each
 // live. Wrapped in try/catch because an unconfigured provider's build can throw.
-try {
-  const pf = await scm.preflight();
-  if (pf.ok) app.log.info({ provider: scm.kind, identity: pf.identity }, 'SCM preflight ok');
-  else app.log.warn({ provider: scm.kind, reason: pf.reason }, 'SCM preflight failed — configure the provider in the UI (/providers)');
-} catch (e) {
-  app.log.warn({ err: (e as Error).message }, 'SCM preflight threw — provider likely unconfigured; configure it in the UI (/providers)');
+for (const connection of scmSet.connections) {
+  try {
+    const pf = await (await scmSet.registryFor(connection).current()).preflight();
+    if (pf.ok) app.log.info({ provider: connection, identity: pf.identity }, 'SCM preflight ok');
+    else app.log.warn({ provider: connection, reason: pf.reason }, 'SCM preflight failed — configure the provider in the UI (/providers)');
+  } catch (e) {
+    app.log.warn({ provider: connection, err: (e as Error).message }, 'SCM preflight threw — provider likely unconfigured; configure it in the UI (/providers)');
+  }
 }
 try {
   const pf = await tickets.preflight();
@@ -183,7 +187,7 @@ const stopMergeWatch = startMergeWatch({ tickets, scm }, app.log);
 // The Hive hook sends each merged run to Hive (#76, #78); off while HIVE_URL is blank.
 const stopHiveHook = startHiveHook({ tickets, scm }, app.log);
 // Credential health (#139): re-test the tracker/SCM tokens and the subscription token's age.
-const stopCredentialChecks = startCredentialChecks({ tickets: ticketRegistry, scm: scmRegistry }, app.log);
+const stopCredentialChecks = startCredentialChecks({ tickets: ticketRegistry, scm: defaultScm }, app.log);
 // Update check: is a newer ASF release published? At boot, then daily while UPDATE_CHECK_ENABLED.
 const stopUpdateChecks = startUpdateChecks(app.log);
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, async () => { stopScheduler(); stopNotifier(); stopMergeWatch(); stopHiveHook(); stopCredentialChecks(); stopUpdateChecks(); await app.close(); process.exit(0); });

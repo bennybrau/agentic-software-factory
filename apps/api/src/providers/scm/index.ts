@@ -1,6 +1,6 @@
 import type { ScmProvider } from '@asf/shared';
 import { cfg } from '../../settings.js';
-import { ScmProviderRegistry } from './registry.js';
+import { ScmSet } from './set.js';
 import { resolveProviderSecret } from '../secrets.js';
 import { MockScmProvider } from './mock.js';
 import { GithubScmProvider } from './github.js';
@@ -49,9 +49,10 @@ export async function buildScmProvider(kind: string): Promise<ScmProvider> {
 }
 
 /**
- * The api's hot-swappable SCM provider. Routes and the scheduler are injected
- * `scmRegistry.live` (a stable proxy) and never hold a fixed instance; the admin
- * route calls `scmRegistry.invalidate()` after a settings write so the next
- * request rebuilds from the new config.
+ * The api's code hosts (M12 WP2): one hot-swappable registry per connection in
+ * SCM_PROVIDERS (or just SCM_PROVIDER). Routes and the scheduler are injected
+ * `scmSet.live` (a stable proxy that routes each repository to its host) and
+ * never hold a fixed instance; the admin route calls `scmSet.invalidate()` after
+ * a settings write so the next request rebuilds from the new config.
  */
-export const scmRegistry = new ScmProviderRegistry(buildScmProvider, () => cfg('SCM_PROVIDER'));
+export const scmSet = new ScmSet(buildScmProvider);

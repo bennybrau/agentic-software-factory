@@ -2,6 +2,7 @@ import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { tickMergeWatch } from './merge-watcher.js';
 import { MockTicketProvider } from './providers/tickets/mock.js';
+import { ScmSet } from './providers/scm/set.js';
 import type { ChangeRequest, Repo, Run, ScmProvider, TicketProvider } from '@asf/shared';
 
 // The watcher asks the registry which runs are awaiting an external merge, reads
@@ -146,4 +147,25 @@ test('one bad run does not stall the batch', async () => {
   const n = await tickMergeWatch({ tickets, scm }, silent);
   assert.equal(n, 1);
   assert.deepEqual(events, [{ runId: 'run_ok', kind: 'change_request:merged' }]);
+});
+
+test('several code hosts: each run\'s change request is read from its own host', async () => {
+  process.env.MERGE_WATCH_ENABLED = 'true';
+  const seen: string[] = [];
+  const host = (kind: 'github' | 'gitlab') => {
+    const base = scmReturning('merged');
+    return { ...base, kind,
+      getRepo: async (id: string) => ({ ...(await base.getRepo(id)), id, path: id }),
+      getChangeRequest: async (repo: Repo, number: number) => { seen.push(`${kind} ${repo.id}#${number}`); return base.getChangeRequest(repo, number); },
+    } as ScmProvider;
+  };
+  const set = new ScmSet(async (kind) => host(kind as 'github' | 'gitlab'), () => ['gitlab', 'github']);
+  const events = stub([
+    run({ id: 'run_gh', repoId: 'github:acme/web', changeRequestNumber: 7 }),
+    run({ id: 'run_gl', repoId: 'gitlab:acme/platform/web', changeRequestNumber: 9 }),
+    run({ id: 'run_bare', repoId: 'acme/old', changeRequestNumber: 3 }),
+  ]);
+  await tickMergeWatch({ tickets: new MockTicketProvider(), scm: set.live }, silent);
+  assert.deepEqual(seen.sort(), ['github acme/web#7', 'gitlab acme/old#3', 'gitlab acme/platform/web#9']);
+  assert.equal(events.filter((e) => e.kind === 'change_request:merged').length, 3);
 });

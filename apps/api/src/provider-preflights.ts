@@ -9,7 +9,7 @@ import type { ScmProviderRegistry } from './providers/scm/registry.js';
  */
 
 export type Pf = { ok: boolean; identity?: string; reason?: string; credentialRejected?: boolean };
-export interface PreflightDeps { tickets: TicketProviderRegistry; scm: ScmProviderRegistry }
+export interface PreflightDeps { tickets: TicketProviderRegistry; scm: Pick<ScmProviderRegistry, 'current' | 'invalidate'> }
 
 const PREFLIGHT_TTL_MS = 30_000;
 let pfCache: { at: number; ticket: Pf; scm: Pf } | null = null;

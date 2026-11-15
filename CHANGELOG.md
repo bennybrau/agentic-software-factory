@@ -75,6 +75,9 @@ publishes a `vX.Y.Z` release of the GHCR images
   first, priority 1 first, ticket numbers counting up (DCP-9 before DCP-10). Tickets with no
   priority or date go last. The sort is kept with the other filters.
 
+### Changed
+- **Planned tasks has a one-line description under its title, like Activity.**
+
 ### Fixed
 - **Settings → Skills fits a phone screen.** The example link and each skill's source link wrap
   instead of pushing the page sideways, and **Preview** stays on screen next to the link box.

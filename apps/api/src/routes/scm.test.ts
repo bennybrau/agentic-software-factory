@@ -1,11 +1,12 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
-import type { RunEvent, ReviewThread } from '@asf/shared';
+import type { Repo, RunEvent, ReviewThread, ScmProvider } from '@asf/shared';
 import { registerBrowserRoutes } from './browser.js';
 import { registerScmRoutes, threadReplies } from './scm.js';
 import { MockTicketProvider } from '../providers/tickets/mock.js';
 import { MockScmProvider } from '../providers/scm/mock.js';
+import { ScmSet } from '../providers/scm/set.js';
 
 // Replying on addressed review threads (#109 part 3): the browser route records which
 // threads were sent, the implementer's thread-replies.json is saved, and the publish
@@ -142,4 +143,34 @@ test('threadReplies reads leniently: bad JSON or bad entries are no entries', ()
   assert.deepEqual(threadReplies('{"thread":"t1","reply":"x"}'), []);
   assert.deepEqual(threadReplies(JSON.stringify([null, 3, { thread: 't1' }, { thread: '', reply: 'x' }, { thread: 't2', reply: '  ' }, { thread: 't3', reply: 'ok' }])),
     [{ thread: 't3', reply: 'ok' }]);
+});
+
+test('several code hosts: the change request opens on the host the run\'s repo belongs to', async () => {
+  const opened: string[] = [];
+  const host = (kind: 'github' | 'gitlab') => {
+    const mock = new MockScmProvider();
+    return new Proxy(mock, { get(target, prop, recv) {
+      if (prop === 'kind') return kind;
+      if (prop === 'getRepo') return async (id: string) => ({ ...(await mock.getRepo('1')), id, path: id });
+      if (prop === 'openChangeRequest') return async (repo: Repo, input: Parameters<ScmProvider['openChangeRequest']>[1]) => {
+        opened.push(`${kind} ${repo.id}`);
+        return { ...(await mock.openChangeRequest(repo, input)), repoId: repo.id };
+      };
+      return Reflect.get(target, prop, recv);
+    } }) as ScmProvider;
+  };
+  const set = new ScmSet(async (kind) => host(kind as 'github' | 'gitlab'), () => ['gitlab', 'github']);
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
+    const result = body.op === 'getRun' ? { run: { id: RUN, ticketId: 'JIRA-1', state: 'succeeded', repoId: 'github:acme/web', team: {} }, tasks: [] } : {};
+    return new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  const a = Fastify();
+  registerScmRoutes(a, { tickets: new MockTicketProvider(), scm: set.live });
+  await a.ready();
+  const res = await a.inject({ method: 'POST', url: '/api/scm/change-request', headers: secret,
+    payload: { runId: RUN, head: 'agent/x', base: 'main', title: 't', body: '', draft: true } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(opened, ['github acme/web']);
+  assert.equal(res.json().changeRequest.repoId, 'github:acme/web');
 });

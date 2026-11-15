@@ -1,5 +1,6 @@
-import { sameRef, ticketReposMentioned, type RepoMention } from '@asf/shared';
+import { parseRef, sameRef, ticketReposMentioned, type RepoMention } from '@asf/shared';
 import type { Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
+import type { ScmHostState, ScmSetReadiness } from './providers/scm/set.js';
 
 /**
  * Can work start at all, and in which repository?
@@ -19,22 +20,39 @@ export const CODE_SETTINGS_LINK = '/settings#code';
 export type RepoBlocker = 'scm_not_connected' | 'no_repos' | 'repo_not_found' | 'repo_ambiguous';
 
 export type Readiness =
-  | { ok: true; repos: Repo[] }
-  | { ok: false; code: RepoBlocker; reason: string; link: string };
+  | { ok: true; repos: Repo[]; hosts: ScmHostState[] }
+  | { ok: false; code: RepoBlocker; reason: string; link: string; hosts: ScmHostState[] };
 
-/** Source control is connected and names at least one reachable repository. */
-export async function startReadiness(scm: ScmProvider): Promise<Readiness> {
+/** A sentence: capitalised, ending in a full stop. */
+const sentence = (s: string) => s.replace(/^./, (c) => c.toUpperCase()).replace(/([^.!?])$/, '$1.');
+
+/** One plain provider as a single code host. */
+async function singleHost(scm: ScmProvider): Promise<ScmSetReadiness> {
   const pf = await scm.preflight().catch((e: Error) => ({ ok: false as const, reason: e.message }));
-  if (!pf.ok) {
-    return { ok: false, code: 'scm_not_connected', link: CODE_SETTINGS_LINK,
-      reason: `Connect the repository the work goes into before starting anything. ${(pf.reason ?? 'The connection check failed.').replace(/^./, (c) => c.toUpperCase()).replace(/([^.!?])$/, '$1.')}` };
+  if (!pf.ok) return { hosts: [{ connection: scm.kind, ok: false, reason: pf.reason }], repos: [] };
+  return { hosts: [{ connection: scm.kind, ok: true }], repos: await scm.searchRepos('').catch(() => [] as Repo[]) };
+}
+
+/**
+ * Source control is connected and names at least one reachable repository. With
+ * several code hosts (the ScmSet's `live`, which carries `readiness()`), a host
+ * that is down drops out with its reason and the rest still work; only no ready
+ * host, or no repository on any ready host, blocks.
+ */
+export async function startReadiness(scm: ScmProvider & { readiness?: () => Promise<ScmSetReadiness> }): Promise<Readiness> {
+  const { hosts, repos } = scm.readiness ? await scm.readiness() : await singleHost(scm);
+  if (!hosts.some((h) => h.ok)) {
+    const why = hosts.length === 1
+      ? sentence(hosts[0].reason ?? 'The connection check failed.')
+      : hosts.map((h) => `${h.connection}: ${sentence(h.reason ?? 'The connection check failed.')}`).join(' ');
+    return { ok: false, code: 'scm_not_connected', link: CODE_SETTINGS_LINK, hosts,
+      reason: `Connect the repository the work goes into before starting anything. ${why}` };
   }
-  const repos = await scm.searchRepos('').catch(() => [] as Repo[]);
   if (repos.length === 0) {
-    return { ok: false, code: 'no_repos', link: CODE_SETTINGS_LINK,
+    return { ok: false, code: 'no_repos', link: CODE_SETTINGS_LINK, hosts,
       reason: 'Source control is connected but no repository is chosen. Add the repository the work goes into (Settings → Where does your code live?) before starting anything.' };
   }
-  return { ok: true, repos };
+  return { ok: true, repos, hosts };
 }
 
 /**
@@ -73,17 +91,30 @@ function ambiguous(ticket: Ticket, repos: Repo[], mentioned: RepoMention[]) {
 export async function pickRepo(
   deps: { tickets: TicketProvider; scm: ScmProvider }, ticket: Ticket, repos: Repo[], requested?: string | null,
 ): Promise<{ ok: true; repo: Repo } | { ok: false; code: RepoBlocker; reason: string; link: string }> {
-  const find = async (idOrPath: string): Promise<Repo | null> =>
-    repos.find((r) => sameRef(r.id, idOrPath, deps.scm.kind) || r.path === idOrPath) ?? await deps.scm.getRepo(idOrPath).catch(() => null);
+  // A qualified ref names its host. A bare value is a path first (the same path on two
+  // hosts is ambiguous), then an id on the default connection, then whatever getRepo finds.
+  const find = async (idOrPath: string): Promise<Repo | 'ambiguous' | null> => {
+    const def = deps.scm.kind;
+    if (!parseRef(idOrPath, def).qualified) {
+      const byPath = repos.filter((r) => r.path === idOrPath);
+      if (byPath.length > 1) return 'ambiguous';
+      if (byPath.length === 1) return byPath[0];
+    }
+    return repos.find((r) => sameRef(r.id, idOrPath, def)) ?? await deps.scm.getRepo(idOrPath).catch(() => null);
+  };
+  const onSeveralHosts = (path: string) => ({ ok: false as const, code: 'repo_ambiguous' as const, link: CODE_SETTINGS_LINK,
+    reason: `More than one code host has a repository at ${path} (${repos.filter((r) => r.path === path).map((r) => r.id).join(', ')}). Choose which one ${ticket.key} should change.` });
 
   if (requested) {
     const repo = await find(requested);
+    if (repo === 'ambiguous') return onSeveralHosts(requested);
     return repo ? { ok: true, repo }
       : { ok: false, code: 'repo_not_found', link: CODE_SETTINGS_LINK, reason: `The repository "${requested}" isn't one source control can reach. Pick one of: ${repos.map((r) => r.path).join(', ')}.` };
   }
   const suggested = deps.tickets.suggestedRepo?.(ticket) ?? null;
   if (suggested) {
     const repo = await find(suggested);
+    if (repo === 'ambiguous') return onSeveralHosts(suggested);
     if (repo) return { ok: true, repo };
   }
   const mentioned = ticketReposMentioned(ticket, repos);

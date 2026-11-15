@@ -7,7 +7,7 @@ import type { ArtifactWire, HiveDialogItem, ReferenceRepo, Repo, ScmProvider, Ti
 // One fake fetch plays both sides: the registry RPC (hiveMergedRuns, hiveDialog, listArtifacts) and
 // Hive's POST /v1/episodes, which we record (or fail on demand).
 const realFetch = global.fetch;
-afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'HIVE_BRIEF', 'SCM_PROVIDER']) delete process.env[k]; clearHiveBriefCache(); saveFails = false; });
+afterEach(() => { global.fetch = realFetch; for (const k of ['HIVE_URL', 'HIVE_TOKEN', 'HIVE_BRIEF', 'SCM_PROVIDER', 'SCM_PROVIDERS']) delete process.env[k]; clearHiveBriefCache(); saveFails = false; });
 
 const logs: string[] = [];
 const log = { info: () => {}, warn: (_o: unknown, m?: string) => { logs.push(m ?? ''); }, error: (_o: unknown, m?: string) => { logs.push(m ?? ''); } };
@@ -381,6 +381,24 @@ test('repoKey: a bare and a qualified repoId give the same key', () => {
   assert.equal(repoKey({ repoId: 'gitlab:acme/platform/web' }), 'gl/acme/platform/web');
   assert.equal(repoKey({ repoId: 'acme/platform/web' }), 'gl/acme/platform/web');
   assert.equal(repoKey({ repoId: null }), null);
+});
+
+test('repoKey: with several code hosts each repo keys off its own host; a bare id is the first host\'s', () => {
+  process.env.SCM_PROVIDERS = 'gitlab,github';
+  assert.equal(repoKey({ repoId: 'github:acme/web' }), 'gh/acme/web');
+  assert.equal(repoKey({ repoId: 'gitlab:acme/platform/web' }), 'gl/acme/platform/web');
+  assert.equal(repoKey({ repoId: 'acme/platform/web' }), 'gl/acme/platform/web');
+  assert.equal(repoKey({ repoId: 'acme/web' }, 'github'), 'gh/acme/web');
+});
+
+test('fetchHiveBrief: each reference repo in also_repos keys off its own host', async () => {
+  process.env.HIVE_URL = 'http://hive.test';
+  process.env.SCM_PROVIDERS = 'github,gitlab';
+  const calls = stubBrief();
+  const onGitlab = { ...sharedUi, repo: { ...sharedUi.repo, id: 'gitlab:example/shared-ui', connection: 'gitlab' } } as ReferenceRepo;
+  await fetchHiveBrief({ ...briefRun, run: { ...briefRun.run, id: 'run_hosts' } }, briefTicket, [onGitlab, sharedUi], warnLog().log);
+  assert.equal(calls[0]!.body.repo_key, 'gh/example/app');
+  assert.deepEqual(calls[0]!.body.also_repos, ['gl/example/shared-ui', 'gh/example/shared-ui']);
 });
 
 const SAVED_FACTS = [{ id: 'eeeeeeee5555', kind: 'decision', text: 'Only the registry talks to Postgres', scope: 'repo:gh/example/app' }];

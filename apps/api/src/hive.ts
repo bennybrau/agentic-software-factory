@@ -1,9 +1,10 @@
-import { formatHiveBrief, hiveBriefFacts, nativeId } from '@asf/shared';
+import { connectionKind, formatHiveBrief, formatRef, hiveBriefFacts, parseRef } from '@asf/shared';
 import type { ArtifactWire, HiveBrief, HiveDialogItem, ReferenceRepo, Run, RunTask, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import { registry } from './registry/client.js';
 import { cfg } from './settings.js';
 import { ticketsFor } from './tickets/route.js';
 import { resolveProviderSecret } from './providers/secrets.js';
+import { scmConnections } from './providers/scm/set.js';
 
 type Log = { info: (o: unknown, m?: string) => void; warn: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
 
@@ -43,10 +44,14 @@ export const HIVE_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 /** A run whose episode fails this many times is given up on (logged), not retried forever. */
 export const HIVE_MAX_ATTEMPTS = 5;
 
-/** `gh/<owner/repo>` or `gl/<group/repo>` (bare or qualified repoId alike); null for a run with no repo (it is skipped). */
-export function repoKey(run: Pick<Run, 'repoId'>): string | null {
+/**
+ * `gh/<owner/repo>` or `gl/<group/repo>`, from the repo's own code host (a bare repoId
+ * belongs to the default connection); null for a run with no repo (it is skipped).
+ */
+export function repoKey(run: Pick<Run, 'repoId'>, defaultConnection = scmConnections()[0]): string | null {
   if (!run.repoId) return null;
-  return `${cfg('SCM_PROVIDER') === 'gitlab' ? 'gl' : 'gh'}/${nativeId(run.repoId)}`;
+  const { connection, native } = parseRef(run.repoId, defaultConnection);
+  return `${connectionKind(connection) === 'gitlab' ? 'gl' : 'gh'}/${native}`;
 }
 
 /** Most paths an episode carries. */
@@ -163,7 +168,7 @@ export async function fetchHiveBrief(
   const key = got.tasks.filter((t) => t.role === 'planner' && t.queuedBy === 'chat').length;
   const hit = briefCache.get(got.run.id);
   if (hit && hit.key === key) return hit.text || undefined;
-  const also_repos = referenceRepos.map((r) => repoKey({ repoId: r.repo.path })).filter((k): k is string => !!k);
+  const also_repos = referenceRepos.map((r) => repoKey({ repoId: r.repo.connection ? formatRef(r.repo.connection, r.repo.path) : r.repo.path })).filter((k): k is string => !!k);
   const body = {
     task: `${ticket.title}\n\n${ticket.body}`.slice(0, HIVE_BRIEF_MAX_TASK),
     repo_key,

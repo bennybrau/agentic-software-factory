@@ -107,6 +107,8 @@ export const SETTINGS = {
     description: 'Which work tracker the backlog comes from. One implementation file per value under apps/api/src/providers/tickets/. Org-settable so the operator picks the tracker in Settings ("Where do your tickets live?") and it hot-swaps without a restart.' }),
   SCM_PROVIDER: S({ type: 'enum', values: ['mock', 'github', 'gitlab'], default: 'mock', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
     description: 'Which source-control system holds the repos and receives the pull/merge request. One implementation file per value under apps/api/src/providers/scm/. Org-settable so the operator picks it in Settings ("Where does your code live?") and it hot-swaps without a restart.' }),
+  SCM_PROVIDERS: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
+    description: 'Several code hosts at once: a comma list of code connections (e.g. gitlab,github). Each repository belongs to one; the first is the default for bare repository ids. Blank = just SCM_PROVIDER. Unknown names are ignored.' }),
   MOCK_REPO_PATH: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'], description: 'mock SCM only (development and tests): a local git repo the worker clones. Blank = no repository, so nothing can start until real source control is connected.' }),
   // The per-provider config keys below are org-settable (env,org) so the operator
   // configures the chosen tracker in /settings and it hot-swaps live.

@@ -4,6 +4,7 @@ import type { Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import { startReadiness, pickRepo, previewRepo } from './start-readiness.js';
 import { MockScmProvider } from './providers/scm/mock.js';
 import { MockTicketProvider } from './providers/tickets/mock.js';
+import { ScmSet } from './providers/scm/set.js';
 
 const repo = (p: string): Repo => ({ id: p, path: p, url: `https://x/${p}`, defaultBranch: 'main', cloneUrl: `https://x/${p}.git` });
 function scm(opts: { ok?: boolean; reason?: string; repos?: Repo[]; getRepo?: (id: string) => Repo }): ScmProvider {
@@ -110,3 +111,42 @@ test('previewRepo: says where a queued ticket starts and why, or null when a per
 });
 
 void MockTicketProvider;
+
+/** github + gitlab, each with `paths`; `down` hosts fail their preflight. */
+function twoHosts(paths: Record<'github' | 'gitlab', string[]>, down: string[] = []) {
+  const host = (kind: 'github' | 'gitlab') => ({
+    kind,
+    preflight: async () => (down.includes(kind) ? { ok: false, reason: `${kind} token rejected` } : { ok: true, identity: kind }),
+    searchRepos: async () => paths[kind].map(repo),
+    getRepo: async () => { throw new Error('404'); },
+  }) as unknown as ScmProvider;
+  return new ScmSet(async (kind) => host(kind as 'github' | 'gitlab'), () => ['gitlab', 'github']).live;
+}
+
+test('several code hosts: one down still starts with the others\' repos; all down blocks with each reason', async () => {
+  const one = await startReadiness(twoHosts({ gitlab: ['acme/platform/web'], github: ['acme/web'] }, ['github']));
+  assert.ok(one.ok);
+  assert.deepEqual(one.repos.map((r) => r.id), ['gitlab:acme/platform/web']);
+  assert.deepEqual(one.hosts, [{ connection: 'gitlab', ok: true }, { connection: 'github', ok: false, reason: 'github token rejected' }]);
+  const all = await startReadiness(twoHosts({ gitlab: ['acme/platform/web'], github: ['acme/web'] }, ['github', 'gitlab']));
+  assert.ok(!all.ok && all.code === 'scm_not_connected');
+  assert.match(all.reason, /gitlab: Gitlab token rejected\. github: Github token rejected\./);
+  const empty = await startReadiness(twoHosts({ gitlab: [], github: ['acme/web'] }, ['github']));
+  assert.ok(!empty.ok && empty.code === 'no_repos', 'the ready host has no repos');
+});
+
+test('pickRepo with several code hosts: the same path on two is ambiguous; a qualified ref or a unique path picks one', async () => {
+  const scm = twoHosts({ gitlab: ['acme/web', 'acme/platform'], github: ['acme/web'] });
+  const ready = await startReadiness(scm);
+  assert.ok(ready.ok);
+  const deps = { tickets: tickets(), scm };
+  const amb = await pickRepo(deps, ticket, ready.repos, 'acme/web');
+  assert.ok(!amb.ok && amb.code === 'repo_ambiguous');
+  assert.match(amb.reason, /gitlab:acme\/web, github:acme\/web/);
+  const q = await pickRepo(deps, ticket, ready.repos, 'github:acme/web');
+  assert.ok(q.ok && q.repo.id === 'github:acme/web');
+  const unique = await pickRepo(deps, ticket, ready.repos, 'acme/platform');
+  assert.ok(unique.ok && unique.repo.id === 'gitlab:acme/platform');
+  const suggested = await pickRepo({ tickets: tickets('acme/web'), scm }, ticket, ready.repos);
+  assert.ok(!suggested.ok && suggested.code === 'repo_ambiguous', 'a ticket\'s own bare repo on two hosts is not guessed');
+});

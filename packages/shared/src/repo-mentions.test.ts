@@ -83,3 +83,40 @@ test('ticketReposMentioned ignores the repository list an older api appended to 
   // A tracker ticket's body is read as written.
   assert.deepEqual(ticketReposMentioned({ id: 'ASF-1', title: 'T', body }, repos).map((m) => m.id), [SHARED_UI.id, HIVE.id]);
 });
+
+// --- The same path on two hosts (M12: GitHub and GitLab connected at once) ---
+const GH_WEB = { id: 'github:acme/web', path: 'acme/web', url: 'https://github.com/acme/web', connection: 'github' };
+const GL_WEB = { id: 'gitlab:acme/web', path: 'acme/web', url: 'https://gitlab.example.com/acme/web', connection: 'gitlab' };
+const GH_STORE = { id: 'github:acme/storefront', path: 'acme/storefront', url: 'https://github.com/acme/storefront', connection: 'github' };
+const GL_STORE = { id: 'gitlab:acme/storefront', path: 'acme/storefront', url: 'https://gitlab.example.com/acme/storefront', connection: 'gitlab' };
+const hosts = [GH_WEB, GL_WEB, GH_STORE, GL_STORE];
+
+test('a URL names the repo on its own host when another host has the same path', () => {
+  for (const url of ['https://github.com/acme/web', 'https://GitHub.com/Acme/Web.git', 'https://github.com/acme/web/tree/main', 'see https://github.com/acme/web/pull/3.']) {
+    assert.deepEqual(ids('', url, hosts), [GH_WEB.id], url);
+  }
+  for (const url of ['https://gitlab.example.com/acme/web', 'https://gitlab.example.com/acme/web.git', 'https://gitlab.example.com/acme/web/-/issues/3']) {
+    assert.deepEqual(ids('', url, hosts), [GL_WEB.id], url);
+  }
+  assert.deepEqual(reposMentioned({ title: 'https://gitlab.example.com/acme/storefront/-/issues/3', body: '' }, hosts), [{ id: GL_STORE.id, path: 'acme/storefront', where: 'title', name: 'acme/storefront' }]);
+  assert.deepEqual(ids('', 'https://github.com/acme/webapp and https://bitbucket.org/acme/web', hosts), [], 'another repo or another host');
+});
+
+test('a URL picks the longest repo path on its host', () => {
+  const parent = { id: 'gitlab:acme/web', path: 'acme/web', url: 'https://gitlab.com/acme/web', connection: 'gitlab' };
+  const child = { id: 'gitlab:acme/web/shared-ui', path: 'acme/web/shared-ui', url: 'https://gitlab.com/acme/web/shared-ui', connection: 'gitlab' };
+  assert.deepEqual(ids('', 'https://gitlab.com/acme/web/shared-ui/-/merge_requests/1', [parent, child]), [child.id]);
+  assert.deepEqual(ids('', 'https://gitlab.com/acme/web/-/issues/1', [parent, child]), [parent.id]);
+});
+
+test('a path two hosts share is ambiguous: neither the bare path nor its last segment names a repo', () => {
+  assert.deepEqual(ids('Fix acme/storefront', '', hosts), []);
+  assert.deepEqual(ids('Fix the storefront', '', hosts), []);
+  assert.deepEqual(ids('Fix github:acme/storefront', '', hosts), [GH_STORE.id], 'the qualified id still pins one');
+});
+
+test('a bare path on one host still matches, with other hosts connected', () => {
+  const GL_BILLING = { id: 'gitlab:acme/billing', path: 'acme/billing', url: 'https://gitlab.example.com/acme/billing', connection: 'gitlab' };
+  assert.deepEqual(ids('Fix acme/billing', '', [...hosts, GL_BILLING]), [GL_BILLING.id]);
+  assert.deepEqual(ids('Fix billing', '', [...hosts, GL_BILLING]), [GL_BILLING.id]);
+});

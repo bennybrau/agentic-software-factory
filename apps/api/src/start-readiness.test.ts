@@ -110,6 +110,17 @@ test('previewRepo: says where a queued ticket starts and why, or null when a per
   assert.equal(only.repoId, 'acme/platform/web/shared-ui');
 });
 
+test('previewRepo: a URL settles which host\'s acme/web a ticket means; the bare path does not', () => {
+  const gh: Repo = { id: 'github:acme/web', path: 'acme/web', url: 'https://github.com/acme/web', defaultBranch: 'main', cloneUrl: 'https://github.com/acme/web.git', connection: 'github' };
+  const gl: Repo = { id: 'gitlab:acme/web', path: 'acme/web', url: 'https://gitlab.com/acme/web', defaultBranch: 'main', cloneUrl: 'https://gitlab.com/acme/web.git', connection: 'gitlab' };
+  const both = [gh, gl];
+  assert.equal(previewRepo(tickets(), named('Header', 'See https://gitlab.com/acme/web/-/issues/3'), both).repoId, 'gitlab:acme/web');
+  assert.equal(previewRepo(tickets(), named('Header', 'See https://github.com/acme/web/pull/3'), both).repoId, 'github:acme/web');
+  const bare = previewRepo(tickets(), named('Fix the header in acme/web'), both);
+  assert.equal(bare.repoId, null);
+  assert.deepEqual(bare.mentionedRepoIds, []);
+});
+
 void MockTicketProvider;
 
 /** github + gitlab, each with `paths`; `down` hosts fail their preflight. */

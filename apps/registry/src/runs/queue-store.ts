@@ -58,7 +58,10 @@ export async function enqueue(sql: Sql, items: EnqueueItem[], mode: QueueMode, b
         VALUES (${it.ticketId}, ${it.ticketProvider}, ${it.ticketKey}, ${it.repoId}, ${it.teamName},
                 ${it.maxCostUsd}, ${mode}, ${pos}, ${batchId}, ${by})
         ON CONFLICT DO NOTHING RETURNING *`;
-      if (rows.length) created.push(rowToEntry(rows[0]));
+      if (rows.length === 0) continue;
+      const entry = rowToEntry(rows[0]);
+      created.push(entry);
+      await notifyQueueChange(tx, entry.id, 'queued');
     }
     return created;
   });
@@ -69,7 +72,8 @@ export async function reorderQueue(sql: Sql, id: string, beforeId: string | null
   await sql.begin(async (tx) => {
     if (beforeId == null) {
       const [{ tail }] = await tx<{ tail: number }[]>`SELECT coalesce(max(position), 0) AS tail FROM work_queue WHERE state = 'queued'`;
-      await tx`UPDATE work_queue SET position = ${Number(tail) + 1} WHERE id = ${id} AND state = 'queued'`;
+      const moved = await tx`UPDATE work_queue SET position = ${Number(tail) + 1} WHERE id = ${id} AND state = 'queued' RETURNING id`;
+      if (moved.length) await notifyQueueChange(tx, id, 'queued');
       return;
     }
     const before = await tx`SELECT position FROM work_queue WHERE id = ${beforeId} AND state = 'queued'`;
@@ -79,15 +83,17 @@ export async function reorderQueue(sql: Sql, id: string, beforeId: string | null
     const prev = await tx`SELECT position FROM work_queue WHERE state = 'queued' AND position < ${beforePos} AND id <> ${id}
       ORDER BY position DESC LIMIT 1`;
     const prevPos = prev.length ? Number(prev[0].position) : beforePos - 1;
-    await tx`UPDATE work_queue SET position = ${(prevPos + beforePos) / 2} WHERE id = ${id} AND state = 'queued'`;
+    const moved = await tx`UPDATE work_queue SET position = ${(prevPos + beforePos) / 2} WHERE id = ${id} AND state = 'queued' RETURNING id`;
+    if (moved.length) await notifyQueueChange(tx, id, 'queued');
   });
 }
 
 /** Remove a queued entry, or dismiss a refused (failed) one along with its bell notification. */
 export async function removeQueueEntry(sql: Sql, id: string, by: string | null): Promise<void> {
   await sql.begin(async (tx) => {
-    await tx`UPDATE work_queue SET state = 'cancelled', reason = ${`removed by ${by ?? 'operator'}`}
-      WHERE id = ${id} AND state IN ('queued', 'failed')`;
+    const rows = await tx`UPDATE work_queue SET state = 'cancelled', reason = ${`removed by ${by ?? 'operator'}`}
+      WHERE id = ${id} AND state IN ('queued', 'failed') RETURNING id`;
+    if (rows.length) await notifyQueueChange(tx, id, 'cancelled');
     await tx`DELETE FROM notification WHERE queue_entry_id = ${id}`;
   });
 }
@@ -107,11 +113,13 @@ export async function retryQueueEntry(sql: Sql, id: string, by: string | null): 
       WHERE ticket_provider = ${rows[0].ticketProvider} AND ticket_id = ${rows[0].ticketId} AND state = 'queued'`;
     if (live.length) {
       await tx`UPDATE work_queue SET state = 'cancelled', reason = 'already queued' WHERE id = ${id}`;
+      await notifyQueueChange(tx, id, 'cancelled');
       return { requeued: false };
     }
     const [{ tail }] = await tx<{ tail: number }[]>`SELECT coalesce(max(position), 0) AS tail FROM work_queue WHERE state = 'queued'`;
     await tx`UPDATE work_queue SET state = 'queued', position = ${Number(tail) + 1}, added_by = ${by},
       reason = NULL, reason_code = NULL, refused_at = NULL WHERE id = ${id}`;
+    await notifyQueueChange(tx, id, 'queued');
     return { requeued: true };
   });
 }

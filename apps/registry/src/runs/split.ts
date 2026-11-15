@@ -5,6 +5,7 @@ import type { Db } from '../db/pool.js';
 import { appendEventTx, setRunState } from './store.js';
 import { recordNotification } from './notification-store.js';
 import { newId } from './ids.js';
+import { notifyQueueChange } from '../db/notify.js';
 
 /**
  * Carry out an approved planner split, inside the gate-resolution transaction:
@@ -137,7 +138,9 @@ async function queueParts(tx: Db, parts: Part[], parentRepoId: string | null, by
   let pos = Number(tail);
   for (const p of parts) {
     pos += 1;
-    await tx`INSERT INTO work_queue (ticket_id, ticket_provider, ticket_key, repo_id, team_name, max_cost_usd, mode, position, batch_id, added_by, depends_on)
-      VALUES (${p.id}, 'adhoc', ${p.key}, ${p.repo ?? parentRepoId}, ${null}, ${null}, 'parallel', ${pos}, ${batchId}, ${by ?? 'planner'}, ${tx.json(p.dependsOnIds)})`;
+    const [row] = await tx`INSERT INTO work_queue (ticket_id, ticket_provider, ticket_key, repo_id, team_name, max_cost_usd, mode, position, batch_id, added_by, depends_on)
+      VALUES (${p.id}, 'adhoc', ${p.key}, ${p.repo ?? parentRepoId}, ${null}, ${null}, 'parallel', ${pos}, ${batchId}, ${by ?? 'planner'}, ${tx.json(p.dependsOnIds)})
+      RETURNING id`;
+    await notifyQueueChange(tx, String(row.id), 'queued');
   }
 }

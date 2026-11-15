@@ -4,6 +4,7 @@ import type { CreateRecurringTaskInput, RecurringLastRun, RecurringTask, RunStat
 import type { Db, Sql } from '../db/pool.js';
 import { NotFoundError } from './store.js';
 import { newId } from './ids.js';
+import { notifyQueueChange } from '../db/notify.js';
 
 /**
  * Recurring tasks (#188): an ad-hoc task the registry creates on a schedule.
@@ -167,8 +168,10 @@ async function fireOne(tx: Db, id: string, now: Date, result: FireResult): Promi
           VALUES (${adhocId}, ${key}, ${String(t.title)}, ${String(t.body)}, 'schedule', ${id})`;
         // Like split.ts queueParts: its own batch, parallel mode, at the tail.
         const [{ tail }] = await tx`SELECT coalesce(max(position), 0) AS tail FROM work_queue WHERE state = 'queued'`;
-        await tx`INSERT INTO work_queue (ticket_id, ticket_provider, ticket_key, repo_id, team_name, max_cost_usd, mode, position, batch_id, added_by)
-          VALUES (${adhocId}, 'adhoc', ${key}, ${String(t.repoId)}, ${null}, ${null}, 'parallel', ${Number(tail) + 1}, ${newId('batch')}, ${`schedule:${String(t.title)}`})`;
+        const [entry] = await tx`INSERT INTO work_queue (ticket_id, ticket_provider, ticket_key, repo_id, team_name, max_cost_usd, mode, position, batch_id, added_by)
+          VALUES (${adhocId}, 'adhoc', ${key}, ${String(t.repoId)}, ${null}, ${null}, 'parallel', ${Number(tail) + 1}, ${newId('batch')}, ${`schedule:${String(t.title)}`})
+          RETURNING id`;
+        await notifyQueueChange(tx, String(entry.id), 'queued');
         result.fired.push({ recurringId: id, slotAt: slot.toISOString(), adhocId, key });
       }
     }

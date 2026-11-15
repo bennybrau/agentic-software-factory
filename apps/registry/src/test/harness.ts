@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { STANDARD_TEAM } from '@asf/shared';
 import type { CreateRunInput } from '@asf/shared';
 import { migrate, MIGRATIONS_DIR } from '../db/migrate.js';
+import { listenQueueChanges } from '../db/notify.js';
 
 /**
  * Each test file gets its own schema so files can run in parallel against one
@@ -53,6 +54,38 @@ export async function testDatabase(name: string) {
       await a.unsafe(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
       await a.end();
     },
+  };
+}
+
+/** A migrated pool on a `testDatabase` of its own, for a store test that listens for NOTIFYs. */
+export async function ownTestDb(name: string) {
+  const own = await testDatabase(name);
+  const sql = postgres(own.url, { onnotice: () => {}, transform: { column: { from: postgres.toCamel, to: postgres.fromCamel } } });
+  await migrate(sql, MIGRATIONS_DIR);
+  return {
+    sql,
+    async close() {
+      await sql.end({ timeout: 2 });
+      await own.drop();
+    },
+  };
+}
+
+/** Every `work_queue` NOTIFY on `sql`'s database, as "<id>:<state>", in the order they arrived. */
+export async function heardQueueChanges(sql: postgres.Sql) {
+  const heard: string[] = [];
+  const { unlisten } = await listenQueueChanges(sql, (id, state) => { heard.push(`${id}:${state}`); });
+  return {
+    heard,
+    /** Resolves once `payload` has arrived at or after index `from`; NOTIFYs come in commit order, so everything before it has too. */
+    async waitFor(payload: string, from = 0, ms = 5000) {
+      const until = Date.now() + ms;
+      while (!heard.slice(from).includes(payload)) {
+        if (Date.now() > until) throw new Error(`no ${payload} NOTIFY; heard ${JSON.stringify(heard)}`);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    },
+    unlisten,
   };
 }
 

@@ -18,9 +18,11 @@ export async function listenRunEvents(sql: Sql, listener: RunEventListener): Pro
 }
 
 /**
- * `markQueueEntry` NOTIFYs `work_queue` with "<entryId>:<state>" when the
- * scheduler moves an entry, so the SSE route can tell browsers to refetch the
- * bell and Activity right away rather than on the next unrelated run event.
+ * Every write that changes a `work_queue` row (enqueue, reorder, remove, retry,
+ * the scheduler's `markQueueEntry`, a planner split, a recurring fire) NOTIFYs
+ * `work_queue` with "<entryId>:<state>", so the SSE route can tell browsers to
+ * refetch Up next, the bell and Activity right away rather than on the next
+ * unrelated run event.
  */
 export type QueueChangeListener = (id: string, state: string) => void;
 

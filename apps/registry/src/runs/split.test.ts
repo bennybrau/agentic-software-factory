@@ -7,7 +7,7 @@ import { resolveGate } from './gates.js';
 import { getSplitFamily } from './split.js';
 import { createAdhoc } from './adhoc-store.js';
 import { readyQueueEntries } from './queue-store.js';
-import { dbAvailable, testDb, runInput, drain, AUTO_GATES } from '../test/harness.js';
+import { dbAvailable, testDb, ownTestDb, heardQueueChanges, runInput, drain, AUTO_GATES } from '../test/harness.js';
 
 let db: Awaited<ReturnType<typeof testDb>>;
 const skip = !(await dbAvailable());
@@ -23,15 +23,15 @@ const SPLIT_PLAN = `# Plan\n\nToo big for one PR, so three parts.\n\n\`\`\`asf-s
 \`\`\`\n`;
 
 /** A run whose plan stage is AUTO (a common org setup) with the planner done and plan.md written. */
-async function plannedRun(wid: string, key: string, plan: string, ticketId = key.toLowerCase()) {
-  await drain(db.sql);
-  await db.sql`UPDATE work_queue SET state = 'cancelled' WHERE state = 'queued'`;
-  await registerWorker(db.sql, { id: wid, host: 'h', runtimes: ['claude-code'], maxConcurrent: 1, inFlightTaskIds: [] });
-  const { run } = await createRun(db.sql, runInput({ ticketId, ticketKey: key, gates: AUTO_GATES, repoId: 'repo-1' }));
-  const planner = await claimTask(db.sql, wid, ['claude-code']);
+async function plannedRun(wid: string, key: string, plan: string, ticketId = key.toLowerCase(), sql = db.sql) {
+  await drain(sql);
+  await sql`UPDATE work_queue SET state = 'cancelled' WHERE state = 'queued'`;
+  await registerWorker(sql, { id: wid, host: 'h', runtimes: ['claude-code'], maxConcurrent: 1, inFlightTaskIds: [] });
+  const { run } = await createRun(sql, runInput({ ticketId, ticketKey: key, gates: AUTO_GATES, repoId: 'repo-1' }));
+  const planner = await claimTask(sql, wid, ['claude-code']);
   assert.equal(planner?.task.role, 'planner');
-  await saveArtifact(db.sql, run.id, 'plan.md', plan);
-  await finishTask(db.sql, planner!.task.id, { outcome: 'done', outputRef: 'plan.md', costUsd: 0.1, reason: null });
+  await saveArtifact(sql, run.id, 'plan.md', plan);
+  await finishTask(sql, planner!.task.id, { outcome: 'done', outputRef: 'plan.md', costUsd: 0.1, reason: null });
   return run.id;
 }
 
@@ -41,6 +41,23 @@ test('a plan proposing a split stops at the plan gate even when the plan stage i
   assert.equal(gate?.gateName, 'after_plan');
   assert.equal(gate?.mode, 'required');
   assert.equal((await getRun(db.sql, runId))!.run.state, 'awaiting_checkpoint');
+});
+
+test('approving a split NOTIFYs work_queue for each queued part', { skip }, async () => {
+  // Its own database, not a schema: NOTIFY crosses schemas and queue ids are serials (see testDatabase).
+  const own = await ownTestDb('split_n');
+  const q = await heardQueueChanges(own.sql);
+  try {
+    const runId = await plannedRun('sn', 'SP-N', SPLIT_PLAN, 'sp-n', own.sql);
+    const gate = await getOpenGate(own.sql, runId);
+    await resolveGate(own.sql, gate!.id, { decision: 'approve', by: 'jon', note: null, editedArtifact: null });
+    const queued = await own.sql`SELECT id FROM work_queue WHERE state = 'queued' ORDER BY position`;
+    assert.equal(queued.length, 3);
+    for (const e of queued) await q.waitFor(`${String(e.id)}:queued`);
+  } finally {
+    await q.unlisten();
+    await own.close();
+  }
 });
 
 test('an ordinary plan with an auto plan stage does not stop', { skip }, async () => {

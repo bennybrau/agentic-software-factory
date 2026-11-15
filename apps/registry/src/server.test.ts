@@ -94,7 +94,8 @@ test('SSE sends queue:changed when the scheduler moves a queue entry, and nothin
     await rpc({ op: 'markQueueEntry', id: b!.id, state: 'dispatched' });
     // The whole frame, not the bare id: queue ids are serials ("2"), which any frame can contain.
     await readUntil(`{"id":"${b!.id}","state":"dispatched"}`);
-    assert.equal([...buf.matchAll(/event: queue:changed/g)].length, 2);
+    // Two from the enqueue, then the failed and the dispatched; the repeat mark adds none.
+    assert.equal([...buf.matchAll(/event: queue:changed/g)].length, 4);
     assert.match(buf, new RegExp(`"id":"${b!.id}","state":"dispatched"`));
     await reader.cancel().catch(() => {});
   } finally {

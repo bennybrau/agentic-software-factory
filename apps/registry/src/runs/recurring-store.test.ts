@@ -7,7 +7,7 @@ import {
 } from './recurring-store.js';
 import { getAdhoc } from './adhoc-store.js';
 import { NotFoundError } from './store.js';
-import { dbAvailable, testDb } from '../test/harness.js';
+import { dbAvailable, testDb, ownTestDb, heardQueueChanges } from '../test/harness.js';
 
 let db: Awaited<ReturnType<typeof testDb>>;
 const skip = !(await dbAvailable());
@@ -234,4 +234,19 @@ test('one bad row is logged and the others still fire', { skip }, async () => {
   const r = await fireDueRecurring(db.sql, at('2026-10-02T09:05:00Z'), { error: (o) => errors.push(o) });
   assert.equal(errors.length, 1);
   assert.deepEqual(r.fired.map((f) => f.recurringId), [good.id]);
+});
+
+test('a fire NOTIFYs work_queue for the entry it queues', { skip }, async () => {
+  // Its own database, not a schema: NOTIFY crosses schemas and queue ids are serials (see testDatabase).
+  const own = await ownTestDb('recurring_n');
+  const q = await heardQueueChanges(own.sql);
+  try {
+    await createRecurring(own.sql, input(), 'ana', at('2026-10-02T08:00:00Z'));
+    assert.equal((await fireDueRecurring(own.sql, at('2026-10-02T09:05:00Z'), quiet)).fired.length, 1);
+    const [entry] = await own.sql`SELECT id FROM work_queue`;
+    await q.waitFor(`${String(entry.id)}:queued`);
+  } finally {
+    await q.unlisten();
+    await own.close();
+  }
 });

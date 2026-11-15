@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { enqueue, listQueue, reorderQueue, removeQueueEntry, readyQueueEntries, markQueueEntry, retryQueueEntry } from './queue-store.js';
 import { createRun } from './store.js';
-import { dbAvailable, testDb, runInput } from '../test/harness.js';
+import { dbAvailable, testDb, ownTestDb, heardQueueChanges, runInput } from '../test/harness.js';
 import type { EnqueueItem } from '@asf/shared';
 
 let db: Awaited<ReturnType<typeof testDb>>;
@@ -179,5 +179,39 @@ test('retry acts only on a refused entry: dispatched, queued and cancelled entri
   for (const e of [dp, qd, cn]) {
     assert.deepEqual(await retryQueueEntry(db.sql, e.id, 'zoe'), { requeued: false });
     assert.deepEqual(await snapshot(e.id), before.get(e.id), `${e.ticketId} untouched`);
+  }
+});
+
+test('every write that changes Up next NOTIFYs work_queue once per changed row, and a no-op write does not', { skip }, async () => {
+  // Its own database, not a schema: NOTIFY crosses schemas and queue ids are serials (see testDatabase).
+  const own = await ownTestDb('queue_n');
+  const q = await heardQueueChanges(own.sql);
+  try {
+    const [a, b] = await enqueue(own.sql, [item('n1'), item('n2')], 'parallel', 'jon');
+    await q.waitFor(`${b.id}:queued`);
+    assert.deepEqual(q.heard, [`${a.id}:queued`, `${b.id}:queued`]);
+
+    // A duplicate enqueue creates nothing, so says nothing; the remove after it is the next thing heard.
+    assert.deepEqual(await enqueue(own.sql, [item('n1')], 'parallel', 'jon'), []);
+    await removeQueueEntry(own.sql, a.id, 'jon');
+    await q.waitFor(`${a.id}:cancelled`, 2);
+    assert.deepEqual(q.heard.slice(2), [`${a.id}:cancelled`]);
+
+    // Removing it again changes no row; the refusal and retry of b are the next things heard.
+    await removeQueueEntry(own.sql, a.id, 'jon');
+    await markQueueEntry(own.sql, b.id, 'failed', null, 'over budget');
+    assert.deepEqual(await retryQueueEntry(own.sql, b.id, 'zoe'), { requeued: true });
+    await q.waitFor(`${b.id}:queued`, 3);
+    assert.deepEqual(q.heard.slice(3), [`${b.id}:failed`, `${b.id}:queued`]);
+
+    // Reordering another tab's Up next changes it too.
+    const [c, d] = await enqueue(own.sql, [item('n3'), item('n4')], 'parallel', 'jon');
+    await q.waitFor(`${d.id}:queued`, 5);
+    await reorderQueue(own.sql, d.id, c.id);
+    await q.waitFor(`${d.id}:queued`, 7);
+    assert.equal(q.heard.length, 8);
+  } finally {
+    await q.unlisten();
+    await own.close();
   }
 });

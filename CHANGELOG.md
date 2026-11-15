@@ -79,6 +79,9 @@ publishes a `vX.Y.Z` release of the GHCR images
 - **Planned tasks has a one-line description under its title, like Activity.**
 
 ### Fixed
+- **Up next and its count update at once when tickets are added or removed from elsewhere.**
+  Starting, removing, retrying or reordering a ticket in another tab, an approved split, or a
+  scheduled task firing now shows on open pages straight away, without a reload.
 - **Settings → Skills fits a phone screen.** The example link and each skill's source link wrap
   instead of pushing the page sideways, and **Preview** stays on screen next to the link box.
 - **The bell shows a failing credential right away.** When a tracker or SCM token stops working,

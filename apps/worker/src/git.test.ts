@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, writeFile, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CloneCredential, Repo, Run } from '@asf/shared';
@@ -35,12 +35,72 @@ before(async () => {
 after(async () => { await rm(root, { recursive: true, force: true }); await rm(originDir, { recursive: true, force: true }); });
 
 const cred: CloneCredential = { url: '' };
+const exists = (p: string) => stat(p).then(() => true, () => false);
 
-test('bareDirFor keys the cached clone by native id, so a qualified id reuses the pre-M12 clone', () => {
-  const want = join(root, 'repos', 'acme/platform/web.git');
-  assert.equal(git.bareDirFor({ id: 'acme/platform/web' }), want);
-  assert.equal(git.bareDirFor({ id: 'gitlab:acme/platform/web' }), want);
-  assert.equal(git.bareDirFor({ id: 'mock:r1' }), join(root, 'repos', 'r1.git'));
+test('bareDirFor keys the cached clone by connection and native id', () => {
+  assert.equal(git.bareDirFor({ id: 'github:acme/web' }), join(root, 'repos', 'github', 'acme/web.git'));
+  assert.equal(git.bareDirFor({ id: 'acme/web', connection: 'gitlab' }), join(root, 'repos', 'gitlab', 'acme/web.git'));
+  assert.equal(git.bareDirFor({ id: 'gitlab:acme/platform/web' }), join(root, 'repos', 'gitlab', 'acme/platform/web.git'));
+  // A pre-M12 bare id has no connection: the old path.
+  assert.equal(git.bareDirFor({ id: 'r1' }), join(root, 'repos', 'r1.git'));
+});
+
+test('github:x and gitlab:x get separate clones', async () => {
+  const gh = await git.syncBareClone({ ...repo(), id: 'github:sep' }, { url: originDir }, () => {});
+  const gl = await git.syncBareClone({ ...repo(), id: 'gitlab:sep' }, { url: originDir }, () => {});
+  assert.notEqual(gh, gl);
+  assert.equal(gh, join(root, 'repos', 'github', 'sep.git'));
+  assert.equal(gl, join(root, 'repos', 'gitlab', 'sep.git'));
+  assert.ok(await exists(join(gh, 'HEAD')));
+  assert.ok(await exists(join(gl, 'HEAD')));
+});
+
+test('a legacy clone of the same host is moved under its connection, and its worktrees still work', async () => {
+  const legacy = join(root, 'repos', 'mv.git');
+  const url = `file://${originDir}`;
+  await exec('git', ['clone', '--bare', url, legacy]);
+  const wt = join(root, 'legacy-wt-mv');
+  await exec('git', ['-C', legacy, 'worktree', 'add', '-b', 'legacy-branch', wt, 'main']);
+
+  const logs: string[] = [];
+  const bare = await git.syncBareClone({ ...repo(), id: 'github:mv' }, { url }, (m) => logs.push(m));
+  assert.equal(bare, join(root, 'repos', 'github', 'mv.git'));
+  assert.equal(await exists(legacy), false, 'the legacy dir is gone');
+  assert.ok(await exists(join(bare, 'HEAD')));
+  assert.ok(!logs.some((m) => m.startsWith('cloning')), 'moved, not cloned');
+
+  await exec('git', ['-C', wt, 'status']);
+  await writeFile(join(wt, 'after-move.txt'), 'x\n');
+  await exec('git', ['-C', wt, 'add', '-A']);
+  await exec('git', ['-C', wt, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'after move']);
+  const { stdout } = await exec('git', ['--git-dir', bare, 'log', '-1', '--format=%s', 'legacy-branch']);
+  assert.equal(stdout.trim(), 'after move');
+});
+
+test('a legacy clone of a different host stays in place, and the new dir is a fresh clone', async () => {
+  const legacy = join(root, 'repos', 'other.git');
+  await exec('git', ['clone', '--bare', originDir, legacy]);
+  await exec('git', ['--git-dir', legacy, 'config', 'remote.origin.url', 'https://gitlab.example/acme/other.git']);
+
+  const logs: string[] = [];
+  const bare = await git.syncBareClone({ ...repo(), id: 'github:other' }, { url: `file://${originDir}` }, (m) => logs.push(m));
+  assert.equal(bare, join(root, 'repos', 'github', 'other.git'));
+  assert.ok(await exists(join(legacy, 'HEAD')), 'the legacy clone is left alone');
+  const { stdout } = await exec('git', ['--git-dir', legacy, 'config', 'remote.origin.url']);
+  assert.equal(stdout.trim(), 'https://gitlab.example/acme/other.git');
+  assert.ok(logs.some((m) => m.startsWith('cloning')), 'cloned fresh');
+  assert.ok(await exists(join(bare, 'HEAD')));
+});
+
+test('a legacy dir that is not a git repo is left untouched and the fresh clone succeeds', async () => {
+  const legacy = join(root, 'repos', 'junk.git');
+  await mkdir(legacy, { recursive: true });
+  await writeFile(join(legacy, 'note.txt'), 'not a repo\n');
+
+  const bare = await git.syncBareClone({ ...repo(), id: 'github:junk' }, { url: `file://${originDir}` }, () => {});
+  assert.equal(bare, join(root, 'repos', 'github', 'junk.git'));
+  assert.deepEqual(await readdir(legacy), ['note.txt']);
+  assert.ok(await exists(join(bare, 'HEAD')));
 });
 
 test('creates a worktree on agent/<key>-<runid> from origin/main', async () => {

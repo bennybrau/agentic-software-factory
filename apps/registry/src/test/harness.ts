@@ -32,6 +32,30 @@ export async function testDb(name: string) {
   };
 }
 
+/**
+ * A database of its own, for a test that counts what a LISTENing server hears. NOTIFY reaches every
+ * listener in the database whatever schema the row was written in, and the other test files write
+ * notifications and queue moves to the shared one in parallel, so in a schema of the shared database
+ * such a test also hears theirs. Needs a role that may CREATE DATABASE (the CI and worker test roles can).
+ */
+export async function testDatabase(name: string) {
+  const db = `t_${name}_${Date.now().toString(36)}_${process.pid}`;
+  const admin = postgres(TEST_URL, { onnotice: () => {} });
+  await admin.unsafe(`CREATE DATABASE ${db}`);
+  await admin.end();
+  const url = new URL(TEST_URL);
+  url.pathname = `/${db}`;
+  return {
+    url: url.toString(),
+    /** Call after the server's pool is closed. FORCE drops any connection a failed test left behind. */
+    async drop() {
+      const a = postgres(TEST_URL, { onnotice: () => {} });
+      await a.unsafe(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+      await a.end();
+    },
+  };
+}
+
 export async function dbAvailable(): Promise<boolean> {
   try { const s = postgres(TEST_URL, { connect_timeout: 2 }); await s`select 1`; await s.end(); return true; } catch { return false; }
 }

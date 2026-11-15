@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import postgres from 'postgres';
-import { dbAvailable, TEST_URL } from './test/harness.js';
+import { dbAvailable, testDatabase, TEST_URL } from './test/harness.js';
 
 const skip = !(await dbAvailable());
 
@@ -65,11 +65,10 @@ test('rpc + worker routes over HTTP with the shared secret; SSE carries events',
 });
 
 test('SSE sends queue:changed when the scheduler moves a queue entry, and nothing when it does not', { skip }, async () => {
-  const schema = `t_server_q_${Date.now().toString(36)}`;
-  const admin = postgres(TEST_URL, { onnotice: () => {} });
-  await admin.unsafe(`CREATE SCHEMA ${schema}`);
+  // Its own database, not a schema: this test counts frames, and NOTIFY crosses schemas (see testDatabase).
+  const own = await testDatabase('server_q');
   const { buildServer } = await import('./server.js');
-  const { app, secret } = await buildServer({ secret: 's3cret', migrate: true, sweeper: false, recurring: false, databaseUrl: TEST_URL, schema });
+  const { app, secret } = await buildServer({ secret: 's3cret', migrate: true, sweeper: false, recurring: false, databaseUrl: own.url, schema: 'public' });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   const H = { 'content-type': 'application/json', 'x-run-secret': secret };
@@ -87,29 +86,28 @@ test('SSE sends queue:changed when the scheduler moves a queue entry, and nothin
     ] });
     const [a, b] = enq.result.entries as { id: string }[];
     await rpc({ op: 'markQueueEntry', id: a!.id, state: 'failed', reason: 'over budget' });
-    await readUntil(a!.id);
+    await readUntil(`{"id":"${a!.id}","state":"failed"}`);
     assert.match(buf, new RegExp(`event: queue:changed\ndata: \\{"id":"${a!.id}","state":"failed"\\}\n\n`));
 
     // Marking the same entry again moves nothing, so no frame; the next real move is the only one that follows.
     await rpc({ op: 'markQueueEntry', id: a!.id, state: 'failed', reason: 'again' });
     await rpc({ op: 'markQueueEntry', id: b!.id, state: 'dispatched' });
-    await readUntil(b!.id);
+    // The whole frame, not the bare id: queue ids are serials ("2"), which any frame can contain.
+    await readUntil(`{"id":"${b!.id}","state":"dispatched"}`);
     assert.equal([...buf.matchAll(/event: queue:changed/g)].length, 2);
     assert.match(buf, new RegExp(`"id":"${b!.id}","state":"dispatched"`));
     await reader.cancel().catch(() => {});
   } finally {
     await app.close();
-    await admin.unsafe(`DROP SCHEMA ${schema} CASCADE`);
-    await admin.end();
+    await own.drop();
   }
 });
 
 test('SSE sends notification when a notification is written, even with no run behind it', { skip }, async () => {
-  const schema = `t_server_n_${Date.now().toString(36)}`;
-  const admin = postgres(TEST_URL, { onnotice: () => {} });
-  await admin.unsafe(`CREATE SCHEMA ${schema}`);
+  // Its own database, not a schema: this test counts frames, and NOTIFY crosses schemas (see testDatabase).
+  const own = await testDatabase('server_n');
   const { buildServer } = await import('./server.js');
-  const { app, secret } = await buildServer({ secret: 's3cret', migrate: true, sweeper: false, recurring: false, databaseUrl: TEST_URL, schema });
+  const { app, secret } = await buildServer({ secret: 's3cret', migrate: true, sweeper: false, recurring: false, databaseUrl: own.url, schema: 'public' });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const base = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
   const H = { 'content-type': 'application/json', 'x-run-secret': secret };
@@ -138,8 +136,7 @@ test('SSE sends notification when a notification is written, even with no run be
     await reader.cancel().catch(() => {});
   } finally {
     await app.close();
-    await admin.unsafe(`DROP SCHEMA ${schema} CASCADE`);
-    await admin.end();
+    await own.drop();
   }
 });
 

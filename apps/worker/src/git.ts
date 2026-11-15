@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { CloneCredential, Repo, Run } from '@asf/shared';
-import { isForbiddenBranch, formatMergeConflict, nativeId, redactSecrets } from '@asf/shared';
+import { isForbiddenBranch, formatMergeConflict, nativeId, parseRef, redactSecrets } from '@asf/shared';
 import { config } from './config.js';
 import type { ChangeType } from './commit-type.js';
 import { withRepoLock } from './repo-lock.js';
@@ -99,8 +99,50 @@ export function branchFor(run: Run): string {
   return `agent/${run.ticketKey}-${short}`;
 }
 
-/** The cached bare clone of a repo, shared by every run (and every read-only copy) of it. Keyed by native id, as before M12. */
-export const bareDirFor = (repo: Pick<Repo, 'id'>) => join(config.worktreeRoot, 'repos', `${nativeId(repo.id)}.git`);
+/**
+ * The cached bare clone of a repo, shared by every run (and every read-only copy) of it.
+ * Keyed by connection and native id (`repos/github/acme/web.git`), so `github:x` and
+ * `gitlab:x` never share a clone. A pre-M12 bare id with no connection keeps `repos/<native>.git`.
+ */
+export const bareDirFor = (repo: Pick<Repo, 'id' | 'connection'>) => {
+  const connection = repo.connection || parseRef(repo.id, '').connection;
+  return connection ? join(config.worktreeRoot, 'repos', connection, `${nativeId(repo.id)}.git`) : legacyBareDirFor(repo);
+};
+
+/** Where the clone lived before it was keyed by connection. */
+const legacyBareDirFor = (repo: Pick<Repo, 'id'>) => join(config.worktreeRoot, 'repos', `${nativeId(repo.id)}.git`);
+
+/** A URL's host, or null for a bare filesystem path. */
+function hostOf(url: string): string | null {
+  try { return new URL(url).host; } catch { return null; }
+}
+
+/**
+ * Move a pre-M12 clone at `legacy` to `bareDir` when it is a clone of the same host, so the
+ * first sync after the change reuses it instead of cloning again. Runs only when `bareDir`
+ * is missing and `legacy` exists. Any failure is logged and the legacy clone left as it is;
+ * the caller then clones fresh.
+ */
+async function adoptLegacyClone(bareDir: string, legacy: string, cred: CloneCredential, log: (m: string) => void): Promise<void> {
+  if (bareDir === legacy || (await exists(bareDir)) || !(await exists(legacy))) return;
+  try {
+    const origin = (await git(legacy, ['config', 'remote.origin.url'])).trim();
+    const from = hostOf(origin);
+    const to = hostOf(cred.url);
+    if (from === null || to === null || from !== to) return;   // file:// has host '', which still matches
+    await rename(legacy, bareDir);
+    try {
+      // The run worktrees point at the clone by path; tell them where it went.
+      await git(bareDir, ['worktree', 'repair']);
+    } catch (e) {
+      await rename(bareDir, legacy);
+      throw e;
+    }
+    log(`moved cached clone ${legacy} to ${bareDir}`);
+  } catch (e) {
+    log(`could not move cached clone ${legacy} (${(e as Error).message}); cloning fresh`);
+  }
+}
 
 /**
  * Make sure the repo's bare clone exists, scrub the credential from its stored remote, and
@@ -110,7 +152,8 @@ export const bareDirFor = (repo: Pick<Repo, 'id'>) => join(config.worktreeRoot, 
  */
 export async function syncBareClone(repo: Repo, cred: CloneCredential, log: (m: string) => void, signal?: AbortSignal): Promise<string> {
   const bareDir = bareDirFor(repo);
-  await mkdir(join(config.worktreeRoot, 'repos'), { recursive: true });
+  await mkdir(dirname(bareDir), { recursive: true });
+  await adoptLegacyClone(bareDir, legacyBareDirFor(repo), cred, log);
   const cloneUrl = cred.url;
   if (!(await exists(bareDir))) {
     log(`cloning ${repo.path} (bare)`);

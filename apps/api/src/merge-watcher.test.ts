@@ -169,3 +169,33 @@ test('several code hosts: each run\'s change request is read from its own host',
   assert.deepEqual(seen.sort(), ['github acme/web#7', 'gitlab acme/old#3', 'gitlab acme/platform/web#9']);
   assert.equal(events.filter((e) => e.kind === 'change_request:merged').length, 3);
 });
+
+test('merged externally, the last part of a split: the parent ticket moves to Done too', async () => {
+  process.env.MERGE_WATCH_ENABLED = 'true';
+  process.env.TICKET_STATUS_DONE = 'Done';
+  const partRun = (n: number, merged: boolean) => ({ part: n, key: `ADHOC-P${n}`, ticketId: `adhoc:p${n}`, title: `P${n}`,
+    dependsOn: [], waitingOn: [], queueState: 'dispatched', merged,
+    run: { id: `run_p${n}`, state: 'succeeded', deliveryOutcome: null, changeRequestUrl: `mock://pulls/${n}`, changeRequestState: 'ready', costUsd: 0 } });
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
+    switch (body.op) {
+      case 'runsAwaitingExternalMerge': return json({ ok: true, result: { runs: [run({ id: 'run_p2', ticketId: 'adhoc:p2' })] } });
+      case 'getSplitFamily': return json({ ok: true, result: { parent: { runId: 'run_parent', ticketKey: 'ASF-9', title: 'Big' },
+        currentPart: 2, parts: [partRun(1, true), partRun(2, false)] } });
+      case 'getRun': return json({ ok: true, result: { run: { id: 'run_parent', ticketId: 'asf-9' }, tasks: [] } });
+      default: return json({ ok: true, result: { event: {} } });
+    }
+  }) as unknown as typeof fetch;
+  const base = new MockTicketProvider();
+  const moved: string[] = [];
+  const tickets = new Proxy(base, {
+    get(target, prop, recv) {
+      if (prop === 'transitions') return async () => [{ id: 'tr_done', name: 'Done', toStatus: 'Done' }];
+      if (prop === 'transition') return async (id: string) => { moved.push(id); };
+      if (prop === 'comment') return async () => ({ commentId: 'c1' });
+      return Reflect.get(target, prop, recv);
+    },
+  }) as unknown as TicketProvider;
+  await tickMergeWatch({ tickets, scm: scmReturning('merged') }, silent);
+  assert.ok(moved.includes('asf-9'), `parent ticket moved: ${moved.join(', ')}`);
+});

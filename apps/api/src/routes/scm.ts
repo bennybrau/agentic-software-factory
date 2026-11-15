@@ -5,6 +5,7 @@ import { registry } from '../registry/client.js';
 import { cfg } from '../settings.js';
 import { transitionTicketTo, parsePreferredStatuses } from '../tickets/transition.js';
 import { ticketsFor } from '../tickets/route.js';
+import { closeSplitParentIfDone } from '../tickets/split-parent.js';
 
 /**
  * The publish surface. The worker pushes the branch itself (it holds the clone
@@ -46,6 +47,8 @@ export function registerScmRoutes(app: FastifyInstance, deps: { scm: ScmProvider
       await deps.scm.merge(repo, number, { method });
       // Merged → the work is done; close the ticket out.
       await transitionTicketTo(ticketsFor(deps.tickets, got.run.ticketId), got.run.ticketId, parsePreferredStatuses(cfg('TICKET_STATUS_DONE')));
+      // The last part of a split merged → close the parent's ticket too.
+      await closeSplitParentIfDone(deps.tickets, runId, req.log);
       return { ok: true };
     });
 

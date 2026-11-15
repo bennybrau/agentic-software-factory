@@ -86,6 +86,8 @@ publishes a `vX.Y.Z` release of the GHCR images
   as naming either, so you're asked which one.
 
 ### Fixed
+- **A split ticket closes once every part is merged.** The parent's ticket (a GitHub issue, a Jira
+  ticket) used to stay open forever; it now moves to Done with a comment listing the parts' pull requests.
 - **Up next and its count update at once when tickets are added or removed from elsewhere.**
   Starting, removing, retrying or reordering a ticket in another tab, an approved split, or a
   scheduled task firing now shows on open pages straight away, without a reload.

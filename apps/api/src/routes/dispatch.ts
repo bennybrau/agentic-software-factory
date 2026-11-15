@@ -184,10 +184,11 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
   team = applyRoleSkills(team, input.skillOverrides);
 
   try {
-    // The registry stores the ticket's native id beside its connection; the repository keeps its qualified id.
+    // The registry stores the ticket's native id beside its own tracker's connection (not the
+    // default tracker's), so later moves go back to it; the repository keeps its qualified id.
     const ref = parseRef(ticket.id, deps.tickets.kind);
     const created = await registry.createRun({
-      ticketId: ref.native, ticketKey: ticket.key, ticketProvider: ref.connection,
+      ticketId: ref.native, ticketKey: ticket.key, ticketProvider: ticket.connection ?? ref.connection,
       team, gates, repoId: repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null,
     });
     await deps.tickets.comment(ticket.id, `Agentic Software Factory: run ${created.run.id} started (team ${team.name}).`).catch(() => {});

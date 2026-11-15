@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { tickMergeWatch } from './merge-watcher.js';
 import { MockTicketProvider } from './providers/tickets/mock.js';
 import { ScmSet } from './providers/scm/set.js';
+import { TicketSet } from './providers/tickets/set.js';
 import type { ChangeRequest, Repo, Run, ScmProvider, TicketProvider } from '@asf/shared';
 
 // The watcher asks the registry which runs are awaiting an external merge, reads
@@ -168,6 +169,22 @@ test('several code hosts: each run\'s change request is read from its own host',
   await tickMergeWatch({ tickets: new MockTicketProvider(), scm: set.live }, silent);
   assert.deepEqual(seen.sort(), ['github acme/web#7', 'gitlab acme/old#3', 'gitlab acme/platform/web#9']);
   assert.equal(events.filter((e) => e.kind === 'change_request:merged').length, 3);
+});
+
+test('several trackers: a Jira run on a GitHub repository moves on Jira at merge, not GitHub Issues', async () => {
+  process.env.MERGE_WATCH_ENABLED = 'true';
+  process.env.TICKET_STATUS_DONE = 'Done';
+  const moved: string[] = [];
+  const tracker = (kind: string) => ({
+    kind,
+    transitions: async () => [{ id: 'tr_done', name: 'Done', toStatus: 'Done' }],
+    transition: async (id: string) => { moved.push(`${kind} ${id}`); },
+  }) as unknown as TicketProvider;
+  // github is the default tracker; the run's ticket is stored bare beside its own connection.
+  const set = new TicketSet(async (kind) => tracker(kind), () => ['github', 'jira']);
+  stub([run({ ticketId: 'PROJ-7', ticketKey: 'PROJ-7', ticketProvider: 'jira', repoId: 'github:acme/web' })]);
+  await tickMergeWatch({ tickets: set.live, scm: scmReturning('merged') }, silent);
+  assert.deepEqual(moved, ['jira PROJ-7']);
 });
 
 test('merged externally, the last part of a split: the parent ticket moves to Done too', async () => {

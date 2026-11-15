@@ -1,9 +1,11 @@
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import Fastify from 'fastify';
+import type { TicketProvider } from '@asf/shared';
 import { registerQueueRoutes } from './queue.js';
 import { MockScmProvider } from '../providers/scm/mock.js';
 import { MockTicketProvider } from '../providers/tickets/mock.js';
+import { TicketSet } from '../providers/tickets/set.js';
 
 // The queue routes are a thin surface over registry RPCs. Stub the registry and
 // assert the HTTP calls map to the right ops with the right shapes.
@@ -24,9 +26,9 @@ function stub() {
 }
 function json(obj: unknown) { return new Response(JSON.stringify(obj), { status: 200, headers: { 'content-type': 'application/json' } }); }
 
-async function app(scm = new MockScmProvider()) {
+async function app(scm = new MockScmProvider(), tickets: TicketProvider = new MockTicketProvider()) {
   const a = Fastify();
-  registerQueueRoutes(a, { tickets: new MockTicketProvider(), scm });
+  registerQueueRoutes(a, { tickets, scm });
   await a.ready();
   return a;
 }
@@ -66,6 +68,19 @@ test('POST /api/queue sends the registry native ticket ids beside their connecti
   const items = calls.find((c) => c.op === 'enqueue')!.body.items as Array<{ ticketId: string; ticketProvider: string; repoId?: string }>;
   assert.deepEqual(items.map((i) => [i.ticketId, i.ticketProvider]), [['asf-1', 'mock'], ['asf-2', 'mock'], ['adhoc:ce17', 'adhoc']]);
   assert.equal(items[2].repoId, 'mock:1', 'the repository keeps its qualified id');
+  await a.close();
+});
+
+test('POST /api/queue with several trackers records each ticket\'s own tracker, bare ids the default', async () => {
+  const calls = stub();
+  const set = new TicketSet(async () => new MockTicketProvider(), () => ['github', 'jira']);
+  const a = await app(new MockScmProvider(), set.live);
+  await a.inject({ method: 'POST', url: '/api/queue', payload: { items: [
+    { ticketId: 'jira:PROJ-7', ticketKey: 'PROJ-7', ticketProvider: '' },
+    { ticketId: 'acme/web#3', ticketKey: 'acme/web#3', ticketProvider: '' },
+  ], mode: 'parallel' } });
+  const items = calls.find((c) => c.op === 'enqueue')!.body.items as Array<{ ticketId: string; ticketProvider: string }>;
+  assert.deepEqual(items.map((i) => [i.ticketId, i.ticketProvider]), [['PROJ-7', 'jira'], ['acme/web#3', 'github']]);
   await a.close();
 });
 

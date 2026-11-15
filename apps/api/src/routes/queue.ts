@@ -27,7 +27,7 @@ export function registerQueueRoutes(app: FastifyInstance, deps: { tickets: Ticke
     const ready = await startReadiness(deps.scm);
     if (!ready.ok) return reply.code(409).send({ error: ready.code, reason: ready.reason, link: ready.link });
     // Stamp the provider server-side from the ticket's own id (a bare id is the API's
-    // configured tracker), so the browser never has to know its kind. The registry
+    // default tracker), so the browser never has to know its kind. The registry
     // stores the native id beside its connection, as a dispatch does.
     const items = body.items.map((it) => {
       // A malformed item goes through as it is, for the registry's schema to refuse.

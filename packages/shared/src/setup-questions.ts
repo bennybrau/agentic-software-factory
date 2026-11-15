@@ -53,6 +53,7 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   MODEL_CATALOG_EXTRA: 'advanced model catalogue (JSON, Admin); the Ollama question adds the models it checked',
   MODEL_ALLOWLIST: 'which models the factory may run (Admin); the Claude on Google Cloud answer sets it to the models its check found, and the Ollama question adds its models when a list is in use',
   SCM_PROVIDERS: 'multi-choice Code section is M12 WP4',
+  TICKET_PROVIDERS: 'multi-choice Tickets section is M12 WP4',
   STALE_AFTER_MIN: 'operator tuning',
   WORKER_TTL_SECONDS: 'operator tuning',
   EVENT_RETENTION_DAYS: 'operator tuning',

@@ -70,7 +70,7 @@ function providerItem(opts: {
   return { id, title, done, reason, identity: done ? pf.identity : undefined, envPinned, link, ...(problem ? { problem } : {}) };
 }
 
-export function registerSetupRoutes(app: FastifyInstance, deps: { tickets: TicketProviderRegistry; scm: Pick<ScmProviderRegistry, 'current' | 'invalidate'> }): void {
+export function registerSetupRoutes(app: FastifyInstance, deps: { tickets: Pick<TicketProviderRegistry, 'current' | 'invalidate'>; scm: Pick<ScmProviderRegistry, 'current' | 'invalidate'> }): void {
   app.get('/api/setup/status', async (req): Promise<SetupStatus> => {
     resolveIdentity(req); // identity-gated like the admin surface
 

@@ -22,7 +22,7 @@ import type { ScmProviderRegistry } from '../providers/scm/registry.js';
  * GET /api/providers/{ticket,scm}/preflight power the "Test connection" buttons
  * in the /providers panel.
  */
-export function registerAdminRoutes(app: FastifyInstance, deps: { tickets: TicketProviderRegistry; scm: Pick<ScmProviderRegistry, 'current' | 'invalidate'> }): void {
+export function registerAdminRoutes(app: FastifyInstance, deps: { tickets: Pick<TicketProviderRegistry, 'current' | 'invalidate'>; scm: Pick<ScmProviderRegistry, 'current' | 'invalidate'> }): void {
   // Who is the caller — the web drops its hardcoded 'operator' in favour of this.
   app.get('/api/me', async (req) => resolveIdentity(req));
 

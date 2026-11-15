@@ -105,6 +105,8 @@ export const SETTINGS = {
     description: 'The image whose tags the update check reads (registry host / name). Point it at your own mirror if you publish ASF images elsewhere.' }),
   TICKET_PROVIDER: S({ type: 'enum', values: ['mock', 'jira', 'github', 'gitlab', 'trello', 'monday', 'linear', 'todoist'], default: 'mock', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
     description: 'Which work tracker the backlog comes from. One implementation file per value under apps/api/src/providers/tickets/. Org-settable so the operator picks the tracker in Settings ("Where do your tickets live?") and it hot-swaps without a restart.' }),
+  TICKET_PROVIDERS: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
+    description: 'Several work trackers at once: a comma list of ticket connections (e.g. jira,github). Planned tasks lists them all; each run goes back to its own ticket\'s tracker. The first is the default for bare ticket ids. Blank = just TICKET_PROVIDER. Unknown names are ignored.' }),
   SCM_PROVIDER: S({ type: 'enum', values: ['mock', 'github', 'gitlab'], default: 'mock', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],
     description: 'Which source-control system holds the repos and receives the pull/merge request. One implementation file per value under apps/api/src/providers/scm/. Org-settable so the operator picks it in Settings ("Where does your code live?") and it hot-swaps without a restart.' }),
   SCM_PROVIDERS: S({ type: 'string', default: '', tiers: ['env', 'org'], group: 'Providers', readBy: ['api'],

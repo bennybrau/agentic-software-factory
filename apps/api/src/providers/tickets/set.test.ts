@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Ticket, TicketProvider } from '@asf/shared';
-import { qualifyTickets } from './set.js';
+import { TicketSet, qualifyTickets, ticketConnections } from './set.js';
 
 const ticket = (id: string, over: Partial<Ticket> = {}): Ticket => ({
   id, key: id, url: '', title: 'T', body: '', status: 'To Do', bucket: 'ready', priority: null, assignee: null,
@@ -74,4 +74,63 @@ test('kind follows a hot-swapping provider; ad-hoc ids keep their adhoc: prefix 
   (live as { kind: string }).kind = 'mock';
   assert.equal(q.kind, 'mock');
   assert.equal((await q.get('asf-1')).id, 'mock:asf-1');
+});
+
+// --- Several trackers (M12 WP3) ---
+
+/** A TicketSet over recording providers, one per kind; `down` kinds fail to list. */
+function twoTrackers(list: string[] = ['jira', 'github'], down: string[] = []) {
+  const built = new Map<string, ReturnType<typeof recording>>();
+  const set = new TicketSet(async (kind) => {
+    const r = recording(kind as TicketProvider['kind']);
+    if (down.includes(kind)) r.p.list = async () => { throw new Error(`${kind} is down`); };
+    else r.p.list = async () => ({ tickets: [ticket(kind === 'github' ? 'acme/web#1' : 'PROJ-1')], next: 'c2' });
+    built.set(kind, r);
+    return r.p;
+  }, () => list);
+  return { set, seen: (kind: string) => built.get(kind)?.seen ?? [] };
+}
+
+test('ticketConnections: split, trimmed, deduped, known kinds only; empty falls back to TICKET_PROVIDER', () => {
+  const of = (list: string) => (k: string) => (k === 'TICKET_PROVIDERS' ? list : 'jira');
+  assert.deepEqual(ticketConnections(of(' github, jira ,github,nope ')), ['github', 'jira']);
+  assert.deepEqual(ticketConnections(of('')), ['jira']);
+  assert.deepEqual(ticketConnections(of('nope')), ['jira']);
+});
+
+test('the set routes each id to the tracker its prefix names; a bare id goes to the default', async () => {
+  const { set, seen } = twoTrackers();
+  assert.deepEqual([set.connections, set.defaultConnection, set.live.kind], [['jira', 'github'], 'jira', 'jira']);
+  assert.equal((await set.live.get('github:acme/web#42')).id, 'github:acme/web#42');
+  assert.equal((await set.live.get('PROJ-7')).id, 'jira:PROJ-7');
+  await set.live.comment('github:acme/web#42', 'hi');
+  await set.live.transition('jira:PROJ-7', '21');
+  assert.deepEqual(seen('github'), ['get acme/web#42', 'comment acme/web#42']);
+  assert.deepEqual(seen('jira'), ['get PROJ-7', 'transition PROJ-7']);
+  assert.equal(set.ticketsFor('github:acme/web#42').kind, 'github');
+  assert.equal(set.ticketsFor({ ...ticket('x'), connection: 'github' }).kind, 'github');
+});
+
+test('a connection that is not set up throws from ticketsFor and rejects from live', async () => {
+  const { set } = twoTrackers();
+  assert.throws(() => set.ticketsFor('trello:card1'), /Ticket connection "trello" is not set up/);
+  await assert.rejects(set.live.get('trello:card1'), /not set up/);
+  assert.throws(() => set.registryFor('trello'), /not set up/);
+});
+
+test('listAll merges every tracker in connection order, or only the ones asked for', async () => {
+  const { set } = twoTrackers();
+  const all = await set.live.listAll({ scope: [], limit: 10 });
+  assert.deepEqual(all.tickets.map((t) => [t.id, t.connection]), [['jira:PROJ-1', 'jira'], ['github:acme/web#1', 'github']]);
+  assert.deepEqual(all.sources, [{ connection: 'jira', ok: true }, { connection: 'github', ok: true }]);
+  assert.ok(!('next' in all), 'no paging cursor across trackers');
+  const one = await set.live.listAll({ scope: [], limit: 10 }, ['github']);
+  assert.deepEqual(one.tickets.map((t) => t.id), ['github:acme/web#1']);
+});
+
+test('one tracker failing: its reason shows and the other still lists', async () => {
+  const { set } = twoTrackers(['jira', 'github'], ['jira']);
+  const r = await set.live.listAll({ scope: [], limit: 10 });
+  assert.deepEqual(r.tickets.map((t) => t.id), ['github:acme/web#1']);
+  assert.deepEqual(r.sources, [{ connection: 'jira', ok: false, reason: 'jira is down' }, { connection: 'github', ok: true }]);
 });

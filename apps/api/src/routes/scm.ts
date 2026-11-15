@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { registry } from '../registry/client.js';
 import { cfg } from '../settings.js';
 import { transitionTicketTo, parsePreferredStatuses } from '../tickets/transition.js';
-import { ticketsFor } from '../tickets/route.js';
+import { runTicketRef, ticketsFor } from '../tickets/route.js';
 import { closeSplitParentIfDone } from '../tickets/split-parent.js';
 
 /**
@@ -33,7 +33,7 @@ export function registerScmRoutes(app: FastifyInstance, deps: { scm: ScmProvider
       const repo = await deps.scm.getRepo(got.run.repoId);
       const cr = await deps.scm.openChangeRequest(repo, { head, base, title, body, draft });
       // The PR is open → move the ticket into review.
-      await transitionTicketTo(ticketsFor(deps.tickets, got.run.ticketId), got.run.ticketId, parsePreferredStatuses(cfg('TICKET_STATUS_INREVIEW')));
+      await transitionTicketTo(ticketsFor(deps.tickets, runTicketRef(got.run)), runTicketRef(got.run), parsePreferredStatuses(cfg('TICKET_STATUS_INREVIEW')));
       return { changeRequest: cr };
     });
 
@@ -46,7 +46,7 @@ export function registerScmRoutes(app: FastifyInstance, deps: { scm: ScmProvider
       await deps.scm.markReady(repo, number).catch(() => {});
       await deps.scm.merge(repo, number, { method });
       // Merged → the work is done; close the ticket out.
-      await transitionTicketTo(ticketsFor(deps.tickets, got.run.ticketId), got.run.ticketId, parsePreferredStatuses(cfg('TICKET_STATUS_DONE')));
+      await transitionTicketTo(ticketsFor(deps.tickets, runTicketRef(got.run)), runTicketRef(got.run), parsePreferredStatuses(cfg('TICKET_STATUS_DONE')));
       // The last part of a split merged → close the parent's ticket too.
       await closeSplitParentIfDone(deps.tickets, runId, req.log);
       return { ok: true };
@@ -61,7 +61,7 @@ export function registerScmRoutes(app: FastifyInstance, deps: { scm: ScmProvider
       if (!got?.run.repoId) return reply.code(400).send({ error: 'no_repo' });
       const repo = await deps.scm.getRepo(got.run.repoId);
       await deps.scm.markReady(repo, number);
-      await transitionTicketTo(ticketsFor(deps.tickets, got.run.ticketId), got.run.ticketId, parsePreferredStatuses(cfg('TICKET_STATUS_INREVIEW')));
+      await transitionTicketTo(ticketsFor(deps.tickets, runTicketRef(got.run)), runTicketRef(got.run), parsePreferredStatuses(cfg('TICKET_STATUS_INREVIEW')));
       return { ok: true };
     });
 

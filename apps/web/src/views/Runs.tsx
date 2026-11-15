@@ -7,6 +7,7 @@ import { runResultLabel } from '../review-view';
 import { ActiveWork } from '../components/ActiveWork';
 import { CopyLinkButton } from '../components/CopyLinkButton';
 import { tookIsLive, tookText } from '../took-words';
+import { finishedTodayCount, finishedTodayText, msUntilLocalMidnight } from '../finished-today';
 
 const RUN_STATES = ['queued', 'running', 'awaiting_checkpoint', 'succeeded', 'failed', 'cancelled', 'stale', 'halted'];
 const OUTCOMES = Object.entries(OUTCOME_LABEL).map(([v, label]) => ({ v, label }));
@@ -60,6 +61,16 @@ export function Runs() {
     return () => clearInterval(t);
   }, [anyLive]);
 
+  // "N finished today" follows ActiveWork's loads (run and queue events), and a timer moves
+  // `today` on at local midnight so yesterday's finishes drop off without an event.
+  const [doneToday, setDoneToday] = useState<Run[]>([]);
+  const [today, setToday] = useState(() => new Date());
+  useEffect(() => {
+    const t = setTimeout(() => setToday(new Date()), msUntilLocalMidnight(today));
+    return () => clearTimeout(t);
+  }, [today]);
+  const finishedToday = finishedTodayText(finishedTodayCount(doneToday, today));
+
   const teamOptions = useMemo(() => Array.from(new Set(runs.map((r) => r.teamName).filter(Boolean))).sort(), [runs]);
 
   const from = total === 0 ? 0 : offset + 1;
@@ -71,11 +82,14 @@ export function Runs() {
     <div>
       <h2>{TITLES.activity}</h2>
       <div className="muted" style={{ marginBottom: 12 }}>What the factory is doing now, what's up next, and what it has finished.</div>
-      <ActiveWork />
+      <ActiveWork onToday={(t) => setDoneToday(t.doneToday)} />
 
-      <div className="row between" style={{ marginBottom: 12 }}>
+      <div className="row between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <h3 style={{ margin: 0 }}>All work</h3>
-        <span className="muted">{total > 0 ? `${from}–${to} of ${total}` : loading ? 'Loading…' : 'Nothing yet'}</span>
+        <span className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+          {finishedToday && <span className="muted">{finishedToday}</span>}
+          <span className="muted">{total > 0 ? `${from}–${to} of ${total}` : loading ? 'Loading…' : 'Nothing yet'}</span>
+        </span>
       </div>
 
       <div className="card row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>

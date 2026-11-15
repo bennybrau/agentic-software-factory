@@ -8,6 +8,8 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Activity says how many runs finished today.** Next to "All work", a line like "3 finished today"
+  counts runs that ended since your local midnight. It updates as runs end and clears at midnight.
 - **See and fix starts that were refused.** Activity has a "Couldn’t start" list above Up next with
   each ticket's reason and **Try again** / **Dismiss**; on Planned tasks such a ticket's pill reads
   "Couldn’t start" with the reason, and once the monthly budget is spent the Start panel says so,

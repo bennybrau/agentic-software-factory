@@ -73,6 +73,8 @@ publishes a `vX.Y.Z` release of the GHCR images
   priority or date go last. The sort is kept with the other filters.
 
 ### Fixed
+- **Settings → Skills fits a phone screen.** The example link and each skill's source link wrap
+  instead of pushing the page sideways, and **Preview** stays on screen next to the link box.
 - **The bell shows a failing credential right away.** When a tracker or SCM token stops working,
   the bell updates as soon as the alert is written instead of waiting for some run to change.
 - **The bell shows a refused start right away.** When the queue can't start a ticket, the bell,

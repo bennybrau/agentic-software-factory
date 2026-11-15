@@ -333,7 +333,7 @@ table.mini { max-width: 720px; margin-top: 4px; } table.mini td { border-bottom:
 .notice > span { display: flex; flex-direction: column; gap: 2px; }
 .notice .btn { flex: none; }
 .guided { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 6px; border-bottom: 1px solid var(--border); }
-.guided > span { display: flex; flex-direction: column; gap: 2px; }
+.guided > span { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
 .guided .btn { flex: none; }
 .avatar-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 6px 4px; }
 .avatar-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
@@ -380,7 +380,7 @@ table.mini { max-width: 720px; margin-top: 4px; } table.mini td { border-bottom:
 .switch[aria-checked="true"] .switch-knob { transform: translateX(14px); background: #0b1020; }
 .role-picks { display: flex; flex: 1; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .role-row.off > span, .role-row.off .role-picks { opacity: .45; }
-@media (max-width: 639px) { .notice, .guided { flex-direction: column; align-items: flex-start; } }
+@media (max-width: 639px) { .notice, .guided { flex-direction: column; align-items: flex-start; } .guided > span { align-self: stretch; min-width: 0; max-width: 100%; } }
 /* Update banner (ADHOC-CDBC5883): a .notice above every page. */
 .update-banner { margin: 0 0 16px; }
 .update-banner > span:first-child { min-width: 0; }

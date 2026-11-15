@@ -236,3 +236,8 @@ test('the run title wraps, and its duration moves to the next line whole (#132)'
   assert.match(css, /(^|\n)\.run-title\s*\{[^}]*flex-wrap:\s*wrap[^}]*\}/);
   assert.match(css, /(^|\n)\.run-title \.run-duration\s*\{[^}]*white-space:\s*nowrap[^}]*\}/);
 });
+
+test('a .guided text block fills a phone screen and wraps long URLs (ADHOC-5CC0C24E)', () => {
+  assert.match(css, /(^|\n)\.guided > span\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*\}/);
+  assert.match(css, /@media \(max-width: 639px\) \{[^\n]*\.guided > span\s*\{[^}]*align-self:\s*stretch[^}]*min-width:\s*0[^}]*\}/);
+});

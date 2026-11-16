@@ -28,6 +28,8 @@ export const createRunInputSchema = z.object({
   repoId: z.string().nullable().default(null),
   maxCostUsd: z.number().nonnegative(),
   dispatchedBy: z.string().nullable().default(null),
+  /** The ticket's epic (or parent), recorded with the repo choice so a later suggestion can learn from it. */
+  epicId: z.string().nullable().default(null),
 });
 export type CreateRunInput = z.infer<typeof createRunInputSchema>;
 
@@ -156,6 +158,12 @@ export const rpcRequestSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('requestChanges'), runId: z.string(), body: z.string().min(1), by: z.string().nullable().default(null) }),
   z.object({ op: z.literal('retryFailedTask'), runId: z.string(),
     note: z.string().nullable().default(null), by: z.string().nullable().default(null) }),
+  // M10 WP5: move a run to another repo and restart it from the planner. Null repoConnection = from the id's prefix.
+  z.object({ op: z.literal('moveRun'), runId: z.string(), repoId: z.string().min(1),
+    repoConnection: z.string().nullable().default(null),
+    by: z.string().nullable().default(null), note: z.string().nullable().default(null) }),
+  // The latest repo choice for an epic (a correction outranks a dispatch), or null.
+  z.object({ op: z.literal('repoChoiceForEpic'), epicId: z.string().min(1) }),
   // Ad-hoc tasks (#179): a ticket stored here instead of in a tracker. Ids are `adhoc:<id>`.
   z.object({ op: z.literal('createAdhoc'), input: createAdhocInputSchema }),
   z.object({ op: z.literal('getAdhoc'), id: z.string() }),
@@ -251,6 +259,8 @@ export interface RpcResults {
   answerNeedsHuman: { ok: true };
   skipNeedsHuman: { ok: true };
   retryFailedTask: { ok: true };
+  moveRun: RunWithTasks;
+  repoChoiceForEpic: { choice: RepoChoiceWire | null };
   appendMessage: { message: RunMessageWire };
   listMessages: { messages: RunMessageWire[] };
   sendChatMessage: { message: RunMessageWire };
@@ -286,6 +296,13 @@ export interface RpcResults {
   deleteSkill: { deleted: boolean };
   /** Rows changed per table. */
   qualifyStoredRefs: { agentRun: number; workQueue: number; recurringTask: number };
+}
+
+/** One row of ticket_repo_choice: which repo a ticket's run worked in, at dispatch or after a move. */
+export interface RepoChoiceWire {
+  id: number; ticketProvider: string; ticketId: string; ticketKey: string; epicId: string | null;
+  repoId: string; repoConnection: string | null; runId: string;
+  kind: 'dispatch' | 'correction'; fromRepoId: string | null; by: string | null; at: string;
 }
 
 /** One credential's last live check (#139). failingSince/alertedAt are null while it works. */

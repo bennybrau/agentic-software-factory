@@ -1,9 +1,10 @@
 import type { Run, RunEvent, RunState, RunTask, TeamTemplate } from '@asf/shared';
-import { runSchema, runTaskSchema, runEventSchema, isTerminal } from '@asf/shared';
+import { runSchema, runTaskSchema, runEventSchema, isTerminal, parseRef } from '@asf/shared';
 import type { AppendEventInput, CreateRunInput, RunWithTasks } from '@asf/shared';
 import type { Sql, Db } from '../db/pool.js';
 import { newId } from './ids.js';
 import { recordNotification } from './notification-store.js';
+import { recordRepoChoice } from './repo-choice.js';
 
 const runLink = (runId: string) => `/run/${runId}`;
 
@@ -230,6 +231,10 @@ export async function createRun(sql: Sql, input: CreateRunInput): Promise<RunWit
         await tx`INSERT INTO run_task (id, run_id, role, seq, state, input_ref, output_ref, runtime, model, effort)
           VALUES (${newId('task')}, ${id}, ${role.role}, ${seq}, 'pending', ${role.input}, ${role.output}, ${role.runtime}, ${role.model}, ${role.effort})`;
       }
+      if (input.repoId) {
+        await recordRepoChoice(tx, { ticketProvider: input.ticketProvider, ticketId: input.ticketId, ticketKey: input.ticketKey,
+          epicId: input.epicId, repoId: input.repoId, repoConnection: repoConnectionOf(input.repoId), runId: id, kind: 'dispatch', by: input.dispatchedBy });
+      }
       await appendEventTx(tx, { runId: id, taskId: null, kind: 'run:queued', source: 'orchestrator', payload: { team: team.name, gates: input.gates, dispatchedBy: input.dispatchedBy } });
     });
   } catch (err) {
@@ -241,6 +246,11 @@ export async function createRun(sql: Sql, input: CreateRunInput): Promise<RunWit
     throw err;
   }
   return (await getRun(sql, id))!;
+}
+
+/** The connection a qualified repo id names (`github:acme/web` -> github), or null for a bare or unknown prefix. */
+export function repoConnectionOf(repoId: string): string | null {
+  return parseRef(repoId, '').connection || null;
 }
 
 function isUniqueViolation(err: unknown): boolean {

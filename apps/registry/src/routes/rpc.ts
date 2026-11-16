@@ -13,6 +13,8 @@ import * as queue from '../runs/queue-store.js';
 import { today } from '../runs/today-store.js';
 import * as notifications from '../runs/notification-store.js';
 import { answerNeedsHuman, skipNeedsHuman, NeedsHumanError } from '../runs/needs-human.js';
+import { moveRunToRepo, MoveError } from '../runs/move.js';
+import { latestChoiceForEpic } from '../runs/repo-choice.js';
 import { appendMessage, listMessages, sendChatMessage, requestChanges, ChatError } from '../runs/chat.js';
 import * as adhoc from '../runs/adhoc-store.js';
 import { hiveDialog, markHiveSent } from '../runs/hive-dialog.js';
@@ -85,6 +87,8 @@ export function rpcHandlers(sql: Sql): Handler {
     skipNeedsHuman: async (r) => { await skipNeedsHuman(sql, r.runId, r.by); return { ok: true as const }; },
     resolveGate: async (r) => { await resolveGate(sql, r.gateId, { decision: r.decision, by: r.by, note: r.note, editedArtifact: r.editedArtifact }); return { ok: true as const }; },
     retryFailedTask: async (r) => { await retryFailedTask(sql, r.runId, r.note, r.by); return { ok: true as const }; },
+    moveRun: (r) => moveRunToRepo(sql, r.runId, { repoId: r.repoId, repoConnection: r.repoConnection, by: r.by, note: r.note }),
+    repoChoiceForEpic: async (r) => ({ choice: await latestChoiceForEpic(sql, r.epicId) }),
     appendMessage: async (r) => ({ message: await appendMessage(sql, r.input) }),
     listMessages: async (r) => ({ messages: await listMessages(sql, r.runId) }),
     sendChatMessage: async (r) => ({ message: await sendChatMessage(sql, r.runId, r.body, r.by) }),
@@ -146,6 +150,7 @@ export function registerRpc(app: FastifyInstance, sql: Sql): void {
       }
       if (err instanceof store.NotFoundError) return reply.code(404).send({ error: 'not_found', reason: err.message });
       if ((err as Error).name === 'GateError') return reply.code(409).send({ error: 'gate_error', reason: (err as Error).message });
+      if (err instanceof MoveError) return reply.code(409).send({ error: 'move_error', reason: err.message });
       if (err instanceof NeedsHumanError) return reply.code(409).send({ error: 'needs_human_error', reason: err.message });
       if (err instanceof ChatError) return reply.code(409).send({ error: 'chat_error', reason: err.message });
       if (err instanceof themes.ThemeError) return reply.code(409).send({ error: 'theme_error', reason: err.message });

@@ -52,6 +52,9 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   // Model catalogue as data (M8 WP D). The AI question sets the per-role runtime as a whole team (#162); a per-role picker is #69.
   MODEL_CATALOG_EXTRA: 'advanced model catalogue (JSON, Admin); the Ollama question adds the models it checked',
   MODEL_ALLOWLIST: 'which models the factory may run (Admin); the Claude on Google Cloud answer sets it to the models its check found, and the Ollama question adds its models when a list is in use',
+  // GitLab group discovery (M10 WP1); the Code question asks for groups in M10 WP2.
+  GITLAB_GROUPS: 'GitLab groups to discover projects in: set in .env until the Code question asks',
+  GITLAB_REPO_EXCLUDE: 'GitLab projects to leave out of group discovery: set in .env until the Code question asks',
   STALE_AFTER_MIN: 'operator tuning',
   WORKER_TTL_SECONDS: 'operator tuning',
   EVENT_RETENTION_DAYS: 'operator tuning',

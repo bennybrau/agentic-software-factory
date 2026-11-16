@@ -43,6 +43,8 @@ export async function buildScmProvider(kind: string): Promise<ScmProvider> {
       baseUrl: cfg('GITLAB_BASE_URL'),
       token: await resolveProviderSecret(cfg('GITLAB_TOKEN')),
       repos: cfg('GITLAB_REPOS').split(',').map((s) => s.trim()).filter(Boolean),
+      groups: cfg('GITLAB_GROUPS').split(',').map((s) => s.trim()).filter(Boolean),
+      exclude: cfg('GITLAB_REPO_EXCLUDE').split(',').map((s) => s.trim()).filter(Boolean),
     });
     default: throw new Error(`Unknown SCM_PROVIDER: ${kind}`);
   }

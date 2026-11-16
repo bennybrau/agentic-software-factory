@@ -126,6 +126,15 @@ test('creates a worktree on agent/<key>-<runid> from origin/main', async () => {
   assert.equal(stdout.trim(), 'group');
 });
 
+test('a deep GitLab repo id (gitlab:a/b/c/d) gets a nested bare dir and a worktree', async () => {
+  const r = run({ id: 'run_deepgl0001', ticketKey: 'ASF-DEEP' });
+  const ws = await git.ensureWorkspace(r, { ...repo(), id: 'gitlab:a/b/c/d', path: 'a/b/c/d' }, { url: originDir }, () => {});
+  assert.ok(await exists(join(root, 'repos', 'gitlab', 'a', 'b', 'c', 'd.git', 'HEAD')));
+  assert.ok((await readdir(ws.worktreePath)).includes('.git'));
+  const { stdout } = await exec('git', ['-C', ws.worktreePath, 'rev-parse', '--abbrev-ref', 'HEAD']);
+  assert.equal(stdout.trim(), ws.branchName);
+});
+
 test('rebaseOntoBase re-anchors the run onto a base that moved, cleanly, as one commit', async () => {
   // origin already has an initial commit on main (from the before() hook). Make a worktree,
   // add the run's file, then advance main on the origin so the run's base is now stale.

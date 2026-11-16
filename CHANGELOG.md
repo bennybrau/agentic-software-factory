@@ -8,6 +8,10 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Docs for several trackers and code hosts.** PROVIDERS.md explains connections, qualified
+  ids and routing; PIPELINE.md says which tracker and host each step of a run talks to;
+  UPGRADING.md says nothing changes on upgrade and how to add a second connection. A live-check
+  log template is in `docs/runs/m12-multi-provider-live.md`.
 - **GitLab group discovery.** Set `GITLAB_GROUPS` (e.g. `acme,acme/platform`) and the repo picker
   offers every project in those groups and their subgroups where the token can push, instead of
   listing each one in `GITLAB_REPOS`. `GITLAB_REPO_EXCLUDE` leaves projects out by glob (`*` within

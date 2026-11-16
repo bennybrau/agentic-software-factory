@@ -10,9 +10,9 @@ restart**. That is what makes the factory a white-label product: ship it with
 own tracker on first run.
 
 > Source control (the SCM provider that holds repos and receives the pull/merge
-> request) is a **separate**, still deploy-time choice (`SCM_PROVIDER`). Only the
-> **ticket** provider is UI-configurable today; the same pattern applies when SCM
-> white-labeling is picked up.
+> request) is chosen the same way, live, under **Where does your code live?** You can
+> connect several trackers and several code hosts at once, one of each kind; see
+> [Several connections](#several-connections).
 
 ## Choosing a provider in the UI
 
@@ -83,6 +83,50 @@ ciphertext only.
 A hardened deployment can bypass the UI sink entirely: set
 `SECRETS_SOURCE=gcp`/`aws`/`file` and provide the provider tokens at the **env**
 tier (env always wins over org), keeping secrets in a managed store.
+
+## Several connections
+
+A **connection** is one tracker or code host ASF talks to. `TICKET_PROVIDERS` and
+`SCM_PROVIDERS` are comma lists of them (`jira,github`, `gitlab,github`), set by
+ticking several kinds in Settings or in `.env`. Unknown names are ignored. When a
+list is blank, the single `TICKET_PROVIDER` / `SCM_PROVIDER` is used, so an install
+set up before M12 keeps working unchanged. The **first** connection in a list is
+that namespace's **default connection**.
+
+- **Connection ids.** Today a connection's id is its kind: `jira`, `github`,
+  `gitlab`, `trello`, `mock`, and the built-in `adhoc`. Code reads the kind out of
+  an id only through `connectionKind()` (`packages/shared/src/refs.ts`), never by
+  splitting the string, so ids like `gitlab:work` can come later without a migration.
+- **Qualified references.** Every ticket and repository id outside a provider
+  carries its connection: `jira:PROJ-12`, `github:acme/web#42`, `github:acme/web`,
+  `gitlab:acme/platform/web/shared-ui`. `refs.ts` parses and formats them. The part
+  before the first `:` counts only when it is a known connection id; an id without
+  one (`PROJ-12`, `acme/web`) belongs to the default connection. That fallback keeps
+  old URLs (`/dispatch/PROJ-12`), saved filters and browser state working.
+- **Providers only ever see native ids.** `TicketSet`
+  (`apps/api/src/providers/tickets/set.ts`) and `ScmSet`
+  (`apps/api/src/providers/scm/set.ts`) hold one hot-swappable registry per
+  connection. They strip the prefix before calling a provider and add it back to
+  every ticket, repository and change request it returns, setting its `connection`
+  field. `ticketsFor(ref)` returns the tracker that owns a ticket and `scmFor(ref)`
+  the host that owns a repository: the object's `connection`, else its id's prefix,
+  else the default. So a provider's own id handling (GitHub's
+  `parseTicketId('acme/web#42')`, say) is the same as with one connection.
+- **Lists merge, failures stay local.** Planned tasks asks every tracker in
+  parallel; one that errors drops out with its reason and the others still list.
+  The repository list combines every host that passes its preflight, and Start is
+  only blocked when no host is ready. Boards, sprints and statuses belong to one
+  tracker and take a `connection` parameter.
+- **GitHub counts as two connections** when it is both your tracker and your code
+  host: `github` in the ticket list and `github` in the code list. They share one
+  `GITHUB_TOKEN`, so the token needs the scopes of both.
+- **A bare repository path is matched on every host.** If two hosts have a
+  repository at the same path, ASF refuses with `repo_ambiguous` and asks you to
+  choose, rather than guess.
+
+**Out of scope:** two connections of the **same** kind (two GitLab hosts, two Jira
+sites). The ids leave room for it, but settings, credentials and Hive keys are still
+one per kind. See [`M12_MULTI_PROVIDER.md`](M12_MULTI_PROVIDER.md).
 
 ## The `TicketProvider` contract
 

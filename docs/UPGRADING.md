@@ -134,6 +134,33 @@ Until then nothing breaks; `asf doctor` just warns that they're plaintext. To ro
 the key later: `scripts/asf secret-key --rotate`. Details:
 [`PROVIDERS.md`](PROVIDERS.md#encryption-at-rest).
 
+## M12: several trackers and code hosts
+
+**Nothing to change on upgrade.** The new keys `TICKET_PROVIDERS` and `SCM_PROVIDERS`
+are blank by default, and blank means "use `TICKET_PROVIDER` / `SCM_PROVIDER`", so
+the install talks to the same one tracker and one code host as before.
+
+**To add a second connection** (a different kind; two of the same kind isn't
+supported yet):
+
+- **In Settings:** under **Where do your tickets live?** or **Where does your code
+  live?**, tick the extra kind, fill in its form, and click **Save and check it
+  works**. The first one ticked is the default. It applies live, no restart.
+- **Or by env:** for example `TICKET_PROVIDERS=jira,github` and
+  `SCM_PROVIDERS=gitlab,github`, plus that kind's own credentials (`GITHUB_TOKEN`, …).
+  Put the connection you had before first, so ids without a prefix keep pointing at it.
+
+See [`PROVIDERS.md`](PROVIDERS.md#several-connections) for how ids and routing work.
+
+**What the `023_repo_connection` migration rewrites.** It adds a `repo_connection`
+column to `agent_run`, `work_queue` and `recurring_task`. When the api boots, a
+backfill rewrites each stored bare `repo_id` (`acme/web`) to the qualified form
+(`gitlab:acme/web`) using the default code host (the first connection), and fills
+`repo_connection`. It runs in one transaction, is safe to run again, and changes
+nothing if it finds a value it doesn't recognise. Ticket ids are not rewritten.
+To go back to a release before it, follow
+[Rolling back past M12 WP1](#rolling-back) below.
+
 ## Back up before a big jump, and restoring
 
 Migrations are additive, but a backup before a major update is cheap insurance:

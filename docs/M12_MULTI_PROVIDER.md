@@ -1,6 +1,16 @@
 # M12: Several ticket trackers and code hosts at once
 
-Status: PLANNED. Milestone https://github.com/bennybrau/agentic-software-factory/milestone/4, issues #95 (WP1) to #101 (WP7); #12 and #16 carried over from M10 (WP7).
+Status: DONE, live check pending. Milestone https://github.com/bennybrau/agentic-software-factory/milestone/4, issues #95 (WP1) to #101 (WP7); #12 and #16 carried over from M10 (WP7).
+
+| WP | Issue | Merged in |
+|---|---|---|
+| WP1 Connection ids and qualified references | #95 | #104, #105, #106 |
+| WP2 Several code hosts | #96 | #161, #159, #160 |
+| WP3 Several trackers | #97 | #163 |
+| WP4 Settings, setup and health | #98 | #164, #165 |
+| WP5 Web | #99 | #166, #167 |
+| WP6 Docs and live check | #100 | this change; the live check is recorded in [`runs/m12-multi-provider-live.md`](runs/m12-multi-provider-live.md) (pending a real run) |
+| WP7 Carried over from M10 | #12, #16 | #171 (#12); #168, #169, #170 (#16) |
 
 ## The need
 

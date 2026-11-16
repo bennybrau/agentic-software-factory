@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import type { TicketProvider, ScmProvider } from '@asf/shared';
 import { registerAdminRoutes } from './admin.js';
-import { TicketProviderRegistry } from '../providers/tickets/registry.js';
-import { ScmProviderRegistry } from '../providers/scm/registry.js';
+import { TicketSet } from '../providers/tickets/set.js';
+import { ScmSet } from '../providers/scm/set.js';
 
 // Admin settings routes are a thin surface over registry RPCs (getOrgSettings on
 // refresh, putOrgSetting/deleteOrgSetting on write). Stub the registry HTTP layer.
@@ -53,55 +53,74 @@ function fakeScm(kind: string, preflight: ScmProvider['preflight']): ScmProvider
   };
 }
 
-/** A default mock SCM registry for tests that only exercise the ticket surface. */
-function mockScmReg() {
-  return new ScmProviderRegistry(async (k) => fakeScm(k, async () => ({ ok: true, identity: 'scm' })), () => 'mock');
+/** A default mock code host for tests that only exercise the ticket surface. */
+function mockScmSet() {
+  return new ScmSet(async (k) => fakeScm(k, async () => ({ ok: true, identity: 'scm' })), () => ['mock']);
 }
+const okTickets = (connections = ['mock']) => new TicketSet(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => connections);
 
-async function app(reg: TicketProviderRegistry, scm: ScmProviderRegistry = mockScmReg()) {
+async function app(ticketSet: TicketSet, scmSet: ScmSet = mockScmSet()) {
   const a = Fastify();
-  registerAdminRoutes(a, { tickets: reg, scm });
+  registerAdminRoutes(a, { ticketSet, scmSet });
   await a.ready();
   return a;
 }
 
 test('GET /api/providers/ticket/preflight returns the provider identity on success', async () => {
-  const reg = new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'me@example.com' })), () => 'jira');
+  const reg = new TicketSet(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'me@example.com' })), () => ['jira']);
   const a = await app(reg);
   const res = await a.inject({ method: 'GET', url: '/api/providers/ticket/preflight' });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { kind: 'jira', ok: true, identity: 'me@example.com' });
+  assert.deepEqual(res.json(), { connection: 'jira', kind: 'jira', ok: true, identity: 'me@example.com' });
   await a.close();
 });
 
 test('a failing preflight is a 200 report with the reason, not a 500', async () => {
-  const reg = new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: false, reason: 'JIRA_API_TOKEN is empty' })), () => 'jira');
+  const reg = new TicketSet(async (k) => fakeProvider(k, async () => ({ ok: false, reason: 'JIRA_API_TOKEN is empty' })), () => ['jira']);
   const a = await app(reg);
   const res = await a.inject({ method: 'GET', url: '/api/providers/ticket/preflight' });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { kind: 'jira', ok: false, reason: 'JIRA_API_TOKEN is empty' });
+  assert.deepEqual(res.json(), { connection: 'jira', kind: 'jira', ok: false, reason: 'JIRA_API_TOKEN is empty' });
   await a.close();
 });
 
 test('a build that throws (unconfigured/unknown provider) is reported, not a 500', async () => {
-  const reg = new TicketProviderRegistry(async () => { throw new Error('Unknown TICKET_PROVIDER: nope'); }, () => 'nope');
+  const reg = new TicketSet(async () => { throw new Error('Unknown TICKET_PROVIDER: nope'); }, () => ['nope']);
   const a = await app(reg);
   const res = await a.inject({ method: 'GET', url: '/api/providers/ticket/preflight' });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { ok: false, reason: 'Unknown TICKET_PROVIDER: nope' });
+  assert.deepEqual(res.json(), { connection: 'nope', kind: 'nope', ok: false, reason: 'Unknown TICKET_PROVIDER: nope' });
+  await a.close();
+});
+
+test('?connection= preflights that connection; none means the default; an unknown one is a 200 report', async () => {
+  const reg = new TicketSet(async (k) => fakeProvider(k, async () => ({ ok: true, identity: `${k}-me` })), () => ['jira', 'github']);
+  const scm = new ScmSet(async (k) => fakeScm(k, async () => ({ ok: true, identity: `${k}-bot` })), () => ['gitlab', 'github']);
+  const a = await app(reg, scm);
+  const get = async (url: string) => (await a.inject({ method: 'GET', url })).json();
+  assert.deepEqual(await get('/api/providers/ticket/preflight?connection=github'), { connection: 'github', kind: 'github', ok: true, identity: 'github-me' });
+  assert.deepEqual(await get('/api/providers/ticket/preflight?connection=jira'), { connection: 'jira', kind: 'jira', ok: true, identity: 'jira-me' });
+  assert.deepEqual(await get('/api/providers/ticket/preflight'), { connection: 'jira', kind: 'jira', ok: true, identity: 'jira-me' });
+  assert.deepEqual(await get('/api/providers/scm/preflight?connection=github'), { connection: 'github', kind: 'github', ok: true, identity: 'github-bot' });
+  assert.equal((await get('/api/providers/scm/preflight')).connection, 'gitlab');
+  const res = await a.inject({ method: 'GET', url: '/api/providers/ticket/preflight?connection=nope' });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().connection, 'nope');
+  assert.equal(res.json().ok, false);
+  assert.match(res.json().reason, /not one of the connections in use \(jira, github\)/);
   await a.close();
 });
 
 test('PUT /api/settings/:key invalidates the provider so the next request rebuilds', async () => {
   stubRegistry();
   let builds = 0;
-  const reg = new TicketProviderRegistry(async (k) => { builds += 1; return fakeProvider(k, async () => ({ ok: true, identity: 'x' })); }, () => 'mock');
-  await reg.current();                 // first build
+  const reg = new TicketSet(async (k) => { builds += 1; return fakeProvider(k, async () => ({ ok: true, identity: 'x' })); }, () => ['mock']);
+  await reg.registryFor('mock').current(); // first build
   assert.equal(builds, 1);
   const a = await app(reg);
   const res = await a.inject({ method: 'PUT', url: '/api/settings/QUEUE_ENABLED', payload: { value: false } });
   assert.equal(res.statusCode, 200);
-  await reg.current();                 // must rebuild because the write invalidated
+  await reg.registryFor('mock').current(); // must rebuild because the write invalidated
   assert.equal(builds, 2, 'a settings write invalidates the provider registry');
   await a.close();
 });
@@ -109,43 +128,43 @@ test('PUT /api/settings/:key invalidates the provider so the next request rebuil
 test('DELETE /api/settings/:key also invalidates the provider', async () => {
   stubRegistry();
   let builds = 0;
-  const reg = new TicketProviderRegistry(async (k) => { builds += 1; return fakeProvider(k, async () => ({ ok: true, identity: 'x' })); }, () => 'mock');
-  await reg.current();
+  const reg = new TicketSet(async (k) => { builds += 1; return fakeProvider(k, async () => ({ ok: true, identity: 'x' })); }, () => ['mock']);
+  await reg.registryFor('mock').current();
   const a = await app(reg);
   await a.inject({ method: 'DELETE', url: '/api/settings/QUEUE_ENABLED' });
-  await reg.current();
+  await reg.registryFor('mock').current();
   assert.equal(builds, 2);
   await a.close();
 });
 
 test('GET /api/providers/scm/preflight returns the SCM identity on success', async () => {
-  const scm = new ScmProviderRegistry(async (k) => fakeScm(k, async () => ({ ok: true, identity: 'octocat' })), () => 'github');
-  const a = await app(new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'), scm);
+  const scm = new ScmSet(async (k) => fakeScm(k, async () => ({ ok: true, identity: 'octocat' })), () => ['github']);
+  const a = await app(okTickets(), scm);
   const res = await a.inject({ method: 'GET', url: '/api/providers/scm/preflight' });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { kind: 'github', ok: true, identity: 'octocat' });
+  assert.deepEqual(res.json(), { connection: 'github', kind: 'github', ok: true, identity: 'octocat' });
   await a.close();
 });
 
 test('a failing SCM preflight is a 200 report with the reason, not a 500', async () => {
-  const scm = new ScmProviderRegistry(async (k) => fakeScm(k, async () => ({ ok: false, reason: 'GITLAB_TOKEN is empty' })), () => 'gitlab');
-  const a = await app(new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'), scm);
+  const scm = new ScmSet(async (k) => fakeScm(k, async () => ({ ok: false, reason: 'GITLAB_TOKEN is empty' })), () => ['gitlab']);
+  const a = await app(okTickets(), scm);
   const res = await a.inject({ method: 'GET', url: '/api/providers/scm/preflight' });
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { kind: 'gitlab', ok: false, reason: 'GITLAB_TOKEN is empty' });
+  assert.deepEqual(res.json(), { connection: 'gitlab', kind: 'gitlab', ok: false, reason: 'GITLAB_TOKEN is empty' });
   await a.close();
 });
 
 test('a settings write invalidates the SCM registry too', async () => {
   stubRegistry();
   let scmBuilds = 0;
-  const scm = new ScmProviderRegistry(async (k) => { scmBuilds += 1; return fakeScm(k, async () => ({ ok: true, identity: 'scm' })); }, () => 'mock');
-  await scm.current();
+  const scm = new ScmSet(async (k) => { scmBuilds += 1; return fakeScm(k, async () => ({ ok: true, identity: 'scm' })); }, () => ['mock']);
+  await scm.registryFor('mock').current();
   assert.equal(scmBuilds, 1);
-  const a = await app(new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'), scm);
+  const a = await app(okTickets(), scm);
   const res = await a.inject({ method: 'PUT', url: '/api/settings/SCM_PROVIDER', payload: { value: 'github' } });
   assert.equal(res.statusCode, 200);
-  await scm.current();
+  await scm.registryFor('mock').current();
   assert.equal(scmBuilds, 2, 'a settings write invalidates the SCM provider registry');
   await a.close();
 });
@@ -162,7 +181,7 @@ test('GET /api/fleet passes each worker\'s runtime status through (#69)', async 
       : body.op === 'monthUnpricedRuns' ? { count: 3 } : { totalUsd: 0 };
     return new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
-  const a = await app(new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'me@example.com' })), () => 'jira'));
+  const a = await app(new TicketSet(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'me@example.com' })), () => ['jira']));
   const res = await a.inject({ method: 'GET', url: '/api/fleet' });
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.json().workers[0].preflight, preflight);
@@ -180,7 +199,7 @@ test('GET /api/fleet carries the monthly budget beside the spend', async () => {
   const before = process.env.ORG_MONTHLY_BUDGET_USD;
   process.env.ORG_MONTHLY_BUDGET_USD = '250';
   try {
-    const a = await app(new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'));
+    const a = await app(okTickets());
     const res = await a.inject({ method: 'GET', url: '/api/fleet' });
     assert.equal(res.json().monthCostUsd, 253.32);
     assert.equal(res.json().monthlyBudgetUsd, 250);
@@ -192,7 +211,7 @@ test('GET /api/fleet carries the monthly budget beside the spend', async () => {
 
 test('GET /api/models returns the runnable catalogue, narrowed by MODEL_ALLOWLIST', async () => {
   stubRegistry();
-  const reg = new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock');
+  const reg = okTickets();
   const a = await app(reg);
   const all = (await a.inject({ method: 'GET', url: '/api/models' })).json() as { models: { id: string }[]; providers?: unknown };
   assert.ok(all.models.some((m) => m.id === 'claude-haiku-4-5'));

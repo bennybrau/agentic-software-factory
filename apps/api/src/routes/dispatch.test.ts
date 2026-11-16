@@ -376,8 +376,8 @@ test('the tracker\'s own repository wins over a mention, with its reason', async
 
 // --- M8 WP D: model catalogue as data, filtered by what the live fleet runs ---
 import { registerAdminRoutes } from './admin.js';
-import { TicketProviderRegistry } from '../providers/tickets/registry.js';
-import { ScmProviderRegistry } from '../providers/scm/registry.js';
+import { TicketSet } from '../providers/tickets/set.js';
+import { ScmSet } from '../providers/scm/set.js';
 import { loadOrgSettings } from '../settings.js';
 
 const deepseek = { id: 'deepseek-chat', providerId: 'deepseek', tier: 'balanced', runtimes: ['codex'], rate: { inputPerM: 0.27, outputPerM: 1.1 } };
@@ -478,7 +478,7 @@ test('done when: PUT MODEL_CATALOG_EXTRA and the model appears in the preview wi
     const a = Fastify();
     const tickets = new MockTicketProvider();
     registerDispatchRoutes(a, { tickets, scm: new MockScmProvider() });
-    registerAdminRoutes(a, { tickets: new TicketProviderRegistry(async () => tickets, () => 'mock'), scm: new ScmProviderRegistry(async () => new MockScmProvider(), () => 'mock') });
+    registerAdminRoutes(a, { ticketSet: new TicketSet(async () => tickets, () => ['mock']), scmSet: new ScmSet(async () => new MockScmProvider(), () => ['mock']) });
     await a.ready();
     const before = (await a.inject({ method: 'GET', url: '/api/tickets/asf-1/dispatch' })).json();
     assert.ok(!before.models.some((m: { id: string }) => m.id === 'deepseek-chat'));
@@ -564,7 +564,7 @@ test('done when (#1): a Vertex org adds its ids + MODEL_ALLOWLIST; the preview o
     const a = Fastify();
     const tickets = new MockTicketProvider();
     registerDispatchRoutes(a, { tickets, scm: new MockScmProvider() });
-    registerAdminRoutes(a, { tickets: new TicketProviderRegistry(async () => tickets, () => 'mock'), scm: new ScmProviderRegistry(async () => new MockScmProvider(), () => 'mock') });
+    registerAdminRoutes(a, { ticketSet: new TicketSet(async () => tickets, () => ['mock']), scmSet: new ScmSet(async () => new MockScmProvider(), () => ['mock']) });
     await a.ready();
     const vertexHaiku = { id: 'claude-haiku-4-5@20251001', tier: 'fast', providerId: 'anthropic', runtimes: ['claude-code'] };
     assert.equal((await a.inject({ method: 'PUT', url: '/api/settings/MODEL_CATALOG_EXTRA', payload: { value: { models: [vertexHaiku] } } })).statusCode, 200);

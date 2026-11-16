@@ -1,7 +1,7 @@
 import type { SettingView } from '@asf/shared';
-import { resolve } from '@asf/shared';
+import { connectionKind, resolve } from '@asf/shared';
 import { registry } from './registry/client.js';
-import { cfg, describe } from './settings.js';
+import { describe } from './settings.js';
 import { providerPreflights, type Pf, type PreflightDeps } from './provider-preflights.js';
 
 type Log = { info: (o: unknown, m?: string) => void; error: (o: unknown, m?: string) => void };
@@ -11,7 +11,7 @@ export type CredentialHealth = NonNullable<SettingView['health']>;
  * Credential health (#139): tell the operator a token has stopped working (or is
  * about to expire) before a run fails on it.
  *
- *  - The tracker/SCM token in use is live-checked with the same preflights the
+ *  - The token of every tracker and code connection in use is live-checked with the same preflights the
  *    setup checklist uses. Each result is recorded in the registry, which keeps
  *    when the failure started and sends one notification per failure.
  *  - A Claude subscription token lasts about a year. Only one saved through the
@@ -57,16 +57,16 @@ export async function checkCredentials(deps: PreflightDeps, opts: { force?: bool
   const views = new Map(describe().map((v) => [v.key, v]));
   const health: Record<string, CredentialHealth> = {};
 
-  // Tracker + SCM: one check per secret (GitHub tickets and code share GITHUB_TOKEN).
-  const { ticket, scm } = await providerPreflights(deps, { force: opts.force });
+  // Every tracker + code connection: one check per secret (GitHub tickets and code share GITHUB_TOKEN).
+  const { tickets, scm } = await providerPreflights(deps, { force: opts.force });
   const checks = new Map<string, { pf: Pf; link: string }>();
   const add = (key: string | undefined, pf: Pf, link: string) => {
     if (!key || views.get(key)?.value == null) return; // not saved: nothing has "stopped working"
     const prev = checks.get(key);
     if (!prev || (prev.pf.ok && !pf.ok)) checks.set(key, { pf, link });
   };
-  add(TICKET_KEY[String(cfg('TICKET_PROVIDER'))], ticket, '/settings#tickets');
-  add(SCM_KEY[String(cfg('SCM_PROVIDER'))], scm, '/settings#code');
+  for (const { connection, pf } of tickets) add(TICKET_KEY[connectionKind(connection)], pf, '/settings#tickets');
+  for (const { connection, pf } of scm) add(SCM_KEY[connectionKind(connection)], pf, '/settings#code');
   for (const [key, { pf, link }] of checks) {
     const { health: h } = await registry.recordCredentialHealth({
       key, ok: pf.ok, reason: pf.ok ? null : pf.reason ?? 'The connection test failed.', label: LABEL[key] ?? key, link,

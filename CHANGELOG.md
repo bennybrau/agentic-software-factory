@@ -8,6 +8,11 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Setup, credential checks and `/health` cover every tracker and code host.** With several
+  connections, the setup checklist is done only when each one passes, and its reason names the
+  failing ones (for example `GitHub: token rejected`). Each saved token is re-checked, and
+  "Test connection" takes `?connection=`. `GET /health` now lists `tickets` and `scm` as
+  `[{ connection, ok }]` instead of one kind each, and answers without waiting on a tracker.
 - **Several trackers at once.** Set `TICKET_PROVIDERS` to a comma list (for example
   `jira,github`) and `/api/tickets` lists every tracker's tickets together, with each tracker's
   status in `sources`; a tracker that errors drops out and the rest still list. A run's comments

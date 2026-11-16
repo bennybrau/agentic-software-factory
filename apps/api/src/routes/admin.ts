@@ -1,14 +1,19 @@
 import type { FastifyInstance } from 'fastify';
-import { SettingError } from '@asf/shared';
+import { SettingError, connectionKind } from '@asf/shared';
 import { registry } from '../registry/client.js';
 import { cfg, describe, putSetting, deleteSetting } from '../settings.js';
 import { resolveIdentity } from '../identity.js';
 import { checkCredentials, forgetCredentialHealth, lastCredentialHealth, withHealth } from '../credential-health.js';
-import { resetPreflightCache } from '../provider-preflights.js';
+import { onePreflight, resetPreflightCache, type PreflightDeps, type Side } from '../provider-preflights.js';
 import { checkOpenAiKey } from '../openai-check.js';
 import { catalogue } from '../models.js';
-import type { TicketProviderRegistry } from '../providers/tickets/registry.js';
-import type { ScmProviderRegistry } from '../providers/scm/registry.js';
+import type { TicketSet } from '../providers/tickets/set.js';
+import type { ScmSet } from '../providers/scm/set.js';
+
+type Sets = {
+  ticketSet: Pick<TicketSet, 'connections' | 'defaultConnection' | 'registryFor' | 'invalidate'>;
+  scmSet: Pick<ScmSet, 'connections' | 'defaultConnection' | 'registryFor' | 'invalidate'>;
+};
 
 /**
  * The /admin surface (WP 7.4) and identity (WP 7.3). Org-tier settings (team,
@@ -19,10 +24,11 @@ import type { ScmProviderRegistry } from '../providers/scm/registry.js';
  * Also owns the white-label provider surface: after any settings write BOTH the
  * ticket- and SCM-provider registries are invalidated so the next request
  * rebuilds from the new config (hot-swap, no restart), and
- * GET /api/providers/{ticket,scm}/preflight power the "Test connection" buttons
- * in the /providers panel.
+ * GET /api/providers/{ticket,scm}/preflight?connection= power the "Test
+ * connection" buttons (the default connection when none is named).
  */
-export function registerAdminRoutes(app: FastifyInstance, deps: { tickets: Pick<TicketProviderRegistry, 'current' | 'invalidate'>; scm: Pick<ScmProviderRegistry, 'current' | 'invalidate'> }): void {
+export function registerAdminRoutes(app: FastifyInstance, sets: Sets): void {
+  const deps: PreflightDeps = { tickets: sets.ticketSet, scm: sets.scmSet };
   // Who is the caller — the web drops its hardcoded 'operator' in favour of this.
   app.get('/api/me', async (req) => resolveIdentity(req));
 
@@ -42,7 +48,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: { tickets: Pick<
       if (e instanceof SettingError) return reply.code(400).send({ error: 'setting_error', reason: e.message });
       throw e;
     }
-    deps.tickets.invalidate(); deps.scm.invalidate(); // a provider-config change takes effect on the next request
+    sets.ticketSet.invalidate(); sets.scmSet.invalidate(); // a provider-config change takes effect on the next request
     resetPreflightCache(); forgetCredentialHealth(req.params.key); // and is re-checked on the next Settings load
     return { ok: true, settings: withHealth(describe(), lastCredentialHealth()) };
   });
@@ -50,33 +56,23 @@ export function registerAdminRoutes(app: FastifyInstance, deps: { tickets: Pick<
   // Clear an org-tier setting (revert to env/default).
   app.delete<{ Params: { key: string } }>('/api/settings/:key', async (req) => {
     await deleteSetting(req.params.key);
-    deps.tickets.invalidate(); deps.scm.invalidate();
+    sets.ticketSet.invalidate(); sets.scmSet.invalidate();
     resetPreflightCache(); forgetCredentialHealth(req.params.key);
     return { ok: true, settings: withHealth(describe(), lastCredentialHealth()) };
   });
 
-  // Test the currently-configured ticket provider live. A failing preflight is a
-  // report (200 with ok:false + reason), not a 500 — the UI shows the reason.
-  app.get('/api/providers/ticket/preflight', async () => {
-    try {
-      const p = await deps.tickets.current();
-      const pf = await p.preflight();
-      return { kind: p.kind, ...pf };
-    } catch (e) {
-      return { ok: false as const, reason: (e as Error).message };
+  // Test one connection live (?connection=, else the default). A failing preflight,
+  // or a connection that is not set up, is a report (200 with ok:false + reason),
+  // not a 500 — the UI shows the reason.
+  const preflight = async (side: Side, set: Sets['ticketSet'] | Sets['scmSet'], asked?: string) => {
+    const connection = asked || set.defaultConnection;
+    if (!set.connections.includes(connection)) {
+      return { connection, ok: false as const, reason: `"${connection}" is not one of the connections in use (${set.connections.join(', ')}).` };
     }
-  });
-
-  // Same, for the currently-configured SCM provider.
-  app.get('/api/providers/scm/preflight', async () => {
-    try {
-      const p = await deps.scm.current();
-      const pf = await p.preflight();
-      return { kind: p.kind, ...pf };
-    } catch (e) {
-      return { ok: false as const, reason: (e as Error).message };
-    }
-  });
+    return { connection, kind: connectionKind(connection), ...await onePreflight(deps, side, connection) };
+  };
+  app.get<{ Querystring: { connection?: string } }>('/api/providers/ticket/preflight', async (req) => preflight('tickets', sets.ticketSet, req.query.connection));
+  app.get<{ Querystring: { connection?: string } }>('/api/providers/scm/preflight', async (req) => preflight('scm', sets.scmSet, req.query.connection));
 
   // The models this factory can run: the built-ins merged with MODEL_CATALOG_EXTRA and
   // narrowed to MODEL_ALLOWLIST. The Settings model pickers read this, not the built-in

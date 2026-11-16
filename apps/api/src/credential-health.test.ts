@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import type { TicketProvider, ScmProvider, Preflight } from '@asf/shared';
 import { checkCredentials, subscriptionExpiryWarning, __resetCredentialHealth } from './credential-health.js';
 import { resetPreflightCache } from './provider-preflights.js';
-import { TicketProviderRegistry } from './providers/tickets/registry.js';
-import { ScmProviderRegistry } from './providers/scm/registry.js';
+import { TicketSet } from './providers/tickets/set.js';
+import { ScmSet } from './providers/scm/set.js';
 
 // Credential health drives the preflights through fake provider registries and
 // stubs the registry RPC layer: recordCredentialHealth mimics the registry's
 // failing_since bookkeeping, listOrgSecretNames returns the saved secrets' ages.
 const realFetch = global.fetch;
-const ENV_KEYS = ['TICKET_PROVIDER', 'SCM_PROVIDER', 'GITHUB_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'] as const;
+const ENV_KEYS = ['TICKET_PROVIDER', 'SCM_PROVIDER', 'GITHUB_TOKEN', 'JIRA_API_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'] as const;
 afterEach(() => {
   global.fetch = realFetch;
   resetPreflightCache();
@@ -41,13 +41,16 @@ function stubRegistry(opts: { secrets?: { name: string; updatedAt: string }[] } 
   return recorded;
 }
 
-/** GitHub tickets whose preflight answers from `pf`; a mock SCM (nothing to check). */
-function deps(pf: () => Preflight) {
+/** Tracker connections whose preflight answers from `pf(kind)`; code connections that pass. */
+function sets(tickets: string[], scm: string[], pf: (kind: string) => Preflight, scmPf: (kind: string) => Preflight = () => ({ ok: true, identity: 'octocat' })) {
   return {
-    tickets: new TicketProviderRegistry(async (k) => ({ kind: k, preflight: async () => pf() }) as unknown as TicketProvider, () => 'github'),
-    scm: new ScmProviderRegistry(async (k) => ({ kind: k, preflight: async () => ({ ok: true, identity: 'octocat' }) }) as unknown as ScmProvider, () => 'mock'),
+    tickets: new TicketSet(async (k) => ({ kind: k, preflight: async () => pf(k) }) as unknown as TicketProvider, () => tickets),
+    scm: new ScmSet(async (k) => ({ kind: k, preflight: async () => scmPf(k) }) as unknown as ScmProvider, () => scm),
   };
 }
+
+/** GitHub tickets whose preflight answers from `pf`; a mock SCM (nothing to check). */
+const deps = (pf: () => Preflight) => sets(['github'], ['mock'], pf);
 
 test('a failing preflight is recorded and reported, then clears on recovery', async () => {
   process.env.TICKET_PROVIDER = 'github';
@@ -107,4 +110,23 @@ test('a subscription token set by env gets no expiry warning', async () => {
   stubRegistry({ secrets: [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', updatedAt: daysAgo(366) }] });
   const health = await checkCredentials(deps(() => ({ ok: true, identity: 'octocat' })), { force: true, now: NOW });
   assert.equal(health.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+});
+
+test('every tracker connection is checked: jira and github are both recorded', async () => {
+  process.env.GITHUB_TOKEN = 'ghp_test';
+  process.env.JIRA_API_TOKEN = 'jira_test';
+  const recorded = stubRegistry();
+  const health = await checkCredentials(sets(['jira', 'github'], ['mock'], (k) => (k === 'jira' ? { ok: false, reason: 'Jira said 401' } : { ok: true, identity: 'octocat' })), { force: true, now: NOW });
+  assert.deepEqual(recorded.map((r) => [r.key, r.ok]).sort(), [['GITHUB_TOKEN', true], ['JIRA_API_TOKEN', false]]);
+  assert.equal(health.JIRA_API_TOKEN.reason, 'Jira said 401');
+  assert.equal(health.GITHUB_TOKEN.ok, true);
+});
+
+test('github tickets + github code make one GITHUB_TOKEN check, and a failure wins', async () => {
+  process.env.GITHUB_TOKEN = 'ghp_test';
+  const recorded = stubRegistry();
+  const health = await checkCredentials(sets(['github'], ['github'], () => ({ ok: true, identity: 'octocat' }), () => ({ ok: false, reason: 'HTTP 401 Bad credentials' })), { force: true, now: NOW });
+  assert.equal(recorded.length, 1);
+  assert.deepEqual(recorded[0], { key: 'GITHUB_TOKEN', ok: false, reason: 'HTTP 401 Bad credentials', label: 'GitHub token' });
+  assert.equal(health.GITHUB_TOKEN.ok, false);
 });

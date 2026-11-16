@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import type { TicketProvider, ScmProvider } from '@asf/shared';
 import { registerSetupRoutes, __resetSetupCaches, type SetupStatus } from './setup.js';
-import { TicketProviderRegistry } from '../providers/tickets/registry.js';
-import { ScmProviderRegistry } from '../providers/scm/registry.js';
+import { registerAdminRoutes } from './admin.js';
+import { loadOrgSettings } from '../settings.js';
+import { TicketSet } from '../providers/tickets/set.js';
+import { ScmSet } from '../providers/scm/set.js';
 
 // The setup-status route aggregates the two provider preflights, the agent-auth
 // describe, and two registry RPCs (listFleet, listRuns). Stub the registry HTTP
 // layer (mirrors admin.test.ts) and drive the providers with fake registries.
 const realFetch = global.fetch;
-const ENV_KEYS = ['RUNTIME_DEFAULT_IMPLEMENTER', 'TICKET_PROVIDER', 'SCM_PROVIDER', 'AGENT_AUTH_MODE', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'AUTH_MODE'] as const;
+const ENV_KEYS = ['RUNTIME_DEFAULT_IMPLEMENTER', 'TICKET_PROVIDER', 'TICKET_PROVIDERS', 'SCM_PROVIDER', 'AGENT_AUTH_MODE', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'AUTH_MODE'] as const;
 afterEach(() => {
   global.fetch = realFetch;
   __resetSetupCaches(); // the preflight cache is module-level and time-based; reset between tests
@@ -19,18 +21,21 @@ afterEach(() => {
 
 /** Stub the registry so listFleet/listRuns/getOrgSecret return controllable results. */
 type PreflightStub = { kind: string; ok: boolean; reason?: string };
-function stubRegistry(opts: { workers?: { id: string; authMode: string | null; preflight?: PreflightStub[]; runtimes?: string[] }[]; succeededRuns?: number } = {}) {
+function stubRegistry(opts: { workers?: { id: string; authMode: string | null; preflight?: PreflightStub[]; runtimes?: string[] }[]; succeededRuns?: number; org?: Record<string, unknown> } = {}) {
+  const org = opts.org ?? {};
   const workers = (opts.workers ?? []).map((w) => ({
     id: w.id, host: 'h', runtimes: w.runtimes ?? ['claude-code'], authMode: w.authMode, maxConcurrent: 1, running: 0, lastHeartbeat: new Date().toISOString(),
     ...(w.preflight ? { preflight: w.preflight.map((p) => ({ installed: true, checkedAt: new Date().toISOString(), ...p })) } : {}),
   }));
   const runs = Array.from({ length: opts.succeededRuns ?? 0 }, (_, i) => ({ id: `run_${i}` }));
   global.fetch = (async (_url: string, init?: { body?: string }) => {
-    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string };
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string; key?: string; value?: unknown };
     let result: unknown = { ok: true };
     if (body.op === 'listFleet') result = { workers, capacity: workers.length, running: 0 };
     else if (body.op === 'listRuns') result = { runs, total: runs.length };
-    else if (body.op === 'getOrgSettings') result = { settings: {} };
+    else if (body.op === 'getOrgSettings') result = { settings: { ...org } };
+    else if (body.op === 'putOrgSetting') org[body.key!] = body.value;
+    else if (body.op === 'deleteOrgSetting') delete org[body.key!];
     else if (body.op === 'getOrgSecret') result = { value: '' };
     return new Response(JSON.stringify({ ok: true, result }), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as unknown as typeof fetch;
@@ -66,15 +71,17 @@ function fakeScm(kind: string, preflight: ScmProvider['preflight']): ScmProvider
   };
 }
 
-async function app(tickets: TicketProviderRegistry, scm: ScmProviderRegistry) {
+async function app(tickets: TicketSet, scm: ScmSet) {
   const a = Fastify();
   registerSetupRoutes(a, { tickets, scm });
   await a.ready();
   return a;
 }
 
-const okTickets = () => new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'me@example.com' })), () => 'jira');
-const okScm = () => new ScmProviderRegistry(async (k) => fakeScm(k, async () => ({ ok: true, identity: 'octocat' })), () => 'github');
+const ticketSet = (connections: string[], preflight: TicketProvider['preflight']) => new TicketSet(async (k) => fakeProvider(k, preflight), () => connections);
+const scmSet = (connections: string[], preflight: ScmProvider['preflight']) => new ScmSet(async (k) => fakeScm(k, preflight), () => connections);
+const okTickets = () => ticketSet(['jira'], async () => ({ ok: true, identity: 'me@example.com' }));
+const okScm = () => scmSet(['github'], async () => ({ ok: true, identity: 'octocat' }));
 const status = (json: unknown) => json as SetupStatus;
 const item = (s: SetupStatus, id: string) => s.items.find((i) => i.id === id)!;
 
@@ -82,8 +89,8 @@ test('all-mock: provider items are not done and setup is incomplete', async () =
   stubRegistry();
   // No provider env set -> cfg resolves the 'mock' default, no env pin.
   const a = await app(
-    new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'),
-    new ScmProviderRegistry(async (k) => fakeScm(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'),
+    ticketSet(['mock'], async () => ({ ok: true, identity: 'x' })),
+    scmSet(['mock'], async () => ({ ok: true, identity: 'x' })),
   );
   const res = await a.inject({ method: 'GET', url: '/api/setup/status' });
   assert.equal(res.statusCode, 200);
@@ -117,7 +124,7 @@ test('a provider env-pinned to mock is flagged blocked-from-UI', async () => {
   stubRegistry();
   process.env.TICKET_PROVIDER = 'mock';
   const a = await app(
-    new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'),
+    ticketSet(['mock'], async () => ({ ok: true, identity: 'x' })),
     okScm(),
   );
   const res = await a.inject({ method: 'GET', url: '/api/setup/status' });
@@ -270,8 +277,8 @@ test('a configured provider whose token is rejected is flagged credential-reject
   process.env.SCM_PROVIDER = 'github';
   const reason = 'GitHub rejected the saved access token (401). It was revoked, has expired, or was mistyped: create a new one and paste it in Settings.';
   const a = await app(
-    new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: false, reason, credentialRejected: true })), () => 'github'),
-    new ScmProviderRegistry(async (k) => fakeScm(k, async () => ({ ok: false, reason: 'GitHub can’t find the repository' })), () => 'github'),
+    ticketSet(['github'], async () => ({ ok: false, reason, credentialRejected: true })),
+    scmSet(['github'], async () => ({ ok: false, reason: 'GitHub can’t find the repository' })),
   );
   const s = status((await a.inject({ method: 'GET', url: '/api/setup/status' })).json());
   assert.equal(item(s, 'ticket').problem, 'credential-rejected');
@@ -283,11 +290,66 @@ test('a configured provider whose token is rejected is flagged credential-reject
 test('a mock (unconfigured) provider carries no problem flag', async () => {
   stubRegistry();
   const a = await app(
-    new TicketProviderRegistry(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'),
-    new ScmProviderRegistry(async (k) => fakeScm(k, async () => ({ ok: true, identity: 'x' })), () => 'mock'),
+    ticketSet(['mock'], async () => ({ ok: true, identity: 'x' })),
+    scmSet(['mock'], async () => ({ ok: true, identity: 'x' })),
   );
   const s = status((await a.inject({ method: 'GET', url: '/api/setup/status' })).json());
   assert.equal(item(s, 'ticket').problem, undefined);
   assert.equal(item(s, 'scm').problem, undefined);
   await a.close();
+});
+
+test('several trackers: jira ok + github rejected is not done; the reason names GitHub and the problem is credential-rejected', async () => {
+  stubRegistry();
+  const a = await app(
+    new TicketSet(async (k) => fakeProvider(k, async () => (k === 'github'
+      ? { ok: false, reason: 'token rejected', credentialRejected: true }
+      : { ok: true, identity: 'me@example.com' })), () => ['jira', 'github']),
+    okScm(),
+  );
+  const t = item(status((await a.inject({ method: 'GET', url: '/api/setup/status' })).json()), 'ticket');
+  assert.equal(t.done, false);
+  assert.equal(t.reason, 'GitHub: token rejected');
+  assert.equal(t.problem, 'credential-rejected');
+  assert.deepEqual(t.connections, [
+    { connection: 'jira', ok: true, identity: 'me@example.com', reason: 'Connected as me@example.com' },
+    { connection: 'github', ok: false, reason: 'token rejected' },
+  ]);
+  await a.close();
+});
+
+test('one TICKET_PROVIDER: one connection, and the same reason and identity as before', async () => {
+  stubRegistry();
+  process.env.TICKET_PROVIDER = 'jira';
+  const a = await app(new TicketSet(async (k) => fakeProvider(k, async () => ({ ok: true, identity: 'me@example.com' }))), okScm());
+  const t = item(status((await a.inject({ method: 'GET', url: '/api/setup/status' })).json()), 'ticket');
+  assert.equal(t.done, true);
+  assert.equal(t.reason, 'Connected as me@example.com');
+  assert.equal(t.identity, 'me@example.com');
+  assert.equal(t.problem, undefined);
+  assert.deepEqual(t.connections, [{ connection: 'jira', ok: true, identity: 'me@example.com', reason: 'Connected as me@example.com' }]);
+  await a.close();
+});
+
+test('hot-swap: PUT TICKET_PROVIDERS lists both trackers; DELETE drops back to one', async () => {
+  stubRegistry({ org: { TICKET_PROVIDER: 'jira' } });
+  await loadOrgSettings();
+  try {
+    const tickets = new TicketSet(async (k) => fakeProvider(k, async () => ({ ok: true, identity: `${k}-me` })));
+    const scm = okScm();
+    const a = Fastify();
+    registerSetupRoutes(a, { tickets, scm });
+    registerAdminRoutes(a, { ticketSet: tickets, scmSet: scm });
+    await a.ready();
+    const connections = async () => item(status((await a.inject({ method: 'GET', url: '/api/setup/status' })).json()), 'ticket').connections?.map((c) => c.connection);
+    assert.deepEqual(await connections(), ['jira']);
+    assert.equal((await a.inject({ method: 'PUT', url: '/api/settings/TICKET_PROVIDERS', payload: { value: 'jira,github' } })).statusCode, 200);
+    assert.deepEqual(await connections(), ['jira', 'github']);
+    assert.equal((await a.inject({ method: 'DELETE', url: '/api/settings/TICKET_PROVIDERS' })).statusCode, 200);
+    assert.deepEqual(await connections(), ['jira']);
+    await a.close();
+  } finally {
+    stubRegistry();
+    await loadOrgSettings();
+  }
 });

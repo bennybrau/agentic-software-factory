@@ -83,6 +83,8 @@ Every run works in one repository, chosen on the Start page (`/dispatch/<ticket>
 2. Otherwise, **a connected repository the ticket names** in its title or description: its full path (`acme/platform/web/shared-ui`, also inside a URL or backticks) or its last segment (`shared-ui`). Matching is plain text, not AI: case-insensitive and whole names only (`shared-ui` doesn't match `shared-ui-themes`). A last segment two repositories share, or one shorter than 4 characters, only counts as the full path. A title mention beats a description mention; then the earliest wins. The list of connected repositories a chat task carries at the end of its body is ignored.
 3. Otherwise, the first connected repository.
 
+With several code hosts connected, the list holds every host's repositories, grouped by host, and the reason names the host ("acme/web on GitLab"). A path names a repository on any host; if two hosts have one at that path, the run is refused with `repo_ambiguous` and you choose. A host that is down drops out of the list, and the others still work.
+
 Under the select, the page says why the repository was preselected (for example "The ticket title mentions shared-ui.") and names any other repositories the ticket mentions. A chat message that names a repository starts in it. The preview (`GET /api/tickets/:id/dispatch`) returns this as `suggestedRepoId`, `suggestedRepoReason` and `mentionedRepoIds`.
 
 ### Queued tickets
@@ -100,6 +102,15 @@ The start page learns from it: for a ticket under an epic, when neither the trac
 ### Read-only copies of the other repositories a ticket names
 
 A run still works in one repository, but its roles can read the others the ticket names. When the ticket's title or description names other connected repositories (matched the same way as above, never the run's own, at most 3), the api sends them with the run context (`referenceRepos`, each with its own short-lived clone credential). Before each step the worker checks out each one's default branch tip, detached, under `<WORKTREE_ROOT>/refs/<run>/<task>/<name>`, outside the run's worktree and run dir, from the same cached bare clone a run in that repository would use (fetched first). The planner, implementer and reviewer prompts list the copies with where they are and the commit, so a planner in an app can read the library it uses before it plans a split, and the implementer and reviewer can check the real names and types. The copies are removed when the step ends, however it ends, so an edit there never persists; Claude Code's hook also refuses writes there, and OpenCode's permission map denies them. A repository that can't be cloned or fetched in time (3 minutes) is skipped and reported in the `refs:ready` event; the step goes on without it.
+
+## Which tracker and host a run talks to
+
+With several trackers or code hosts connected ([PROVIDERS.md](PROVIDERS.md#several-connections)), each action goes to the system that owns its object, not to "the" configured one:
+
+- **The ticket's tracker** gets everything about the ticket: comments, the status moves when the change request opens and merges, the Done transition, and reading the ticket for the run context and Hive. The run records the ticket's connection when it is started or queued.
+- **The repository's host** gets everything about the code: clone credentials (including the read-only copies), the branch push, the draft PR/MR and its updates, review comments and replies, the merge, and the merge watcher. Hive keys come from the repository's host too (`gh/…`, `gl/…`).
+- **The two don't have to match.** A Jira ticket can run in `acme/web` on GitHub: the pull request opens on GitHub, and when it merges (by ASF or outside it) the Jira ticket moves to Done.
+- **Each part of a split is delivered on its own repository's host.** A split can have one part on GitLab and another on GitHub; each opens and merges its change request on its own host, and the parent ticket moves to Done on its own tracker once every part has merged.
 
 ## Invariants (the server enforces these; the UI mirrors them)
 

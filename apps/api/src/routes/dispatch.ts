@@ -11,7 +11,7 @@ import { ticketsFor } from '../tickets/route.js';
 import { computeRoleSkills } from './runs.js';
 import { EFFORT_LEVELS } from '@asf/shared';
 import type { Role } from '@asf/shared';
-import { startReadiness, pickRepo, previewRepo, mentionReason, type RepoBlocker, type RepoPreview } from '../start-readiness.js';
+import { startReadiness, pickRepo, previewRepo, mentionReason, repoOnHost, type RepoBlocker, type RepoPreview } from '../start-readiness.js';
 import { resolveRoleModels, applyRoleSkills, defaultRoleModels, catalogue, BadModelError, BadEffortError, type OrgRoleModels, type OrgRoleEfforts, type OrgRoleRuntimes } from '../models.js';
 
 /** A dispatch that a caller can act on: `ok` runs are created; the rest carry a machine reason. */
@@ -202,9 +202,10 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
 }
 
 /** Why the tracker's own suggestion is the repository, for the dispatch page. */
-function providerReason(ticket: Ticket, path: string): string {
-  if (isAdhocId(ticket.id)) return `The run that added this to-do worked in ${path}.`;
-  return `This ticket belongs to ${path}.`;
+function providerReason(ticket: Ticket, repo: Repo, hostCount: number): string {
+  const where = repoOnHost(repo, hostCount);
+  if (isAdhocId(ticket.id)) return `The run that added this to-do worked in ${where}.`;
+  return `This ticket belongs to ${where}.`;
 }
 
 /**
@@ -247,7 +248,7 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
       const tickets = ticketsFor(deps.tickets, id);
       const ticket = await tickets.get(id).catch(() => null);
       if (!ticket) return { ticketId: id, repoId: null, reason: `Couldn't read ticket ${id}.`, mentionedRepoIds: [] };
-      return previewRepo(tickets, ticket, ready.repos, deps.scm.kind);
+      return previewRepo(tickets, ticket, ready.repos, deps.scm.kind, ready.hosts.length);
     }));
     return { repos: ready.repos.map((r) => ({ id: r.id, path: r.path })), previews };
   });
@@ -270,14 +271,14 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     const wanted = tickets.suggestedRepo?.(ticket) ?? null;
     if (wanted) {
       const match = repos.find((r) => r.path === wanted || sameRef(r.id, wanted, deps.scm.kind)) ?? await deps.scm.getRepo(wanted).catch(() => null);
-      if (match) { suggestedRepoId = match.id; suggestedRepoReason = providerReason(ticket, match.path); }
+      if (match) { suggestedRepoId = match.id; suggestedRepoReason = providerReason(ticket, match, ready.hosts.length); }
     }
     // The repositories the ticket names. The tracker's own link (above) wins; otherwise the
     // first one named is preselected, and the person confirms it before anything starts.
     const mentioned = ticketReposMentioned(ticket, repos);
     if (!suggestedRepoId && mentioned[0]) {
       suggestedRepoId = mentioned[0].id;
-      suggestedRepoReason = mentionReason(mentioned[0]);
+      suggestedRepoReason = mentionReason(mentioned[0], ready.hosts.length);
     }
 
     // The merged catalogue, narrowed to what the live fleet can run (all of it when no worker is up).

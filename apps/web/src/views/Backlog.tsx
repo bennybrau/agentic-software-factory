@@ -12,6 +12,7 @@ import { chooseForAll, chooseRepo, initialChoices, needsRepoConfirm, queueItems,
 import { PAGE as TITLES, bucketLabel, queueModeLabel } from '../words';
 import { budgetReachedText, queuePollInterval, refusalFor, upNextCountText, wherePill } from '../refusal-words';
 import { AddedHere } from '../components/AddedHere';
+import { RepoSelect } from '../components/RepoSelect';
 
 // Done is excluded from the default load; the bucket sub-filter (BUCKETS) is over active work only.
 const PAGE = 10;
@@ -412,10 +413,8 @@ export function Backlog() {
             <b>Which repository each one works in</b>
             <label className="row" style={{ gap: 6 }}>
               <span className="muted">Use one for all:</span>
-              <select value="" onChange={(e) => e.target.value && setConfirm({ ...confirm, choices: chooseForAll(confirm.choices, e.target.value) })}>
-                <option value="">Choose…</option>
-                {confirm.repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
-              </select>
+              <RepoSelect repos={confirm.repos} scm={conns?.scm ?? []} value="" placeholder="Choose…"
+                onChange={(id) => id && setConfirm({ ...confirm, choices: chooseForAll(confirm.choices, id) })} />
             </label>
           </div>
           <table>
@@ -425,11 +424,8 @@ export function Backlog() {
                   <td className="mono" style={{ whiteSpace: 'nowrap' }}>{c.ticketKey}</td>
                   <td>{c.title}<div className="muted" style={{ fontSize: '0.85em' }}>{c.reason}</div></td>
                   <td style={{ width: '45%' }}>
-                    <select style={{ width: '100%' }} value={c.repoId} aria-label={`Repository for ${c.ticketKey}`}
-                      onChange={(e) => setConfirm({ ...confirm, choices: chooseRepo(confirm.choices, c.ticketId, e.target.value) })}>
-                      <option value="">Choose a repository…</option>
-                      {confirm.repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
-                    </select>
+                    <RepoSelect wide repos={confirm.repos} scm={conns?.scm ?? []} value={c.repoId} aria-label={`Repository for ${c.ticketKey}`}
+                      placeholder="Choose a repository…" onChange={(id) => setConfirm({ ...confirm, choices: chooseRepo(confirm.choices, c.ticketId, id) })} />
                   </td>
                 </tr>
               ))}

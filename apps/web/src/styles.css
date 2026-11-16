@@ -130,6 +130,10 @@ a { color: var(--accent); text-decoration: none; }
 .pill.failed, .pill.halted { color: var(--bad); border-color: var(--bad); }
 /* Which tracker a Planned tasks row came from, when several are connected. */
 .pill.source { font-family: system-ui, sans-serif; font-size: 11px; padding: 1px 6px; margin-left: 6px; color: var(--muted); vertical-align: middle; }
+/* A repository picker with its host badge beside it; the badge wraps under it on a narrow screen. */
+.repo-select { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 0; max-width: 100%; min-width: 0; }
+.repo-select.wide { display: flex; }
+.repo-select > select { flex: 1 1 10em; width: 100%; min-width: 0; }
 .run-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-title .pill { line-height: 1.4; white-space: nowrap; }
 /* The copy-link icon stays glued to the end of the ticket key, even when the title wraps. */

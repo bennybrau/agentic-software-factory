@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useQuery } from '@tanstack/react-query';
 import { isAdhocId } from '@asf/shared/ui';
 import { api, decodeTicketId, type TicketRow } from '../api';
 import { gatesFor, isCustomised, modelsFor, overridesDiff, reconcileModel, repoHint, roleLock, runtimeOptions, skipRolesPayload } from '../dispatch-roles';
 import { pickChatRepo } from '../new-task';
+import { RepoSelect } from '../components/RepoSelect';
 import { setupFlags } from '../setup-flags';
 import { useMe } from '../useMe';
 import { GATE_MODE_LABEL, PAGE, runtimeLabel } from '../words';
@@ -47,6 +49,8 @@ export function Dispatch() {
   const [off, setOff] = useState<Record<string, boolean>>({});  // roles switched off for this run
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The code hosts, shared with the other pages' 30s re-read: several group the repository list by host.
+  const scm = useQuery({ queryKey: ['connections'], queryFn: api.connections, refetchInterval: 30_000 }).data?.scm ?? [];
 
   useEffect(() => {
     setTicket(null); setTicketErr(null);
@@ -122,9 +126,7 @@ export function Dispatch() {
       ) : (
         <div className="card" style={{ marginTop: 12 }}>
           <label className="muted">Repository</label>
-          <select value={repoId} onChange={(e) => setRepoId(e.target.value)} style={{ width: '100%', marginBottom: 4 }}>
-            {preview.repos.map((r) => <option key={r.id} value={r.id}>{r.path}</option>)}
-          </select>
+          <RepoSelect wide repos={preview.repos} scm={scm} value={repoId} onChange={setRepoId} style={{ marginBottom: 4 }} />
           {repoNote && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>{repoNote}</div>}
 
           <details className="advanced" style={{ marginBottom: 10 }}>

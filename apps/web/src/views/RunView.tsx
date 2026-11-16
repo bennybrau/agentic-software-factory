@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { api, subscribeEvents, type RunDetail } from '../api';
 import { GateCard } from '../components/GateCard';
@@ -23,6 +24,7 @@ import { useMe } from '../useMe';
 import { usePageSubject } from '../page-title';
 import { runCostText, taskCostText } from '../cost-words';
 import { isRunTicking, runDurationText } from '../duration-words';
+import { hostBadge, sourceBadge } from '../repo-groups';
 
 // Run page view preferences (#155), kept per browser. localStorage can throw
 // (private mode, disabled storage), so every access is guarded.
@@ -68,6 +70,8 @@ export function RunView() {
 
   // Name the ticket in the tab title (#134); the layout writes it.
   usePageSubject(detail?.run.ticketKey ?? null);
+  // The trackers and code hosts (the shared 30s re-read): with several, badges say which this run is on.
+  const conns = useQuery({ queryKey: ['connections'], queryFn: api.connections, refetchInterval: 30_000 }).data;
 
   if (!detail) return <p className="muted">Loading…</p>;
   const { run, tasks, gates, artifacts } = detail;
@@ -88,6 +92,8 @@ export function RunView() {
   // The MR/PR is now a first-class run field (persisted); fall back to the event for older runs.
   const crEvent = [...events].reverse().find((e) => e.kind === 'change_request:opened');
   const crUrl = run.changeRequestUrl ?? (crEvent ? String(crEvent.payload.url) : null);
+  const source = sourceBadge(run.ticketProvider, conns?.tickets ?? []);
+  const host = hostBadge(run.repoId, conns?.scm ?? []);
   const crState = run.changeRequestState;
   const awaitingExternal = run.deliveryOutcome === 'awaiting_external_merge';
   // Once the human acts on an awaiting-external CR, the watcher stamps its state;
@@ -109,7 +115,7 @@ export function RunView() {
     <div>
       <div className="row between">
         <div><Link to="/runs">← {PAGE.activity}</Link>
-          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="run-key"><span className="mono">{run.ticketKey}</span><CopyLinkButton runId={runId} /></span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><RunDuration run={run} /></h2>
+          <h2 className="run-title" style={{ margin: '6px 0' }}><span className="run-key"><span className="mono">{run.ticketKey}</span>{source && <span className="pill source">{source}</span>}<CopyLinkButton runId={runId} /></span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><RunDuration run={run} /></h2>
           {review && (
             <div className="muted" style={{ fontSize: 13 }}>
               <a href={review.url} target="_blank" rel="noreferrer">{review.text}</a>
@@ -137,7 +143,7 @@ export function RunView() {
             {crState && <span className={`pill ${crState === 'merged' ? 'succeeded' : crState === 'closed' ? 'failed' : 'awaiting_checkpoint'}`}>{crState}</span>}
           </div>
           <div style={{ marginTop: 8 }}>
-            <a href={crUrl} target="_blank" rel="noreferrer">{crUrl}</a>
+            <a href={crUrl} target="_blank" rel="noreferrer" style={{ overflowWrap: 'anywhere' }}>{crUrl}</a>{host && <span className="pill source">{host}</span>}
           </div>
           {awaitingExternal && !externalResolved && (
             <div className="muted" style={{ fontSize: 13, marginTop: 8 }}>

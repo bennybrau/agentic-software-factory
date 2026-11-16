@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
-import { startReadiness, pickRepo, previewRepo } from './start-readiness.js';
+import { startReadiness, pickRepo, previewRepo, repoOnHost } from './start-readiness.js';
 import { MockScmProvider } from './providers/scm/mock.js';
 import { MockTicketProvider } from './providers/tickets/mock.js';
 import { ScmSet } from './providers/scm/set.js';
@@ -119,6 +119,23 @@ test('previewRepo: a URL settles which host\'s acme/web a ticket means; the bare
   const bare = previewRepo(tickets(), named('Fix the header in acme/web'), both);
   assert.equal(bare.repoId, null);
   assert.deepEqual(bare.mentionedRepoIds, []);
+});
+
+test('repoOnHost names the code host only when there are several', () => {
+  const gl: Repo = { ...repo('acme/web'), id: 'gitlab:acme/web', connection: 'gitlab' };
+  assert.equal(repoOnHost(gl, 1), 'acme/web');
+  assert.equal(repoOnHost(gl, 2), 'acme/web on GitLab');
+  assert.equal(repoOnHost({ id: 'github:acme/api', path: 'acme/api' }, 2), 'acme/api on GitHub', 'read from the id when the repo has no connection');
+  assert.equal(repoOnHost(repo('acme/bare'), 2), 'acme/bare', 'a bare id with no connection names no host');
+});
+
+test('previewRepo with several code hosts says which host each reason means', () => {
+  const gh: Repo = { ...repo('acme/web'), id: 'github:acme/web', connection: 'github' };
+  const gl: Repo = { ...repo('acme/platform/shared-ui'), id: 'gitlab:acme/platform/shared-ui', connection: 'gitlab' };
+  assert.equal(previewRepo(tickets(), named('Fix shared-ui'), [gh, gl], 'github', 2).reason, 'The ticket title mentions shared-ui on GitLab.');
+  assert.equal(previewRepo(tickets('acme/web'), named('Header'), [gh, gl], 'github', 2).reason, 'This ticket belongs to acme/web on GitHub.');
+  assert.equal(previewRepo(tickets(), named('Header'), [gl], 'gitlab', 2).reason, 'acme/platform/shared-ui on GitLab is the only repository connected.');
+  assert.equal(previewRepo(tickets(), named('Header'), [gl], 'gitlab', 1).reason, 'acme/platform/shared-ui is the only repository connected.');
 });
 
 void MockTicketProvider;

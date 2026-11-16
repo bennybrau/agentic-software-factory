@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { api, subscribeEvents } from '../api';
 import type { Run } from '@asf/shared';
+import { sourceBadge } from '../repo-groups';
 import { PAGE as TITLES, OUTCOME_LABEL, runStateLabel } from '../words';
 import { runResultLabel } from '../review-view';
 import { ActiveWork } from '../components/ActiveWork';
@@ -27,6 +29,8 @@ function sinceFor(rangeV: string): string | undefined {
 
 export function Runs() {
   const navigate = useNavigate();
+  // The trackers (the shared 30s re-read): with several, each run says which it came from.
+  const trackers = useQuery({ queryKey: ['connections'], queryFn: api.connections, refetchInterval: 30_000 }).data?.tickets ?? [];
   const [runs, setRuns] = useState<Run[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
@@ -121,7 +125,7 @@ export function Runs() {
           <tbody>
             {runs.map((r) => (
               <tr key={r.id} className="clickable" onClick={() => navigate(`/run/${r.id}`)}>
-                <td className="mono" style={{ whiteSpace: 'nowrap' }}>{r.ticketKey} <CopyLinkButton runId={r.id} /></td>
+                <td className="mono" style={{ whiteSpace: 'nowrap' }}>{r.ticketKey}<SourceBadge label={sourceBadge(r.ticketProvider, trackers)} /> <CopyLinkButton runId={r.id} /></td>
                 <td><span className={`pill ${r.state}`}>{runStateLabel(r.state)}</span></td>
                 <td className="muted">{r.teamName}</td>
                 <td className="muted">{runResultLabel(r)}</td>
@@ -146,4 +150,8 @@ export function Runs() {
       )}
     </div>
   );
+}
+
+function SourceBadge({ label }: { label: string | null }) {
+  return label ? <span className="pill source">{label}</span> : null;
 }

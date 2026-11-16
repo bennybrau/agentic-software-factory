@@ -98,7 +98,7 @@ export const AUTO_GATES = { after_plan: { mode: 'auto' as const }, before_change
 
 export function runInput(over: Partial<CreateRunInput> = {}): CreateRunInput {
   return { ticketId: 'asf-1', ticketKey: 'ASF-1', ticketProvider: 'mock', team: STANDARD_TEAM, gates: AUTO_GATES,
-    repoId: null, maxCostUsd: 15, dispatchedBy: 'test', ...over };
+    repoId: null, maxCostUsd: 15, dispatchedBy: 'test', epicId: null, ...over };
 }
 
 /** Cancel every non-terminal run so a claim test sees only its own. */

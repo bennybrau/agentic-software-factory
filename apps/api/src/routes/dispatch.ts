@@ -189,7 +189,7 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
     const ref = parseRef(ticket.id, deps.tickets.kind);
     const created = await registry.createRun({
       ticketId: ref.native, ticketKey: ticket.key, ticketProvider: ticket.connection ?? ref.connection,
-      team, gates, repoId: repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null,
+      team, gates, repoId: repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null, epicId: null,
     });
     await deps.tickets.comment(ticket.id, `Agentic Software Factory: run ${created.run.id} started (team ${team.name}).`).catch(() => {});
     await transitionTicketTo(deps.tickets, ticket.id, parsePreferredStatuses(cfg('TICKET_STATUS_INPROGRESS')));

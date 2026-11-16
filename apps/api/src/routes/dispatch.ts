@@ -189,7 +189,7 @@ export async function dispatchTicket(given: { tickets: TicketProvider; scm: ScmP
     const ref = parseRef(ticket.id, deps.tickets.kind);
     const created = await registry.createRun({
       ticketId: ref.native, ticketKey: ticket.key, ticketProvider: ticket.connection ?? ref.connection,
-      team, gates, repoId: repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null, epicId: null,
+      team, gates, repoId: repo.id, maxCostUsd: requestedCost, dispatchedBy: input.by ?? null, epicId: ticket.parentId ?? null,
     });
     await deps.tickets.comment(ticket.id, `Agentic Software Factory: run ${created.run.id} started (team ${team.name}).`).catch(() => {});
     await transitionTicketTo(deps.tickets, ticket.id, parsePreferredStatuses(cfg('TICKET_STATUS_INPROGRESS')));
@@ -279,6 +279,22 @@ export function registerDispatchRoutes(app: FastifyInstance, deps: { tickets: Ti
     if (!suggestedRepoId && mentioned[0]) {
       suggestedRepoId = mentioned[0].id;
       suggestedRepoReason = mentionReason(mentioned[0], ready.hosts.length);
+    }
+    // Else the repository an earlier ticket in the same epic worked in (a move outranks a
+    // dispatch), while it is still connected. A registry that can't say suggests nothing.
+    if (!suggestedRepoId && ticket.parentId) {
+      const { choice } = await registry.repoChoiceForEpic(ticket.parentId).catch(() => ({ choice: null }));
+      const match = choice && repos.find((r) => sameRef(r.id, choice.repoId, deps.scm.kind));
+      if (choice && match) {
+        suggestedRepoId = match.id;
+        if (choice.kind === 'correction') {
+          const from = choice.fromRepoId ? repos.find((r) => sameRef(r.id, choice.fromRepoId!, deps.scm.kind)) : undefined;
+          const fromName = from ? repoOnHost(from, ready.hosts.length) : choice.fromRepoId ?? 'another repository';
+          suggestedRepoReason = `Moved here from ${fromName} for an earlier ticket in this epic.`;
+        } else {
+          suggestedRepoReason = 'Chosen for an earlier ticket in this epic.';
+        }
+      }
     }
 
     // The merged catalogue, narrowed to what the live fleet can run (all of it when no worker is up).

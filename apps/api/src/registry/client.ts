@@ -10,6 +10,11 @@ export class RunConflict extends Error {
   constructor(public readonly existingRunId: string, reason: string) { super(reason); }
 }
 
+/** The registry refused to move a run (M10 WP5): it is running, finished, has a PR open, or is already there. */
+export class MoveRefused extends Error {
+  constructor(reason: string) { super(reason); this.name = 'MoveRefused'; }
+}
+
 /**
  * A saved token exists but the registry can't decrypt it (#9): ASF_SECRET_KEY is
  * missing or is not the key it was saved with. Distinct from "not set" — the fix
@@ -27,6 +32,7 @@ async function rpc<K extends RpcRequest['op']>(body: Extract<RpcRequest, { op: K
   });
   const json = (await res.json()) as { ok?: boolean; result?: unknown; error?: string; reason?: string; existingRunId?: string };
   if (res.status === 409 && json.error === 'secret_key_error') throw new SavedSecretUnreadable(json.reason ?? 'saved token cannot be decrypted (ASF_SECRET_KEY)');
+  if (res.status === 409 && json.error === 'move_error') throw new MoveRefused(json.reason ?? 'the run cannot move');
   if (res.status === 409 && json.error === 'run_conflict') throw new RunConflict(json.existingRunId ?? 'unknown', json.reason ?? 'run conflict');
   // A 401 means the shared X-Run-Secret does not match between the api and the registry.
   const hint = res.status === 401 ? ' — RUN_EVENT_SECRET mismatch: set the same value in .env for registry, api and worker and restart all three' : '';
@@ -88,6 +94,9 @@ export const registry = {
   answerNeedsHuman: (runId: string, reply: string, by: string | null) => rpc({ op: 'answerNeedsHuman', runId, reply, by }),
   skipNeedsHuman: (runId: string, by: string | null) => rpc({ op: 'skipNeedsHuman', runId, by }),
   retryFailedTask: (runId: string, note: string | null, by: string | null) => rpc({ op: 'retryFailedTask', runId, note, by }),
+  moveRun: (runId: string, repoId: string, repoConnection: string | null, by: string | null, note: string | null) =>
+    rpc({ op: 'moveRun', runId, repoId, repoConnection, by, note }),
+  repoChoiceForEpic: (epicId: string) => rpc({ op: 'repoChoiceForEpic', epicId }),
   listMessages: (runId: string) => rpc({ op: 'listMessages', runId }),
   sendChatMessage: (runId: string, body: string, by: string | null) => rpc({ op: 'sendChatMessage', runId, body, by }),
   requestChanges: (runId: string, body: string, by: string | null) => rpc({ op: 'requestChanges', runId, body, by }),

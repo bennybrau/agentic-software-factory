@@ -544,3 +544,36 @@ test('POST address-review-comments refuses with 409 when the PR is gone or the r
     await a.close();
   }
 });
+
+test('POST /api/runs/:id/move moves the run with the person and the note', async () => {
+  const calls = stub();
+  const a = await app();
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/move', headers: { 'x-operator': 'jon' },
+    payload: { repoId: '1', note: 'the work is in the app' } });
+  assert.equal(res.statusCode, 200);
+  const call = calls.find((c) => c.op === 'moveRun')!;
+  assert.deepEqual([call.body.runId, call.body.repoId, call.body.repoConnection, call.body.by, call.body.note],
+    ['run_1', '1', null, 'jon', 'the work is in the app']);
+  await a.close();
+});
+
+test('POST /api/runs/:id/move refuses a repository source control can\'t reach', async () => {
+  const calls = stub();
+  const a = await app();
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/move', payload: { repoId: 'nope/elsewhere' } });
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.json().error, 'repo_not_found');
+  assert.match(res.json().reason, /nope\/elsewhere/);
+  assert.ok(!calls.some((c) => c.op === 'moveRun'), 'an unknown repo never reaches the registry');
+  await a.close();
+});
+
+test('POST /api/runs/:id/move returns 409 with the registry\'s reason when it refuses', async () => {
+  global.fetch = (async () => new Response(JSON.stringify({ error: 'move_error', reason: 'run run_1 has a task running, wait for it to finish' }),
+    { status: 409, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+  const a = await app();
+  const res = await a.inject({ method: 'POST', url: '/api/runs/run_1/move', payload: { repoId: '1' } });
+  assert.equal(res.statusCode, 409);
+  assert.match(res.json().reason, /task running/);
+  await a.close();
+});

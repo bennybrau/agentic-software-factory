@@ -8,6 +8,13 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Move a run to another repository from its run page.** While a run is waiting (queued, or at a
+  gate or a question) and has no pull request, **Move to another repo** picks another connected
+  repository, with an optional note and a Confirm step; the team starts again from the planner
+  there. It is a card when the planner is asking, otherwise a header button, and a refusal says
+  why. The run page now names its repository (with the host badge), and the event log shows
+  "moved from X to Y by Z". The start page then suggests that repository for the epic's other
+  tickets ("Moved here from X for an earlier ticket in this epic.").
 - **Repositories grouped by code host, with host and tracker badges.** With more than one code
   host connected, every repository picker (Start, and the Planned tasks confirm panel) groups the
   repositories under each host's name and shows a `GitHub`/`GitLab` badge for the chosen one, and

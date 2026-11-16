@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { api, subscribeEvents, type RunDetail } from '../api';
+import { api, followRun, type RunDetail } from '../api';
 import { GateCard } from '../components/GateCard';
 import { GateNotes } from '../components/GateNotes';
 import { NeedsHumanCard } from '../components/NeedsHumanCard';
@@ -13,6 +13,7 @@ import { TeamMemory } from '../components/TeamMemory';
 import { ActivityStrip } from '../components/ActivityStrip';
 import { AddressReviewComments } from '../components/AddressReviewComments';
 import { CopyLinkButton } from '../components/CopyLinkButton';
+import { MoveRepo, RepoLine, canMove, moveProminent } from '../components/MoveRepo';
 import { useTheme } from '../useTheme';
 import type { RunEvent, RunTask } from '@asf/shared';
 import { parseMergeConflict } from '@asf/shared/ui';
@@ -55,8 +56,7 @@ export function RunView() {
 
   useEffect(() => {
     load();
-    return subscribeEvents((e) => { if (e.runId === runId) { setEvents((prev) => [...prev, e]); load(); } },
-      () => setConnectEpoch((n) => n + 1));
+    return followRun(runId, (e) => setEvents((prev) => [...prev, e]), setDetail, () => setConnectEpoch((n) => n + 1));
   }, [runId, load]);
 
   // While a task is running, refresh every 5s so the live ticker's elapsed time and
@@ -72,6 +72,10 @@ export function RunView() {
   usePageSubject(detail?.run.ticketKey ?? null);
   // The trackers and code hosts (the shared 30s re-read): with several, badges say which this run is on.
   const conns = useQuery({ queryKey: ['connections'], queryFn: api.connections, refetchInterval: 30_000 }).data;
+  // The connected repositories: the header names the run's, and a waiting run can move to another.
+  const readiness = useQuery({ queryKey: ['start-readiness'], queryFn: api.startReadiness, refetchInterval: 30_000 }).data;
+  const repos = readiness?.ok ? readiness.repos : [];
+  const [moveOpen, setMoveOpen] = useState(false);
 
   if (!detail) return <p className="muted">Loading…</p>;
   const { run, tasks, gates, artifacts } = detail;
@@ -116,6 +120,7 @@ export function RunView() {
       <div className="row between">
         <div><Link to="/runs">← {PAGE.activity}</Link>
           <h2 className="run-title" style={{ margin: '6px 0' }}><span className="run-key"><span className="mono">{run.ticketKey}</span>{source && <span className="pill source">{source}</span>}<CopyLinkButton runId={runId} /></span><span className={`pill ${run.state}`}>{runPillLabel(run)}</span><RunDuration run={run} /></h2>
+          <RepoLine repoId={run.repoId} repos={repos} scm={conns?.scm ?? []} />
           {review && (
             <div className="muted" style={{ fontSize: 13 }}>
               <a href={review.url} target="_blank" rel="noreferrer">{review.text}</a>
@@ -131,10 +136,14 @@ export function RunView() {
         </div>
         <div className="row">
           <span className="muted">{runCostText(run, detail.tasks)}</span>
+          {canMove(run) && !moveProminent(tasks) && !moveOpen && <button className="btn ghost" onClick={() => setMoveOpen(true)}>Move to another repo</button>}
           {!['succeeded', 'failed', 'cancelled', 'halted'].includes(run.state) && <button className="btn ghost" onClick={() => api.cancel(runId).then(load)}>Cancel</button>}
           {run.state === 'stale' && <button className="btn" onClick={() => api.resume(runId).then(load)}>Resume</button>}
         </div>
       </div>
+
+      <MoveRepo runId={runId} run={run} tasks={tasks} repos={repos} scm={conns?.scm ?? []}
+        open={moveOpen} onOpen={() => setMoveOpen(true)} onClose={() => setMoveOpen(false)} onDone={load} />
 
       {crUrl && (
         <div className="card" style={awaitingExternal && !externalResolved ? { borderColor: 'var(--good)' } : undefined}>
@@ -654,6 +663,7 @@ function summarize(e: RunEvent): string {
   if (e.kind === 'tool:pre' || e.kind === 'tool:post') return String(p.summary ?? p.tool ?? '');
   if (e.kind.startsWith('gate:')) return String(p.gate ?? '');
   if (e.kind === 'task:finished' || e.kind === 'segment:finished') return `${p.role ?? ''} ${p.outcome ?? ''}`;
+  if (e.kind === 'run:moved') return `moved from ${p.from ?? '?'} to ${p.to ?? '?'}${p.by ? ` by ${p.by}` : ''}`;
   if (e.kind === 'review:posted') return `posted to the PR: ${p.anchored ?? 0} line comments, ${p.fallback ?? 0} unanchored${p.by ? ` · by ${p.by}` : ''}`;
   return Object.entries(p).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(' ');
 }

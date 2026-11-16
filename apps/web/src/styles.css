@@ -134,6 +134,11 @@ a { color: var(--accent); text-decoration: none; }
 .repo-select { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 0; max-width: 100%; min-width: 0; }
 .repo-select.wide { display: flex; }
 .repo-select > select { flex: 1 1 10em; width: 100%; min-width: 0; }
+/* Move to another repo (run page): picker, note and buttons stack; the buttons wrap on a phone. */
+.move-repo-form { display: flex; flex-direction: column; gap: 6px; max-width: 32em; min-width: 0; }
+.move-repo-form > .row { flex-wrap: wrap; }
+.repo-line { overflow-wrap: anywhere; }
+@media (max-width: 639px) { .move-repo-form > .row { flex-direction: column; align-items: stretch; } }
 .run-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-title .pill { line-height: 1.4; white-space: nowrap; }
 /* The copy-link icon stays glued to the end of the ticket key, even when the title wraps. */

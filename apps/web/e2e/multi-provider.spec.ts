@@ -128,7 +128,8 @@ for (const [label, conns] of [['several', SEVERAL], ['one-of-each', ONE]] as con
       const badges = page.locator('.pill.source');
       if (conns === SEVERAL) {
         await expect(page.locator('.run-key .pill.source')).toHaveText('Jira');
-        await expect(badges.filter({ hasText: 'GitLab' })).toBeVisible();
+        await expect(page.locator('.repo-line .pill.source')).toHaveText('GitLab');
+        await expect(page.locator('a[href*="merge_requests"] + .pill.source')).toHaveText('GitLab');
       } else {
         await expect(badges).toHaveCount(0);
       }
@@ -160,5 +161,6 @@ test('the badges appear when a second tracker and host are connected, without a 
   state.conns = SEVERAL;
   await page.clock.runFor(31_000); // the shared ['connections'] query re-reads every 30s
   await expect(page.locator('.run-key .pill.source')).toHaveText('Jira');
-  await expect(page.locator('.pill.source', { hasText: 'GitLab' })).toBeVisible();
+  await expect(page.locator('.repo-line .pill.source')).toHaveText('GitLab');
+  await expect(page.locator('a[href*="merge_requests"] + .pill.source')).toHaveText('GitLab');
 });

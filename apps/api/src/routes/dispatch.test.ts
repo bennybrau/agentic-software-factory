@@ -737,3 +737,75 @@ test('through the wrappers: the GitHub tracker reads its own native id to sugges
     await a.close();
   } finally { restore(); }
 });
+
+// --- An earlier ticket in the same epic suggests its repository ---
+function stubEpicChoice(choice: Record<string, unknown> | null | 'error', seen: string[] = []) {
+  global.fetch = (async (_url: string, init?: { body?: string }) => {
+    const body = JSON.parse((init?.body as string) ?? '{}') as { op: string; epicId?: string };
+    if (body.op === 'repoChoiceForEpic') {
+      seen.push(body.epicId!);
+      if (choice === 'error') return new Response(JSON.stringify({ error: 'boom' }), { status: 500, headers: { 'content-type': 'application/json' } });
+      return json({ ok: true, result: { choice } });
+    }
+    return json({ ok: true, result: { workers: [] } });
+  }) as unknown as typeof fetch;
+  return seen;
+}
+const epicChoice = (repoId: string, kind: 'dispatch' | 'correction', fromRepoId: string | null = null) => ({
+  id: 1, ticketProvider: 'mock', ticketId: 'asf-2', ticketKey: 'ASF-2', epicId: 'asf-1', repoId, repoConnection: null, runId: 'run_e',
+  kind, fromRepoId, by: 'jon', at: new Date().toISOString() });
+
+async function epicChild(title = 'A child') {
+  const tickets = new MockTicketProvider();
+  const child = await tickets.createSubtask('asf-1', { title });
+  return { tickets, id: child.id };
+}
+
+test('preview suggests the repository an earlier ticket in the epic was moved to, and says from where', async () => {
+  const { tickets, id } = await epicChild();
+  const seen = stubEpicChoice(epicChoice('acme/platform/api/billing', 'correction', 'acme/platform/web/shared-ui'));
+  const p = await previewFor(tickets, id);
+  assert.deepEqual(seen, ['asf-1']);
+  assert.equal(p.suggestedRepoId, 'acme/platform/api/billing');
+  assert.equal(p.suggestedRepoReason, 'Moved here from acme/platform/web/shared-ui for an earlier ticket in this epic.');
+});
+
+test('preview suggests the repository an earlier ticket in the epic was dispatched to', async () => {
+  const { tickets, id } = await epicChild();
+  stubEpicChoice(epicChoice('acme/platform/api/billing', 'dispatch'));
+  const p = await previewFor(tickets, id);
+  assert.equal(p.suggestedRepoId, 'acme/platform/api/billing');
+  assert.equal(p.suggestedRepoReason, 'Chosen for an earlier ticket in this epic.');
+});
+
+test('a repository the ticket names wins over the epic\'s choice', async () => {
+  const { tickets, id } = await epicChild('Header overlaps in shared-ui');
+  const seen = stubEpicChoice(epicChoice('acme/platform/api/billing', 'correction', 'acme/platform/web/shared-ui'));
+  const p = await previewFor(tickets, id);
+  assert.equal(p.suggestedRepoId, 'acme/platform/web/shared-ui');
+  assert.equal(p.suggestedRepoReason, 'The ticket title mentions shared-ui.');
+  assert.deepEqual(seen, [], 'the epic is not asked once a mention settled it');
+});
+
+test('the epic\'s choice is ignored when that repository is no longer connected, or the registry can\'t say', async () => {
+  const { tickets, id } = await epicChild();
+  stubEpicChoice(epicChoice('acme/gone', 'correction', 'acme/platform/web/shared-ui'));
+  const gone = await previewFor(tickets, id);
+  assert.equal(gone.suggestedRepoId, null);
+  assert.equal(gone.suggestedRepoReason, null);
+  stubEpicChoice('error');
+  const failed = await previewFor(tickets, id);
+  assert.equal(failed.suggestedRepoId, null);
+  assert.equal(failed.suggestedRepoReason, null);
+});
+
+test('a dispatch records the ticket\'s epic on the run', async () => {
+  const { tickets, id } = await epicChild();
+  let input: { epicId?: string | null } = {};
+  stubRegistry({ onCreateRun: (i) => { input = i as typeof input; } });
+  const a = await app(tickets);
+  const res = await a.inject({ method: 'POST', url: `/api/tickets/${id}/dispatch`, payload: {} });
+  assert.equal(res.statusCode, 201);
+  assert.equal(input.epicId, 'asf-1');
+  await a.close();
+});

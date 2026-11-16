@@ -25,6 +25,8 @@ export interface GitlabScmConfig {
   baseUrl: string;          // https://gitlab.com  (no trailing slash; api/v4 appended)
   token: string;            // PAT with api scope
   repos: string[];          // ["group/repo", "group/sub/repo", ...] the picker covers
+  groups?: string[];        // ["acme", "acme/platform"]: every Developer+ project in them (and subgroups)
+  exclude?: string[];       // globs over group-discovered paths; never applied to `repos`
 }
 
 interface GlProject {
@@ -33,6 +35,7 @@ interface GlProject {
   web_url: string;
   default_branch: string | null;
   http_url_to_repo: string;
+  description?: string | null;
   permissions?: {
     project_access?: { access_level: number } | null;
     group_access?: { access_level: number } | null;
@@ -70,6 +73,28 @@ interface GlDiscussion { id: string; notes: GlNote[] }
 /** GitLab MR access levels: Developer(30)+ can push/merge; below that is read-only. */
 const DEVELOPER = 30;
 
+/** How long the discovered project list is reused before GitLab is asked again. */
+const LIST_TTL_MS = 5 * 60_000;
+/** Page cap per group (100 × 100 projects) so a runaway listing can't loop forever. */
+const MAX_PAGES = 100;
+
+/**
+ * A path glob: `*` matches within one segment, `**` across segments (zero or
+ * more), and the whole path must match. Case-insensitive, like GitLab paths.
+ */
+export function pathGlob(glob: string): RegExp {
+  let re = '';
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === '*' && glob[i + 1] === '*') {
+      i++;
+      if (glob[i + 1] === '/') { i++; re += '(?:.*/)?'; } else re += '.*';
+    } else if (c === '*') re += '[^/]*';
+    else re += c.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${re}$`, 'i');
+}
+
 function mapState(mr: Pick<GlMergeRequest, 'state'>): ChangeRequest['state'] {
   if (mr.state === 'merged') return 'merged';
   return mr.state === 'opened' ? 'open' : 'closed';
@@ -90,6 +115,8 @@ export class GitlabScmProvider implements ScmProvider {
   readonly kind = 'gitlab' as const;
   private readonly cfg: GitlabScmConfig;
   private me: string | null = null; // the token's username, from GET /user
+  // The discovered repo list. A settings write rebuilds the provider, which drops this.
+  private listed: { at: number; repos: Repo[] } | null = null;
 
   constructor(cfg: GitlabScmConfig) {
     this.cfg = { ...cfg, baseUrl: cfg.baseUrl.replace(/\/+$/, '') };
@@ -130,6 +157,7 @@ export class GitlabScmProvider implements ScmProvider {
       url: p.web_url,
       defaultBranch: p.default_branch ?? 'main',
       cloneUrl: p.http_url_to_repo,
+      description: p.description ?? null,
     };
   }
 
@@ -178,15 +206,57 @@ export class GitlabScmProvider implements ScmProvider {
       );
       if (level < DEVELOPER) return { ok: false, reason: `token lacks push access to ${rp}` };
     }
+    for (const g of this.cfg.groups ?? []) {
+      try {
+        await this.gl('GET', `/groups/${this.pid(g)}`);
+      } catch (e) {
+        if (status(e) === 404 || status(e) === 403) return { ok: false, reason: `GitLab can’t find the group ${g}, or ${me.username} can’t see it. Check the spelling (group or group/subgroup) and that ${me.username} is a member.` };
+        return { ok: false, reason: (e as Error).message };
+      }
+    }
     return { ok: true, identity: me.username };
   }
 
   async searchRepos(q: string): Promise<Repo[]> {
-    // Scope to the configured projects; match by substring. Fetch each once.
-    const matches = this.cfg.repos.filter((rp) => rp.toLowerCase().includes(q.toLowerCase()));
-    const out: Repo[] = [];
-    for (const rp of matches) out.push(this.toRepo(await this.gl<GlProject>('GET', `/projects/${this.pid(rp)}`)));
-    return out;
+    const needle = q.toLowerCase();
+    if (!this.cfg.groups?.length) {
+      // Scope to the configured projects; match by substring. Fetch each once.
+      const matches = this.cfg.repos.filter((rp) => rp.toLowerCase().includes(needle));
+      const out: Repo[] = [];
+      for (const rp of matches) out.push(this.toRepo(await this.gl<GlProject>('GET', `/projects/${this.pid(rp)}`)));
+      return out;
+    }
+    return (await this.listAll()).filter((r) => r.path.toLowerCase().includes(needle));
+  }
+
+  /** Every project in the configured groups (minus excludes) plus the explicit repos, cached. */
+  private async listAll(): Promise<Repo[]> {
+    if (this.listed && Date.now() - this.listed.at < LIST_TTL_MS) return this.listed.repos;
+    const exclude = (this.cfg.exclude ?? []).map(pathGlob);
+    const byPath = new Map<string, Repo>();
+    for (const g of this.cfg.groups ?? []) {
+      // The list items carry everything toRepo needs, so no per-project GET.
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const params = new URLSearchParams({
+          include_subgroups: 'true', archived: 'false', with_shared: 'false',
+          min_access_level: String(DEVELOPER), per_page: '100', page: String(page),
+        });
+        const ps = await this.gl<GlProject[]>('GET', `/groups/${this.pid(g)}/projects?${params}`);
+        for (const p of ps) {
+          if (exclude.some((re) => re.test(p.path_with_namespace))) continue;
+          byPath.set(p.path_with_namespace, this.toRepo(p));
+        }
+        if (ps.length < 100) break;
+      }
+    }
+    // An explicit GITLAB_REPOS entry always wins over an exclude.
+    for (const rp of this.cfg.repos) {
+      const r = this.toRepo(await this.gl<GlProject>('GET', `/projects/${this.pid(rp)}`));
+      byPath.set(r.path, r);
+    }
+    const repos = [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+    this.listed = { at: Date.now(), repos };
+    return repos;
   }
 
   async getRepo(idOrPath: string): Promise<Repo> {

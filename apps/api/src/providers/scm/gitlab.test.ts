@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { GitlabScmProvider, type GitlabScmConfig } from './gitlab.js';
+import { GitlabScmProvider, pathGlob, type GitlabScmConfig } from './gitlab.js';
 import { ASF_COMMENT_MARKER, type Repo } from '@asf/shared';
 
 const PROJECT_JSON = {
@@ -25,7 +25,7 @@ const MR_JSON = {
   diff_refs: { base_sha: 'basesha', head_sha: 'headsha', start_sha: 'startsha' },
   head_pipeline: { status: 'running' },
 };
-const REPO: Repo = { id: 'acme/scratch', path: 'acme/scratch', url: PROJECT_JSON.web_url, defaultBranch: 'main', cloneUrl: PROJECT_JSON.http_url_to_repo };
+const REPO: Repo = { id: 'acme/scratch', path: 'acme/scratch', url: PROJECT_JSON.web_url, defaultBranch: 'main', cloneUrl: PROJECT_JSON.http_url_to_repo, description: null };
 
 const cfg = (over: Partial<GitlabScmConfig> = {}): GitlabScmConfig => ({
   baseUrl: 'https://gitlab.com', token: 'gltok', repos: ['acme/scratch'], ...over,
@@ -301,4 +301,133 @@ test('changedFiles stops paging once the 500 cap is reached', async () => {
     assert.equal(files.length, 500);
     assert.equal(s.calls.length, 5);
   } finally { s.restore(); }
+});
+
+// ---------------------------------------------------------------- GITLAB_GROUPS discovery
+
+const glProject = (path: string, over: Record<string, unknown> = {}) => ({
+  ...PROJECT_JSON, id: path.length, path_with_namespace: path, web_url: `https://gitlab.com/${path}`,
+  http_url_to_repo: `https://gitlab.com/${path}.git`, description: `about ${path}`, ...over,
+});
+
+/** Serves GET /groups/:g/projects in pages of 100 from `groups`, and GET /projects/:p from `projects`. */
+function stubGroups(groups: Record<string, string[]>, projects: Record<string, unknown> = {}) {
+  const calls: string[] = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => {
+    calls.push(String(url));
+    const u = new URL(String(url));
+    const reply = (status: number, json: unknown) =>
+      ({ ok: status < 400, status, json: async () => json, text: async () => JSON.stringify(json) }) as Response;
+    const g = /\/api\/v4\/groups\/([^/]+)\/projects$/.exec(u.pathname);
+    if (g) {
+      const all = groups[decodeURIComponent(g[1])] ?? [];
+      const start = (Number(u.searchParams.get('page')) - 1) * 100;
+      return reply(200, all.slice(start, start + 100).map((p) => glProject(p)));
+    }
+    const pr = /\/api\/v4\/projects\/([^/]+)$/.exec(u.pathname);
+    if (pr && projects[decodeURIComponent(pr[1])]) return reply(200, projects[decodeURIComponent(pr[1])]);
+    return reply(404, { message: '404 Not Found' });
+  }) as typeof fetch;
+  return { calls, restore: () => { globalThis.fetch = orig; } };
+}
+
+test('searchRepos with only GITLAB_REPOS fetches just the matching configured projects', async () => {
+  const s = stubFetch([{ m: 'GET', re: /\/projects\/acme%2Fscratch$/, json: PROJECT_JSON }]);
+  try {
+    const p = new GitlabScmProvider(cfg({ repos: ['acme/scratch', 'acme/other'] }));
+    assert.deepEqual(await p.searchRepos('scr'), [REPO]);
+    assert.deepEqual(s.calls.map((c) => c.url), ['https://gitlab.com/api/v4/projects/acme%2Fscratch']);
+  } finally { s.restore(); }
+});
+
+test('GITLAB_GROUPS pages the group listing with the right params and no per-project GETs', async () => {
+  const many = Array.from({ length: 150 }, (_, i) => `acme/p${String(i).padStart(3, '0')}`);
+  const s = stubGroups({ acme: many });
+  try {
+    const repos = await new GitlabScmProvider(cfg({ repos: [], groups: ['acme'] })).searchRepos('');
+    assert.equal(repos.length, 150);
+    assert.deepEqual(repos.slice(0, 2).map((r) => r.path), ['acme/p000', 'acme/p001']);
+    assert.equal(repos[0].description, 'about acme/p000');
+    assert.equal(repos[0].cloneUrl, 'https://gitlab.com/acme/p000.git');
+    assert.equal(s.calls.length, 2, 'two pages, nothing else');
+    const u = new URL(s.calls[0]);
+    assert.equal(u.pathname, '/api/v4/groups/acme/projects');
+    assert.deepEqual(Object.fromEntries(u.searchParams), {
+      include_subgroups: 'true', archived: 'false', with_shared: 'false',
+      min_access_level: '30', per_page: '100', page: '1',
+    });
+    assert.equal(new URL(s.calls[1]).searchParams.get('page'), '2');
+    assert.ok(!s.calls.some((c) => c.includes('/api/v4/projects/')));
+  } finally { s.restore(); }
+});
+
+test('exclude globs drop group projects; explicit GITLAB_REPOS entries merge, dedupe and are never excluded', async () => {
+  const s = stubGroups(
+    { acme: ['acme/web', 'acme/web-sandbox', 'acme/archive/old', 'acme/archive/deep/older', 'acme/api'], tools: ['tools/cli'] },
+    { 'acme/archive/old': glProject('acme/archive/old'), 'acme/api': glProject('acme/api') },
+  );
+  try {
+    const p = new GitlabScmProvider(cfg({
+      repos: ['acme/archive/old', 'acme/api'], groups: ['acme', 'tools'], exclude: ['acme/archive/**', 'acme/*-sandbox'],
+    }));
+    assert.deepEqual((await p.searchRepos('')).map((r) => r.path), ['acme/api', 'acme/archive/old', 'acme/web', 'tools/cli']);
+    assert.deepEqual((await p.searchRepos('WEB')).map((r) => r.path), ['acme/web']);
+  } finally { s.restore(); }
+});
+
+test('the discovered list is cached: a second search makes no requests', async () => {
+  const s = stubGroups({ acme: ['acme/web', 'acme/api'] });
+  try {
+    const p = new GitlabScmProvider(cfg({ repos: [], groups: ['acme'] }));
+    await p.searchRepos('web');
+    const n = s.calls.length;
+    assert.deepEqual((await p.searchRepos('api')).map((r) => r.path), ['acme/api']);
+    assert.equal(s.calls.length, n);
+  } finally { s.restore(); }
+});
+
+test('deep paths are url-encoded in group and project paths', async () => {
+  const s = stubGroups({ 'a/b/c': ['a/b/c/d'] }, { 'a/b/c/d': glProject('a/b/c/d') });
+  try {
+    await new GitlabScmProvider(cfg({ repos: ['a/b/c/d'], groups: ['a/b/c'] })).searchRepos('');
+    assert.ok(s.calls.some((c) => c.startsWith('https://gitlab.com/api/v4/groups/a%2Fb%2Fc/projects?')));
+    assert.ok(s.calls.includes('https://gitlab.com/api/v4/projects/a%2Fb%2Fc%2Fd'));
+  } finally { s.restore(); }
+});
+
+test('preflight checks each group and names a missing or hidden one in plain words', async () => {
+  for (const status of [404, 403]) {
+    const s = stubFetch([
+      { m: 'GET', re: /\/user$/, json: { username: 'octocat' } },
+      { m: 'GET', re: /\/projects\/acme%2Fscratch$/, json: PROJECT_JSON },
+      { m: 'GET', re: /\/groups\/acme$/, json: { id: 1 } },
+      { m: 'GET', re: /\/groups\/acme%2Fgone$/, status, json: { message: 'Not Found' } },
+    ]);
+    try {
+      const r = await new GitlabScmProvider(cfg({ groups: ['acme', 'acme/gone'] })).preflight();
+      assert.deepEqual(r, { ok: false, reason: 'GitLab can’t find the group acme/gone, or octocat can’t see it. Check the spelling (group or group/subgroup) and that octocat is a member.' });
+      assert.equal(s.calls[0].url, 'https://gitlab.com/api/v4/user');
+    } finally { s.restore(); }
+  }
+  const s = stubFetch([
+    { m: 'GET', re: /\/user$/, json: { username: 'octocat' } },
+    { m: 'GET', re: /\/projects\/acme%2Fscratch$/, json: PROJECT_JSON },
+    { m: 'GET', re: /\/groups\/acme$/, json: { id: 1 } },
+  ]);
+  try {
+    assert.deepEqual(await new GitlabScmProvider(cfg({ groups: ['acme'] })).preflight(), { ok: true, identity: 'octocat' });
+  } finally { s.restore(); }
+});
+
+test('pathGlob: * stays within a segment, ** crosses segments, the whole path must match', () => {
+  assert.ok(pathGlob('acme/*').test('acme/web'));
+  assert.ok(!pathGlob('acme/*').test('acme/sub/web'));
+  assert.ok(pathGlob('acme/**').test('acme/sub/web'));
+  assert.ok(pathGlob('acme/**/web').test('acme/web'));
+  assert.ok(pathGlob('acme/**/web').test('acme/a/b/web'));
+  assert.ok(!pathGlob('acme/**/web').test('acme/a/b/webby'));
+  assert.ok(pathGlob('*-sandbox').test('x-sandbox'));
+  assert.ok(!pathGlob('web').test('acme/web'), 'anchored');
+  assert.ok(!pathGlob('acme.web').test('acmexweb'), 'dots are literal');
 });

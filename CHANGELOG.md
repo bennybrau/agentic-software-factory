@@ -8,6 +8,11 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **GitLab group discovery.** Set `GITLAB_GROUPS` (e.g. `acme,acme/platform`) and the repo picker
+  offers every project in those groups and their subgroups where the token can push, instead of
+  listing each one in `GITLAB_REPOS`. `GITLAB_REPO_EXCLUDE` leaves projects out by glob (`*` within
+  one path segment, `**` across them); projects named in `GITLAB_REPOS` are always kept. The list
+  is cached for 5 minutes, and the connection check says plainly when a group can't be found.
 - **Move a run to another repository from its run page.** While a run is waiting (queued, or at a
   gate or a question) and has no pull request, **Move to another repo** picks another connected
   repository, with an optional note and a Confirm step; the team starts again from the planner

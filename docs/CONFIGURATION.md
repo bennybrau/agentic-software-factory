@@ -85,6 +85,8 @@ Every decision is a named setting resolved **environment variable > org setting 
 | `GITLAB_BASE_URL` | string | `https://gitlab.com` | env, org | api | GitLab instance base URL (self-managed or gitlab.com). |
 | `GITLAB_TOKEN` | string | *(secret)* | env, org | api | GitLab: PAT with api scope (Developer+ on the target projects). Also used, only against the GITLAB_BASE_URL host, to read skills from private repositories (read_repository is enough for that). |
 | `GITLAB_REPOS` | string | *(blank)* | env, org | api | GitLab: comma-separated group/repo (path_with_namespace) the backlog and repo picker cover. |
+| `GITLAB_GROUPS` | string | *(blank)* | env, org | api | GitLab: comma-separated group paths (e.g. "acme" or "acme/platform"). Every project in them and their subgroups where the token has Developer+ access is offered in the repo picker, alongside GITLAB_REPOS. The list is cached for 5 minutes. |
+| `GITLAB_REPO_EXCLUDE` | string | *(blank)* | env, org | api | GitLab: comma-separated globs of project paths to leave out of GITLAB_GROUPS discovery (e.g. "acme/archive/**,acme/*-sandbox"). "*" matches within one path segment, "**" across segments. Projects listed in GITLAB_REPOS are never excluded. |
 
 ## Ticket workflow
 

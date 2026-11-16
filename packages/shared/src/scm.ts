@@ -7,6 +7,8 @@ export const repoSchema = z.object({
   url: z.string(),           // provider web URL, copied
   defaultBranch: z.string(),
   cloneUrl: z.string(),
+  /** The provider's project description, when it has one. Absent on older payloads. */
+  description: z.string().nullable().optional(),
   /** M12: the SCM connection this repo came from (see refs.ts). Absent on pre-M12 payloads. */
   connection: z.string().optional(),
 });

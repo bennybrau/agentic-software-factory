@@ -10,3 +10,7 @@ coverage/
 .hermes/
 .hermes-run/
 backups/
+
+# Playwright output (apps/web/e2e)
+apps/web/e2e/screenshots/
+apps/web/e2e/test-results/

@@ -8,6 +8,12 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Repositories grouped by code host, with host and tracker badges.** With more than one code
+  host connected, every repository picker (Start, and the Planned tasks confirm panel) groups the
+  repositories under each host's name and shows a `GitHub`/`GitLab` badge for the chosen one, and
+  "why this repository" reasons say which host (`acme/web on GitLab`). With several trackers a
+  run's page and Activity show which tracker it came from; a run's page shows the host beside its
+  change request. With one of each nothing changes.
 - **Planned tasks lists several trackers side by side.** With more than one tracker connected,
   a Source filter (All, or one tracker) sits before Team and is kept with the other filters, and
   each row carries a small badge (`Jira`, `GitHub`). All asks each tracker on its own, so a slow

@@ -374,6 +374,24 @@ test('the tracker\'s own repository wins over a mention, with its reason', async
   assert.deepEqual(p.mentionedRepoIds, ['acme/platform/web/shared-ui']);
 });
 
+test('with several code hosts the preview reason names the repository\'s host; with one it does not', async () => {
+  const hostScm = (kind: 'github' | 'gitlab', paths: string[]) => Object.assign(new ManyReposScm(paths.map(glRepo)), { kind });
+  const twoHosts = new ScmSet(async (k) => hostScm(k as 'github' | 'gitlab', k === 'gitlab' ? ['acme/platform/web/shared-ui'] : ['acme/web']), () => ['gitlab', 'github']).live;
+  const tickets = new MockTicketProvider();
+  await tickets.update('asf-1', { title: 'Header overlaps in shared-ui', body: '' });
+  const a = Fastify();
+  registerDispatchRoutes(a, { tickets, scm: twoHosts });
+  await a.ready();
+  const res = await a.inject({ method: 'GET', url: '/api/tickets/asf-1/dispatch' });
+  assert.equal(res.json().suggestedRepoId, 'gitlab:acme/platform/web/shared-ui');
+  assert.equal(res.json().suggestedRepoReason, 'The ticket title mentions shared-ui on GitLab.');
+  const q = await a.inject({ method: 'POST', url: '/api/tickets/repo-preview', payload: { ids: ['asf-1'] } });
+  assert.equal(q.json().previews[0].reason, 'The ticket title mentions shared-ui on GitLab.');
+  await a.close();
+  const one = await previewFor(tickets, 'asf-1');
+  assert.equal(one.suggestedRepoReason, 'The ticket title mentions shared-ui.');
+});
+
 // --- M8 WP D: model catalogue as data, filtered by what the live fleet runs ---
 import { registerAdminRoutes } from './admin.js';
 import { TicketSet } from '../providers/tickets/set.js';

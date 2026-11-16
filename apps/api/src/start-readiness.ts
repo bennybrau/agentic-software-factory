@@ -1,4 +1,4 @@
-import { parseRef, sameRef, ticketReposMentioned, type RepoMention } from '@asf/shared';
+import { connectionLabel, parseRef, sameRef, ticketReposMentioned, type RepoMention } from '@asf/shared';
 import type { Repo, ScmProvider, Ticket, TicketProvider } from '@asf/shared';
 import type { ScmHostState, ScmSetReadiness } from './providers/scm/set.js';
 
@@ -67,9 +67,19 @@ export function repoFromMentions(mentioned: RepoMention[]): RepoMention | null {
   return inTitle.length === 1 ? inTitle[0] : null;
 }
 
+/**
+ * A repository in words, naming its code host when there are several
+ * (`acme/web on GitLab`), so a reason doesn't leave a person guessing which acme/web.
+ */
+export function repoOnHost(repo: { id: string; path: string; connection?: string }, hostCount: number): string {
+  if (hostCount <= 1) return repo.path;
+  const host = repo.connection ?? parseRef(repo.id, '').connection;
+  return host ? `${repo.path} on ${connectionLabel(host)}` : repo.path;
+}
+
 /** Why the ticket's text picked `m`, in words a person reads. */
-export function mentionReason(m: RepoMention): string {
-  return `The ticket ${m.where === 'title' ? 'title' : 'description'} mentions ${m.name}.`;
+export function mentionReason(m: RepoMention, hostCount = 1): string {
+  return `The ticket ${m.where === 'title' ? 'title' : 'description'} mentions ${repoOnHost({ id: m.id, path: m.name }, hostCount)}.`;
 }
 
 /** The refusal when several repositories are connected and nothing settles one. */
@@ -131,16 +141,17 @@ export type RepoPreview = { ticketId: string; repoId: string | null; reason: str
  * Where a queued ticket would start, for the Planned tasks confirm panel: the same
  * order as pickRepo with nothing requested, against the connected repositories only
  * (no per-ticket SCM lookup). repoId is null when a person has to choose. A bare
- * suggested id belongs to `scmKind`, the default code connection.
+ * suggested id belongs to `scmKind`, the default code connection. With several code
+ * hosts (`hostCount`) a reason names the repository's host.
  */
-export function previewRepo(tickets: TicketProvider, ticket: Ticket, repos: Repo[], scmKind = ''): RepoPreview {
+export function previewRepo(tickets: TicketProvider, ticket: Ticket, repos: Repo[], scmKind = '', hostCount = 1): RepoPreview {
   const mentioned = ticketReposMentioned(ticket, repos);
   const base = { ticketId: ticket.id, mentionedRepoIds: mentioned.map((m) => m.id) };
   const suggested = tickets.suggestedRepo?.(ticket) ?? null;
   const own = suggested ? repos.find((r) => sameRef(r.id, suggested, scmKind) || r.path === suggested) : undefined;
-  if (own) return { ...base, repoId: own.id, reason: `This ticket belongs to ${own.path}.` };
+  if (own) return { ...base, repoId: own.id, reason: `This ticket belongs to ${repoOnHost(own, hostCount)}.` };
   const settled = repoFromMentions(mentioned);
-  if (settled) return { ...base, repoId: settled.id, reason: mentionReason(settled) };
-  if (repos.length === 1) return { ...base, repoId: repos[0].id, reason: `${repos[0].path} is the only repository connected.` };
+  if (settled) return { ...base, repoId: settled.id, reason: mentionReason(settled, hostCount) };
+  if (repos.length === 1) return { ...base, repoId: repos[0].id, reason: `${repoOnHost(repos[0], hostCount)} is the only repository connected.` };
   return { ...base, repoId: null, reason: ambiguous(ticket, repos, mentioned).reason };
 }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TicketScope } from '@asf/shared';
-import { BACKLOG_FILTERS_KEY, loadBacklogFilters, NO_FILTERS, restoreScope, saveBacklogFilters, type FilterStore, latestOnly, nextSort, sortTickets } from './backlog-filters';
+import { BACKLOG_FILTERS_KEY, loadBacklogFilters, NO_FILTERS, restoreScope, restoreSource, trackerInEffect, sourceStatusLine, saveBacklogFilters, type FilterStore, latestOnly, nextSort, sortTickets } from './backlog-filters';
 
 function memStore(init?: string): FilterStore & { map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -16,7 +16,7 @@ const scopes = [board('b1', 'Payments', 'scrum'), board('b2', 'Payments', 'kanba
 
 test('every filter round-trips', () => {
   const s = memStore();
-  const f = { team: 'Payments', scope: 'b1', sprint: '42', status: ['To Do', 'In Review'], bucket: 'inflight', showDone: true, sortBy: 'priority' as const, sortDir: 'desc' as const };
+  const f = { source: 'jira', team: 'Payments', scope: 'b1', sprint: '42', status: ['To Do', 'In Review'], bucket: 'inflight', showDone: true, sortBy: 'priority' as const, sortDir: 'desc' as const };
   saveBacklogFilters(f, s);
   assert.deepEqual(loadBacklogFilters(s), f);
 });
@@ -33,12 +33,12 @@ test('nothing saved, garbage, or no storage loads as no filters', () => {
 
 test('filters saved by the previous version (no bucket/showDone) still load', () => {
   const f = loadBacklogFilters(memStore(JSON.stringify({ team: 'Payments', scope: 'b2', sprint: '', status: ['Done'] })));
-  assert.deepEqual(f, { team: 'Payments', scope: 'b2', sprint: '', status: ['Done'], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' });
+  assert.deepEqual(f, { source: '', team: 'Payments', scope: 'b2', sprint: '', status: ['Done'], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' });
 });
 
 test('malformed fields are dropped one by one', () => {
-  const f = loadBacklogFilters(memStore(JSON.stringify({ team: 7, scope: 'b1', status: ['ok', 3, null], bucket: 'done', showDone: 'yes', sortBy: 'title', sortDir: 'up' })));
-  assert.deepEqual(f, { team: '', scope: 'b1', sprint: '', status: ['ok'], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' });
+  const f = loadBacklogFilters(memStore(JSON.stringify({ source: 3, team: 7, scope: 'b1', status: ['ok', 3, null], bucket: 'done', showDone: 'yes', sortBy: 'title', sortDir: 'up' })));
+  assert.deepEqual(f, { source: '', team: '', scope: 'b1', sprint: '', status: ['ok'], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' });
 });
 
 test('saving to storage that throws is ignored', () => {
@@ -120,4 +120,30 @@ test('sortTickets: ties keep the tracker order, and the input is not changed', (
   const rows = [row('B-2', 2), row('B-1', 2), row('B-3', 1)];
   assert.deepEqual(keys(sortTickets(rows, 'priority', 'asc')), ['B-3', 'B-2', 'B-1']);
   assert.deepEqual(keys(rows), ['B-2', 'B-1', 'B-3']);
+});
+
+test('restoreSource: a saved tracker that is no longer connected falls back to all', () => {
+  assert.equal(restoreSource('github', ['jira', 'github']), 'github');
+  assert.equal(restoreSource('github', ['jira', 'trello']), '');
+  assert.equal(restoreSource('', ['jira', 'github']), '');
+  assert.equal(restoreSource('jira', []), '');
+});
+
+test('trackerInEffect: the chosen tracker, else the only one, else none', () => {
+  assert.equal(trackerInEffect('github', ['jira', 'github']), 'github');
+  assert.equal(trackerInEffect('', ['jira', 'github']), null);
+  assert.equal(trackerInEffect('trello', ['jira', 'github']), null, 'a tracker not connected is not in effect');
+  assert.equal(trackerInEffect('', ['jira']), 'jira');
+  assert.equal(trackerInEffect('github', ['jira']), 'jira');
+  assert.equal(trackerInEffect('', []), null);
+});
+
+test('sourceStatusLine: names the trackers still loading or failed', () => {
+  assert.equal(sourceStatusLine([]), '');
+  assert.equal(sourceStatusLine([{ connection: 'jira', state: 'ok' }, { connection: 'github', state: 'ok' }]), '');
+  assert.equal(sourceStatusLine([{ connection: 'jira', state: 'loading' }, { connection: 'github', state: 'ok' }]), 'Jira: loading…');
+  assert.equal(
+    sourceStatusLine([{ connection: 'jira', state: 'loading' }, { connection: 'github', state: 'failed', reason: 'Bad credentials' }]),
+    'Jira: loading… · GitHub: couldn’t load: Bad credentials',
+  );
 });

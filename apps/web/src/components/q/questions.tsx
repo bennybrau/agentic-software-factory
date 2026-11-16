@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import {
   MODELS, PIPELINE_STAGES, QUESTIONS, detectApprovalPreset, applyApprovalPreset, setFactoryMerges, effectiveStages, detectTeamAi, teamAiWrites,
   MODEL_GROUPS, OLLAMA_CLOUD_USAGE_URL, modelGroup, teamAis, runtimeForPick, allowlistWith,
-  connectionList, ticketProviderKindSchema, scmProviderKindSchema,
+  connectionLabel, connectionList, ticketProviderKindSchema, scmProviderKindSchema,
   BUDGET_PRESETS, detectBudgetPreset, subscriptionSharingWarning, vertexWrites, vertexTier, CLAUDE_TERMS_URL, CLAUDE_USAGE_DOC_URL, type ApprovalPreset, type PipelineStage, type StageConfig,
 } from '@asf/shared/ui';
 import { api } from '../../api';
@@ -83,8 +83,8 @@ const TOKEN: Record<string, { key: string; name: string }> = {
 const tokenHealth = (b: ByKey, kind: string) => (TOKEN[kind] ? <HealthNote s={b[TOKEN[kind].key]} name={TOKEN[kind].name} /> : null);
 const tokenNeedsFix = (b: ByKey, kind: string) => !!TOKEN[kind] && needsFix(b[TOKEN[kind].key]);
 
-const TRACKER_LABEL: Record<string, string> ={ github: 'GitHub', jira: 'Jira', trello: 'Trello', mock: 'Sample tickets', gitlab: 'GitLab', linear: 'Linear', monday: 'monday.com', todoist: 'Todoist' };
-const label = (kind: string) => TRACKER_LABEL[kind] ?? kind;
+// Setup keeps its own "Sample tickets" wording for practice mode.
+const label = (kind: string) => (kind === 'mock' ? 'Sample tickets' : connectionLabel(kind));
 
 /** The saved ticket connections (M12): TICKET_PROVIDERS, else TICKET_PROVIDER, the default first. */
 export const ticketConnections = (b: ByKey): string[] =>

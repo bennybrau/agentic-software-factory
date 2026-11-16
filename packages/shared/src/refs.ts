@@ -27,6 +27,16 @@ export function connectionKind(id: string): string {
   return id;
 }
 
+const CONNECTION_LABEL: Record<string, string> = {
+  mock: 'Sample', jira: 'Jira', github: 'GitHub', gitlab: 'GitLab', trello: 'Trello',
+  monday: 'monday.com', linear: 'Linear', todoist: 'Todoist', adhoc: 'Ad-hoc',
+};
+
+/** The name a person sees for a connection id (`Jira`, `GitHub`), read through its kind. Unknown ids come back unchanged. */
+export function connectionLabel(id: string): string {
+  return CONNECTION_LABEL[connectionKind(id)] ?? id;
+}
+
 /**
  * A comma list of connections (TICKET_PROVIDERS / SCM_PROVIDERS): split, trimmed,
  * deduped, keeping only names in `known`. Nothing left falls back to `single`

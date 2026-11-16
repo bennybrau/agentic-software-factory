@@ -8,6 +8,13 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Planned tasks lists several trackers side by side.** With more than one tracker connected,
+  a Source filter (All, or one tracker) sits before Team and is kept with the other filters, and
+  each row carries a small badge (`Jira`, `GitHub`). All asks each tracker on its own, so a slow
+  or failing one shows "GitHub: couldn't load: …" without emptying the others. Board, sprint and
+  status controls appear when one tracker is chosen. A tracker added in Settings shows up within
+  30 seconds. With one tracker the page is unchanged. `GET /api/connections` names the connected
+  trackers and code hosts.
 - **Pick several trackers and code hosts in Settings.** "Where do your tickets live?" and "Where
   does your code live?" now let you tick more than one (for example Jira and GitHub). Each one
   gets its own form, its own "Save and check it works" and its own token warning, and the first

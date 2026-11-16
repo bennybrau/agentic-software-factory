@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { AdhocTask, TicketScope, TicketSprint, WorkQueueEntry } from '@asf/shared';
-import { keyPrefixes, looksLikeTicketRef, nativeId, ticketMatches } from '@asf/shared/ui';
+import { connectionLabel, keyPrefixes, looksLikeTicketRef, nativeId, ticketMatches } from '@asf/shared/ui';
 import { api, encodeTicketId, subscribeEvents, type Fleet, type TicketRow } from '../api';
 import { useQuery } from '@tanstack/react-query';
 import { removeAdhoc } from '../new-task';
-import { BUCKETS, latestOnly, loadBacklogFilters, nextSort, restoreScope, saveBacklogFilters, sortTickets, type SortKey } from '../backlog-filters';
+import { BUCKETS, latestOnly, loadBacklogFilters, nextSort, restoreScope, restoreSource, saveBacklogFilters, sortTickets, sourceStatusLine, trackerInEffect, type SortKey, type SourceState } from '../backlog-filters';
 import { checkedAgo } from '../updates-view';
 import { NoRepo } from './Dispatch';
 import { chooseForAll, chooseRepo, initialChoices, needsRepoConfirm, queueItems, stillNeedRepo, type QueueChoice } from '../queue-repos';
@@ -62,6 +62,26 @@ export function Backlog() {
   const [done, setDone] = useState<TicketRow[]>([]);
   const [doneLoading, setDoneLoading] = useState(false);
 
+  // The connected trackers, re-read so one added in Settings shows up without a reload.
+  // With one tracker (or an api that doesn't say) the page and its requests are as before;
+  // with several there is a Source filter, and All lists each tracker side by side.
+  const { data: conns, isSuccess: connsLoaded, isError: connsFailed } = useQuery({ queryKey: ['connections'], queryFn: api.connections, refetchInterval: 30_000 });
+  const connsReady = connsLoaded || connsFailed;
+  const trackersKey = (conns?.tickets ?? []).join(',');
+  const trackers = useMemo(() => (trackersKey ? trackersKey.split(',') : []), [trackersKey]);
+  const several = trackers.length > 1;
+  const [source, setSource] = useState(saved.source); // '' = all trackers
+  // A saved (or chosen) tracker that is no longer connected falls back to All.
+  useEffect(() => { if (connsLoaded) setSource((cur) => restoreSource(cur, trackers)); }, [connsLoaded, trackers]);
+  const inEffect = trackerInEffect(source, trackers);
+  const allSources = several && !inEffect;
+  // The tracker discovery asks: only named when several are connected, so one tracker's requests don't change.
+  const discoveryConn = several && inEffect ? inEffect : undefined;
+  // Which tracker's boards the board/sprint/status state belongs to (null until the trackers are known).
+  const discoveryKey = connsReady ? (allSources ? '*' : discoveryConn ?? '') : null;
+  const [sourceStates, setSourceStates] = useState<SourceState[]>([]);
+  const statusLine = several ? sourceStatusLine(sourceStates) : '';
+
   // Scope discovery (empty when the tracker doesn't support boards).
   const [scopes, setScopes] = useState<TicketScope[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
@@ -70,13 +90,18 @@ export function Backlog() {
   const [scope, setScope] = useState('');       // selected board/project id ('' = all in team/scope)
   const [sprint, setSprint] = useState('');      // '' = all board issues, 'active', 'backlog', or a sprint id
   const [statusSel, setStatusSel] = useState<Set<string>>(() => new Set(saved.status));
-  // False until the saved team/board/sprint are applied: saving before then would
-  // overwrite them with the blank starting values.
-  const [scopeRestored, setScopeRestored] = useState(false);
+  // False until the saved team/board/sprint are applied to the tracker in effect: saving
+  // before then would overwrite them with the blank starting values. Kept per tracker
+  // (discoveryKey), so a change of source waits for that tracker's boards again.
+  const [restoredKey, setRestoredKey] = useState<string | null>(null);
+  const scopeRestored = discoveryKey !== null && restoredKey === discoveryKey;
   // True once the tracker's boards have been checked (restored, or the tracker
   // didn't answer). Tickets aren't loaded before then: a load with the blank
   // starting board would fetch every board and could answer after the filtered one.
-  const [scopesChecked, setScopesChecked] = useState(false);
+  const [checkedKey, setCheckedKey] = useState<string | null>(null);
+  const scopesChecked = discoveryKey !== null && checkedKey === discoveryKey;
+  // The last team/board/sprint chosen (or saved), restored against the next tracker's boards.
+  const where = useRef({ team: saved.team, scope: saved.scope, sprint: saved.sprint });
 
   const selectedScope = useMemo(() => scopes.find((s) => s.id === scope), [scopes, scope]);
   const isScrum = selectedScope?.kind === 'board' && selectedScope.boardType === 'scrum';
@@ -89,57 +114,71 @@ export function Backlog() {
     return [];
   }, [scope, team, scopes]);
 
-  // Discover scopes + statuses once, then restore the persisted selection (validated against what exists now).
+  // Discover the tracker in effect's scopes, then restore the persisted selection (validated
+  // against what exists now). Again whenever the tracker in effect changes. With several
+  // trackers listed together there is no one tracker's boards to choose from.
   useEffect(() => {
-    void api.ticketScopes().then((sc) => {
+    if (discoveryKey === null) return;
+    if (discoveryKey === '*') {
+      setScopes([]); setStatuses([]);
+      setRestoredKey(discoveryKey); setCheckedKey(discoveryKey);
+      return;
+    }
+    let alive = true;
+    void api.ticketScopes(discoveryConn).then((sc) => {
+      if (!alive) return;
       setScopes(sc);
-      const r = restoreScope(saved, sc);
+      const r = restoreScope(where.current, sc);
       setTeam(r.team); setScope(r.scope); setSprint(r.sprint);
-      setScopeRestored(true);
-    }).catch(() => setScopes([])) // the tracker didn't answer: keep the saved board for next time
-      .finally(() => setScopesChecked(true));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      setRestoredKey(discoveryKey);
+    }).catch(() => { if (alive) setScopes([]); }) // the tracker didn't answer: keep the saved board for next time
+      .finally(() => { if (alive) setCheckedKey(discoveryKey); });
+    return () => { alive = false; };
+  }, [discoveryKey, discoveryConn]);
 
   // The status choices follow the board selection: one board offers only the
   // statuses on its columns; no single board (all, or a team) offers the union
   // over the configured boards. A checked status the new list doesn't have is
   // dropped, so a hidden filter can't silently empty the board.
   useEffect(() => {
-    if (!scopeRestored) return;
+    if (!scopeRestored || allSources) return;
     let alive = true;
-    void api.ticketStatuses(scope || undefined).then((st) => {
+    void api.ticketStatuses(scope || undefined, discoveryConn).then((st) => {
       if (!alive) return;
       setStatuses(st);
-      if (st.length) setStatusSel((cur) => { const kept = [...cur].filter((x) => st.includes(x)); return kept.length === cur.size ? cur : new Set(kept); });
+      // With several trackers, a tracker with no statuses drops the other one's choices too.
+      if (st.length || several) setStatusSel((cur) => { const kept = [...cur].filter((x) => st.includes(x)); return kept.length === cur.size ? cur : new Set(kept); });
     }).catch(() => { if (alive) setStatuses([]); });
     return () => { alive = false; };
-  }, [scope, scopeRestored]);
+  }, [scope, scopeRestored, allSources, discoveryConn, several]);
 
   // Load the sprint list for a Scrum board; drop a persisted sprint id that no longer exists back to 'active'.
   useEffect(() => {
-    if (!isScrum || !scope) { setSprints([]); return; }
+    if (!isScrum || !scope || !scopeRestored) { setSprints([]); return; }
     let alive = true;
-    void api.ticketSprints(scope).then((sp) => {
+    void api.ticketSprints(scope, discoveryConn).then((sp) => {
       if (!alive) return;
       setSprints(sp);
       setSprint((cur) => (['', 'active', 'backlog'].includes(cur) || sp.some((s) => s.id === cur) ? cur : 'active'));
     }).catch(() => { if (alive) setSprints([]); });
     return () => { alive = false; };
-  }, [scope, isScrum]);
+  }, [scope, isScrum, scopeRestored, discoveryConn]);
 
   // Save the filters whenever they change.
   useEffect(() => {
-    const where = scopeRestored ? { team, scope, sprint } : { team: saved.team, scope: saved.scope, sprint: saved.sprint };
-    saveBacklogFilters({ ...where, status: [...statusSel], bucket, showDone, ...sort });
-  }, [scopeRestored, team, scope, sprint, statusSel, bucket, showDone, sort, saved]);
+    // A tracker without boards (or All) keeps the last board chosen, for when that tracker is back.
+    if (scopeRestored && scopes.length) where.current = { team, scope, sprint };
+    saveBacklogFilters({ source, ...where.current, status: [...statusSel], bucket, showDone, ...sort });
+  }, [source, scopeRestored, scopes, team, scope, sprint, statusSel, bucket, showDone, sort]);
 
   const statusKey = useMemo(() => [...statusSel].sort().join(','), [statusSel]);
-  const scopeQuery = useMemo(() => ({
+  // Board, sprint and status belong to one tracker: none apply when several are listed together.
+  const scopeQuery = useMemo(() => (allSources ? {} : {
+    ...(discoveryConn ? { connection: [discoveryConn] } : {}),
     scope: scopeIds,
     sprint: isScrum && sprint ? [sprint] : undefined,
     status: statusSel.size ? [...statusSel] : undefined,
-  }), [scopeIds, isScrum, sprint, statusSel]);
+  }), [allSources, discoveryConn, scopeIds, isScrum, sprint, statusSel]);
 
   // Active work only — done is excluded server-side so the board doesn't pay to fetch
   // (and ADF-convert) finished issues. Search/bucket/paging are client-side over this set.
@@ -149,13 +188,38 @@ export function Backlog() {
   const load = () => {
     const isLatest = nextLoad();
     setLoading(true); setErr(null);
-    return api.tickets({ ...scopeQuery, excludeDone: true, limit: 200 })
-      .then((d) => { if (isLatest()) { setTickets(d.tickets); setPage(0); } })
-      .catch((e) => { if (isLatest()) setErr(String(e)); })
-      .finally(() => { if (isLatest()) setLoading(false); });
+    if (!allSources) {
+      if (several && inEffect) setSourceStates([{ connection: inEffect, state: 'loading' }]);
+      return api.tickets({ ...scopeQuery, excludeDone: true, limit: 200 })
+        .then((d) => {
+          if (!isLatest()) return;
+          setTickets(d.tickets); setPage(0);
+          setSourceStates((d.sources ?? []).map((s): SourceState => (s.ok ? { connection: s.connection, state: 'ok' } : { connection: s.connection, state: 'failed', reason: s.reason ?? 'unknown error' })));
+        })
+        .catch((e) => { if (isLatest()) { setErr(String(e)); setSourceStates([]); } })
+        .finally(() => { if (isLatest()) setLoading(false); });
+    }
+    // All trackers: one request each, in parallel, so a slow one doesn't hold up the
+    // others and a failed one doesn't empty them. Rows merge in connection order.
+    const got = new Map<string, TicketRow[]>();
+    const states = new Map<string, SourceState>(trackers.map((c) => [c, { connection: c, state: 'loading' }]));
+    const show = () => {
+      setTickets(trackers.flatMap((c) => got.get(c) ?? []));
+      setSourceStates(trackers.map((c) => states.get(c)!));
+      setLoading(false);
+    };
+    setSourceStates([...states.values()]); setPage(0);
+    return Promise.all(trackers.map((c) => api.tickets({ connection: [c], excludeDone: true, limit: 200 })
+      .then((d) => {
+        const s = d.sources?.find((x) => x.connection === c);
+        got.set(c, d.tickets);
+        states.set(c, s && !s.ok ? { connection: c, state: 'failed', reason: s.reason ?? 'unknown error' } : { connection: c, state: 'ok' });
+      })
+      .catch((e) => { got.set(c, []); states.set(c, { connection: c, state: 'failed', reason: (e as Error).message }); })
+      .finally(() => { if (isLatest()) show(); })));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (scopesChecked) load(); }, [scopesChecked, scope, team, sprint, statusKey, scopes]);
+  useEffect(() => { if (scopesChecked) load(); }, [scopesChecked, discoveryKey, trackersKey, scope, team, sprint, statusKey, scopes]);
 
   // Done, fetched only when asked and only for the recent window.
   useEffect(() => {
@@ -169,7 +233,7 @@ export function Backlog() {
       .finally(() => { if (alive) setDoneLoading(false); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDone, scopesChecked, scope, team, sprint, statusKey, scopes]);
+  }, [showDone, scopesChecked, discoveryKey, scope, team, sprint, statusKey, scopes]);
 
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleStatus = (name: string) => setStatusSel((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
@@ -200,12 +264,13 @@ export function Backlog() {
     setFinding(true);
     const timer = setTimeout(() => {
       api.findTickets(q, keyPrefixes(tickets.map((t) => t.key)))
-        .then((d) => { if (alive) setElsewhere(d.tickets.filter((t) => !tickets.some((x) => nativeId(x.id) === nativeId(t.id)))); })
+        // Find looks in every tracker; with a source chosen, only that tracker's answers are shown.
+        .then((d) => { if (alive) setElsewhere(d.tickets.filter((t) => (!discoveryConn || t.connection === discoveryConn) && !tickets.some((x) => nativeId(x.id) === nativeId(t.id)))); })
         .catch(() => { if (alive) setElsewhere([]); })
         .finally(() => { if (alive) setFinding(false); });
     }, 300);
     return () => { alive = false; clearTimeout(timer); };
-  }, [search, tickets]);
+  }, [search, tickets, discoveryConn]);
   useEffect(() => { setPage(0); }, [search, bucket, sort]);
 
   // A sortable column header: click to sort by it, click again to flip the direction.
@@ -265,7 +330,14 @@ export function Backlog() {
           <h2 style={{ margin: 0 }}>{TITLES.todo}</h2>
           {upNextCount && <span className="muted" style={{ whiteSpace: 'nowrap' }}>{upNextCount}</span>}
         </span>
-        <span className="row" style={{ gap: 8 }}>
+        {/* With a Source select too, the controls wrap rather than widen the page on a phone. */}
+        <span className="row" style={several ? { gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' } : { gap: 8 }}>
+          {several && (
+            <select value={source} onChange={(e) => setSource(e.target.value)} title="Source" aria-label="Source">
+              <option value="">All sources</option>
+              {trackers.map((c) => <option key={c} value={c}>{connectionLabel(c)}</option>)}
+            </select>
+          )}
           {teams.length > 0 && (
             <select value={team} onChange={(e) => onTeam(e.target.value)} title="Team">
               <option value="">All teams</option>
@@ -381,6 +453,7 @@ export function Backlog() {
         <span className="muted row" style={{ gap: 6 }}>
           {loading && <span className="spinner" aria-label="Loading" />}
           {loading ? 'Loading tickets…' : total > 0 ? `${from}–${to} of ${total} open` : 'No open tickets'}
+          {statusLine && <span className="source-status" style={{ overflowWrap: 'anywhere' }}>· {statusLine}</span>}
         </span>
       </div>
       <div className="card table-wrap" style={{ padding: 0 }}>
@@ -393,7 +466,7 @@ export function Backlog() {
                 <tr key={t.id} className="clickable" tabIndex={0} role="link" onClick={open}
                   onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); }}>
                   <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} /></td>
-                  <td className="mono">{t.key}</td>
+                  <td className="mono">{t.key}{several && t.connection && <> <span className="pill source">{connectionLabel(t.connection)}</span></>}</td>
                   <td>{t.title}</td>
                   <td><WherePill bucket={t.bucket} refused={refusalFor(refused, t.id)} /></td>
                   <td className="muted">{t.priority ?? '—'}</td>
@@ -407,7 +480,7 @@ export function Backlog() {
                 <tr key={`found:${t.id}`} className="clickable" tabIndex={0} role="link" onClick={open}
                   onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); }}>
                   <td />
-                  <td className="mono">{t.key}</td>
+                  <td className="mono">{t.key}{several && t.connection && <> <span className="pill source">{connectionLabel(t.connection)}</span></>}</td>
                   <td>{t.title} <span className="muted">(not in this view)</span></td>
                   <td>{t.bucket === 'done' ? <span className="pill done">{t.status}</span> : <WherePill bucket={t.bucket} refused={refusalFor(refused, t.id)} />}</td>
                   <td className="muted">{t.priority ?? '—'}</td>
@@ -447,7 +520,7 @@ export function Backlog() {
             <tbody>
               {done.map((t) => (
                 <tr key={t.id}>
-                  <td className="mono"><a href={t.url} target="_blank" rel="noreferrer">{t.key}</a></td>
+                  <td className="mono"><a href={t.url} target="_blank" rel="noreferrer">{t.key}</a>{several && t.connection && <> <span className="pill source">{connectionLabel(t.connection)}</span></>}</td>
                   <td>{t.title}</td>
                   <td><span className="pill done">{t.status}</span></td>
                 </tr>

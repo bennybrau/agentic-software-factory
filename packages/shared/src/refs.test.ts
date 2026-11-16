@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  KNOWN_CONNECTIONS, connectionKind, connectionList, formatRef, isKnownConnection, nativeId, parseRef, sameRef,
+  KNOWN_CONNECTIONS, connectionKind, connectionLabel, connectionList, formatRef, isKnownConnection, nativeId, parseRef, sameRef,
   repoSchema, ticketSchema,
 } from './index.js';
 
@@ -48,6 +48,15 @@ test('KNOWN_CONNECTIONS / isKnownConnection / connectionKind', () => {
   assert.equal(isKnownConnection('foo'), false);
   assert.equal(isKnownConnection('Jira'), false);
   assert.equal(connectionKind('github'), 'github');
+});
+
+test('connectionLabel: a name per kind, unknown ids unchanged', () => {
+  assert.equal(connectionLabel('jira'), 'Jira');
+  assert.equal(connectionLabel('github'), 'GitHub');
+  assert.equal(connectionLabel('gitlab'), 'GitLab');
+  assert.equal(connectionLabel('mock'), 'Sample');
+  for (const id of KNOWN_CONNECTIONS) assert.notEqual(connectionLabel(id), '', id);
+  assert.equal(connectionLabel('foo'), 'foo');
 });
 
 test('nativeId strips a known prefix only', () => {

@@ -121,6 +121,35 @@ export function Choices<V extends string>({ opts, value, onPick, column, disable
   );
 }
 
+/**
+ * Several connections (M12 WP4b): tick any number of chips. The first chosen is
+ * the default; with more than one, it carries a "Default" badge and the others a
+ * "Make default" button.
+ */
+export function ConnectionChips({ opts, value, onToggle, onMakeDefault, disabled }: {
+  opts: ChoiceOpt<string>[]; value: string[]; onToggle: (v: string) => void; onMakeDefault: (v: string) => void; disabled?: boolean;
+}) {
+  return (
+    <div className="conn-chips" role="group">
+      {opts.map((o) => {
+        const on = value.includes(o.v);
+        return (
+          <div key={o.v} className="conn-chip">
+            <button type="button" role="checkbox" aria-checked={on} className={`choice${on ? ' on' : ''}`}
+              disabled={disabled || o.disabled} onClick={() => onToggle(o.v)}>
+              <b>{o.title}{o.badge && <em className="badge">{o.badge}</em>}</b>
+              {o.sub && <span>{o.sub}</span>}
+            </button>
+            {on && value.length > 1 && (value[0] === o.v
+              ? <em className="badge">Default</em>
+              : <button type="button" className="linkish" disabled={disabled} onClick={() => onMakeDefault(o.v)}>Make default</button>)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** "Set by your admin" — shown when the key driving a question is pinned in .env. */
 export function Locked({ children }: { children?: ReactNode }) {
   return <div className="locked">🔒 <span>{children ?? 'Set by your admin in the server’s configuration, so it can’t be changed here.'}</span></div>;

@@ -8,6 +8,11 @@ publishes a `vX.Y.Z` release of the GHCR images
 ## [Unreleased]
 
 ### Added
+- **Pick several trackers and code hosts in Settings.** "Where do your tickets live?" and "Where
+  does your code live?" now let you tick more than one (for example Jira and GitHub). Each one
+  gets its own form, its own "Save and check it works" and its own token warning, and the first
+  is the default ("Make default" changes it). An existing install opens with its one connection
+  ticked. Saving writes `TICKET_PROVIDERS` / `SCM_PROVIDERS` along with the default.
 - **Setup, credential checks and `/health` cover every tracker and code host.** With several
   connections, the setup checklist is done only when each one passes, and its reason names the
   failing ones (for example `GitHub: token rejected`). Each saved token is re-checked, and

@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import {
   MODELS, PIPELINE_STAGES, QUESTIONS, detectApprovalPreset, applyApprovalPreset, setFactoryMerges, effectiveStages, detectTeamAi, teamAiWrites,
   MODEL_GROUPS, OLLAMA_CLOUD_USAGE_URL, modelGroup, teamAis, runtimeForPick, allowlistWith,
+  connectionList, ticketProviderKindSchema, scmProviderKindSchema,
   BUDGET_PRESETS, detectBudgetPreset, subscriptionSharingWarning, vertexWrites, vertexTier, CLAUDE_TERMS_URL, CLAUDE_USAGE_DOC_URL, type ApprovalPreset, type PipelineStage, type StageConfig,
 } from '@asf/shared/ui';
 import { api } from '../../api';
@@ -9,7 +10,7 @@ import { setupFlags } from '../../setup-flags';
 import { lookQ } from '../ThemeSettings';
 import { VertexSetup, initialVertexDraft, vertexDraftProblem, type VertexDraft } from './vertex';
 import { OllamaModels, emptyOllamaDraft, type OllamaDraft } from './ollama';
-import { Choices, Field, SecretField, CheckButton, Locked, Tip, HealthNote, str, secretIsSet, unanswered, needsFix, type ByKey, type SettingsStore } from './ui';
+import { Choices, ConnectionChips, Field, SecretField, CheckButton, Locked, Tip, HealthNote, str, secretIsSet, unanswered, needsFix, type ByKey, type ChoiceOpt, type SettingsStore } from './ui';
 
 /**
  * The questions themselves. Each one has:
@@ -83,104 +84,174 @@ const tokenHealth = (b: ByKey, kind: string) => (TOKEN[kind] ? <HealthNote s={b[
 const tokenNeedsFix = (b: ByKey, kind: string) => !!TOKEN[kind] && needsFix(b[TOKEN[kind].key]);
 
 const TRACKER_LABEL: Record<string, string> ={ github: 'GitHub', jira: 'Jira', trello: 'Trello', mock: 'Sample tickets', gitlab: 'GitLab', linear: 'Linear', monday: 'monday.com', todoist: 'Todoist' };
+const label = (kind: string) => TRACKER_LABEL[kind] ?? kind;
+
+/** The saved ticket connections (M12): TICKET_PROVIDERS, else TICKET_PROVIDER, the default first. */
+export const ticketConnections = (b: ByKey): string[] =>
+  connectionList(b.TICKET_PROVIDERS?.value, str(b.TICKET_PROVIDER), ticketProviderKindSchema.options).filter(Boolean);
+/** The saved code connections: SCM_PROVIDERS, else SCM_PROVIDER, the default first. */
+export const codeConnections = (b: ByKey): string[] =>
+  connectionList(b.SCM_PROVIDERS?.value, str(b.SCM_PROVIDER), scmProviderKindSchema.options).filter(Boolean);
+
+/**
+ * Tick or untick one connection, keeping the order (the first is the default).
+ * Sample tickets are practice mode, so they stand alone: picking them clears the
+ * others, and picking a real one drops them.
+ */
+export function toggleConnection(list: readonly string[], kind: string): string[] {
+  if (list.includes(kind)) return list.filter((k) => k !== kind);
+  if (kind === 'mock') return ['mock'];
+  return [...list.filter((k) => k !== 'mock'), kind];
+}
+
+/** Move a connection to the front: it becomes the default. */
+export const makeDefault = (list: readonly string[], kind: string): string[] => [kind, ...list.filter((k) => k !== kind)];
+
+export interface TicketDraft {
+  GITHUB_REPOS: string; GITHUB_TOKEN: string;
+  JIRA_BASE_URL: string; JIRA_EMAIL: string; JIRA_API_TOKEN: string; JIRA_PROJECTS: string;
+  TRELLO_KEY: string; TRELLO_TOKEN: string; TRELLO_BOARDS: string;
+}
+
+/**
+ * The Tickets question's writes: the chosen connections' own fields (an unchosen
+ * one's credentials are left alone, never blanked), then the list and its default.
+ */
+export function ticketEntries(b: ByKey, list: readonly string[], f: TicketDraft): [string, unknown][] {
+  const e: [string, unknown][] = [];
+  if (list.includes('github')) e.push(['GITHUB_REPOS', f.GITHUB_REPOS.trim()], ...secretEntry('GITHUB_TOKEN', f.GITHUB_TOKEN));
+  if (list.includes('jira')) e.push(['JIRA_BASE_URL', f.JIRA_BASE_URL.trim().replace(/\/+$/, '')], ['JIRA_EMAIL', f.JIRA_EMAIL.trim()], ...secretEntry('JIRA_API_TOKEN', f.JIRA_API_TOKEN), ['JIRA_PROJECTS', f.JIRA_PROJECTS.trim().toUpperCase()]);
+  if (list.includes('trello')) e.push(...secretEntry('TRELLO_KEY', f.TRELLO_KEY), ...secretEntry('TRELLO_TOKEN', f.TRELLO_TOKEN), ['TRELLO_BOARDS', f.TRELLO_BOARDS.trim()]);
+  if (list.length) e.push(['TICKET_PROVIDERS', list.join(',')], ['TICKET_PROVIDER', list[0]]);
+  // GitHub tickets almost always mean GitHub code: follow along unless the code host was chosen already.
+  const code = codeConnections(b);
+  if (list.includes('github') && (!code.length || code.every((k) => k === 'mock'))) e.push(['SCM_PROVIDERS', 'github'], ['SCM_PROVIDER', 'github']);
+  return e;
+}
+
+/** "Save and check it works" for one tracker: checks that connection, not the default. */
+export const ticketCheck = (kind: string) => () => api.ticketPreflight(kind);
+/** The same for one code host. */
+export const codeCheck = (kind: string) => () => api.scmPreflight(kind);
+
+/** Save, then refetch the settings so every token's health on the page is current. */
+function useReloadingSave(store: SettingsStore, run: (entries: [string, unknown][], validate?: () => string | null) => Promise<boolean>) {
+  return async (entries: [string, unknown][], validate?: () => string | null) => {
+    const ok = await run(entries, validate);
+    if (ok) store.reload();
+    return ok;
+  };
+}
+
+/** A connection's heading inside the form, only when several are chosen. */
+const ConnHead = ({ kind, several }: { kind: string; several: boolean }) =>
+  (several ? <h4 style={{ margin: '18px 0 4px' }}>{label(kind)}</h4> : null);
 
 export const ticketsQ: Question = {
   id: 'tickets',
   title: 'Where do your tickets live?',
-  why: 'The factory picks up tickets from here and moves them along your board as the work happens.',
+  why: 'The factory picks up tickets from here and moves them along your board as the work happens. Pick several if your team uses more than one.',
   summary: (b) => {
-    const kind = str(b.TICKET_PROVIDER);
-    if (kind === 'mock') return <><b>Sample tickets</b> (practice mode)</>;
-    const n = list(str(kind === 'github' ? b.GITHUB_REPOS : kind === 'jira' ? b.JIRA_PROJECTS : b.TRELLO_BOARDS)).length;
-    const unit = kind === 'github' ? ['repository', 'repositories'] : kind === 'jira' ? ['project', 'projects'] : ['board', 'boards'];
-    return <><b>{TRACKER_LABEL[kind] ?? kind}</b>{n > 0 && ` · ${n} ${unit[n > 1 ? 1 : 0]}`}{tokenHealth(b, kind)}</>;
+    const conns = ticketConnections(b);
+    if (conns.length === 1 && conns[0] === 'mock') return <><b>Sample tickets</b> (practice mode)</>;
+    return <>{conns.map((kind, i) => {
+      const n = list(str(kind === 'github' ? b.GITHUB_REPOS : kind === 'jira' ? b.JIRA_PROJECTS : kind === 'trello' ? b.TRELLO_BOARDS : undefined)).length;
+      const unit = kind === 'github' ? ['repository', 'repositories'] : kind === 'jira' ? ['project', 'projects'] : ['board', 'boards'];
+      return <span key={kind}>{i > 0 && ' + '}<b>{label(kind)}</b>{n > 0 && ` · ${n} ${unit[n > 1 ? 1 : 0]}`}{tokenHealth(b, kind)}</span>;
+    })}</>;
   },
-  attention: (b) => tokenNeedsFix(b, str(b.TICKET_PROVIDER)),
+  attention: (b) => ticketConnections(b).some((k) => tokenNeedsFix(b, k)),
   Body: function TicketsBody({ store, actions, firstRun }) {
     const b = store.byKey;
-    const pinned = b.TICKET_PROVIDER?.envPinned;
-    const current = str(b.TICKET_PROVIDER);
-    const [kind, setKind] = useState<string | null>(firstRun && current === 'mock' && unanswered(b.TICKET_PROVIDER) ? null : current);
-    const [f, setF] = useState(() => ({
+    const pinned = !!(b.TICKET_PROVIDER?.envPinned || b.TICKET_PROVIDERS?.envPinned);
+    const current = ticketConnections(b);
+    const fresh = firstRun && current.join(',') === 'mock' && unanswered(b.TICKET_PROVIDER) && unanswered(b.TICKET_PROVIDERS);
+    const [kinds, setKinds] = useState<string[]>(fresh ? [] : current);
+    const [f, setF] = useState<TicketDraft>(() => ({
       GITHUB_REPOS: str(b.GITHUB_REPOS), GITHUB_TOKEN: '',
       JIRA_BASE_URL: str(b.JIRA_BASE_URL), JIRA_EMAIL: str(b.JIRA_EMAIL), JIRA_API_TOKEN: '', JIRA_PROJECTS: str(b.JIRA_PROJECTS),
       TRELLO_KEY: '', TRELLO_TOKEN: '', TRELLO_BOARDS: str(b.TRELLO_BOARDS),
     }));
-    const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
+    const set = (k: keyof TicketDraft) => (v: string) => setF((x) => ({ ...x, [k]: v }));
     const { busy, error, run } = useSaver(store);
+    const saveAndReload = useReloadingSave(store, run);
+    const has = (k: string) => kinds.includes(k);
+    const several = kinds.length > 1;
 
-    const entries = (): [string, unknown][] => {
-      const e: [string, unknown][] = [];
-      if (kind === 'github') e.push(['GITHUB_REPOS', f.GITHUB_REPOS.trim()], ...secretEntry('GITHUB_TOKEN', f.GITHUB_TOKEN));
-      if (kind === 'jira') e.push(['JIRA_BASE_URL', f.JIRA_BASE_URL.trim().replace(/\/+$/, '')], ['JIRA_EMAIL', f.JIRA_EMAIL.trim()], ...secretEntry('JIRA_API_TOKEN', f.JIRA_API_TOKEN), ['JIRA_PROJECTS', f.JIRA_PROJECTS.trim().toUpperCase()]);
-      if (kind === 'trello') e.push(...secretEntry('TRELLO_KEY', f.TRELLO_KEY), ...secretEntry('TRELLO_TOKEN', f.TRELLO_TOKEN), ['TRELLO_BOARDS', f.TRELLO_BOARDS.trim()]);
-      if (kind) e.push(['TICKET_PROVIDER', kind]);
-      // GitHub tickets almost always mean GitHub code: follow along unless the code host was chosen already.
-      if (kind === 'github' && str(b.SCM_PROVIDER) === 'mock') e.push(['SCM_PROVIDER', 'github']);
-      return e;
-    };
     const validate = (): string | null => {
-      if (!kind) return 'Pick one to continue.';
-      if (kind === 'github') {
+      if (!kinds.length) return 'Pick one to continue.';
+      if (has('github')) {
         if (!f.GITHUB_REPOS.trim()) return 'Which repository? For example acme/website.';
         if (list(f.GITHUB_REPOS).some((r) => !/^[\w.-]+\/[\w.-]+$/.test(r))) return 'Write repositories as owner/name, e.g. acme/website (separate several with commas).';
         if (!f.GITHUB_TOKEN.trim() && !secretIsSet(b.GITHUB_TOKEN)) return 'Paste a GitHub access token.';
       }
-      if (kind === 'jira') {
+      if (has('jira')) {
         if (!/^https?:\/\//.test(f.JIRA_BASE_URL.trim())) return 'Your Jira address should look like https://yourcompany.atlassian.net';
         if (!f.JIRA_EMAIL.includes('@')) return 'Enter the email you sign in to Jira with.';
         if (!f.JIRA_API_TOKEN.trim() && !secretIsSet(b.JIRA_API_TOKEN)) return 'Paste a Jira API token.';
         if (!f.JIRA_PROJECTS.trim()) return 'Which project? Use its short key, like KAN or WEB.';
       }
-      if (kind === 'trello') {
+      if (has('trello')) {
         if (!f.TRELLO_KEY.trim() && !secretIsSet(b.TRELLO_KEY)) return 'Paste your Trello API key.';
         if (!f.TRELLO_TOKEN.trim() && !secretIsSet(b.TRELLO_TOKEN)) return 'Paste your Trello token.';
         if (!f.TRELLO_BOARDS.trim()) return 'Which board? Paste its id from the board’s address.';
       }
       return null;
     };
-    const save = () => run(entries(), validate);
+    const save = () => saveAndReload(ticketEntries(b, kinds, f), validate);
+
+    const opts: ChoiceOpt<string>[] = [
+      { v: 'github', title: 'GitHub', sub: 'Issues in a GitHub repository' },
+      { v: 'jira', title: 'Jira', sub: 'Atlassian Jira Cloud' },
+      { v: 'trello', title: 'Trello', sub: 'Cards on a Trello board' },
+      { v: 'mock', title: 'I’m just exploring', sub: 'Practice with sample tickets. No account needed' },
+    ];
+    // A saved tracker with no chip here (set in .env or an earlier version) stays listed, so it is never dropped silently.
+    for (const k of kinds) if (!opts.some((o) => o.v === k)) opts.push({ v: k, title: label(k), sub: 'Set up in the server’s configuration' });
 
     return (
       <>
-        {pinned ? <Locked>Your admin connected <b>{TRACKER_LABEL[current] ?? current}</b> in the server’s configuration.</Locked> : (
-          <Choices value={kind} onPick={setKind} opts={[
-            { v: 'github', title: 'GitHub', sub: 'Issues in a GitHub repository' },
-            { v: 'jira', title: 'Jira', sub: 'Atlassian Jira Cloud' },
-            { v: 'trello', title: 'Trello', sub: 'Cards on a Trello board' },
-            { v: 'mock', title: 'I’m just exploring', sub: 'Practice with sample tickets. No account needed' },
-          ]} />
+        {pinned ? <Locked>Your admin connected <b>{current.map(label).join(' + ')}</b> in the server’s configuration.</Locked> : (
+          <ConnectionChips value={kinds} opts={opts} onToggle={(k) => setKinds((l) => toggleConnection(l, k))} onMakeDefault={(k) => setKinds((l) => makeDefault(l, k))} />
         )}
-        {kind === 'github' && <>
-          <Field s={b.GITHUB_REPOS} label="Which repository?" placeholder="owner/repo, e.g. acme/website" value={f.GITHUB_REPOS} onChange={set('GITHUB_REPOS')} help="Several? Separate them with commas." />
-          <SecretField s={b.GITHUB_TOKEN} label="GitHub access token" placeholder="Starts with ghp_ or github_pat_" value={f.GITHUB_TOKEN} onChange={set('GITHUB_TOKEN')} howTo={[
-            <>Open <a href="https://github.com/settings/tokens/new?scopes=repo&description=Software%20Factory" target="_blank" rel="noreferrer">GitHub → Settings → Tokens</a>.</>,
-            <>Tick <b>repo</b>, give it a name like “Software Factory”, and click <b>Generate token</b>.</>,
-            'Copy the token and paste it here.',
-          ]} />
-          <CheckButton save={save} run={api.ticketPreflight} />
-        </>}
-        {kind === 'jira' && <>
-          <Field s={b.JIRA_BASE_URL} label="Your Jira address" placeholder="https://yourcompany.atlassian.net" value={f.JIRA_BASE_URL} onChange={set('JIRA_BASE_URL')} />
-          <Field s={b.JIRA_EMAIL} label="Your Jira email" placeholder="you@company.com" value={f.JIRA_EMAIL} onChange={set('JIRA_EMAIL')} />
-          <SecretField s={b.JIRA_API_TOKEN} label="Jira API token" value={f.JIRA_API_TOKEN} onChange={set('JIRA_API_TOKEN')} howTo={[
-            <>Open <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer">Atlassian → Security → API tokens</a>.</>,
-            <>Click <b>Create API token</b>, name it, and copy it here.</>,
-          ]} />
-          <Field s={b.JIRA_PROJECTS} label="Which project?" placeholder="e.g. KAN" value={f.JIRA_PROJECTS} onChange={set('JIRA_PROJECTS')} help="The short key before each ticket number (KAN in KAN-12). Several? Separate them with commas." />
-          <CheckButton save={save} run={api.ticketPreflight} />
-        </>}
-        {kind === 'trello' && <>
-          <SecretField s={b.TRELLO_KEY} label="Trello API key" value={f.TRELLO_KEY} onChange={set('TRELLO_KEY')} howTo={[
-            <>Open <a href="https://trello.com/power-ups/admin" target="_blank" rel="noreferrer">Trello → Power-Ups admin</a> and create a Power-Up (any name).</>,
-            <>Under <b>API key</b>, click <b>Generate a new API key</b> and paste it here.</>,
-            <>Next to it, click <b>Token</b>, allow access, and paste the token below.</>,
-          ]} />
-          <SecretField s={b.TRELLO_TOKEN} label="Trello token" value={f.TRELLO_TOKEN} onChange={set('TRELLO_TOKEN')} />
-          <Field s={b.TRELLO_BOARDS} label="Which board?" placeholder="e.g. AbCd1234" value={f.TRELLO_BOARDS} onChange={set('TRELLO_BOARDS')} help="The code in your board’s address: trello.com/b/Ui6009UV/…" />
-          <CheckButton save={save} run={api.ticketPreflight} />
-        </>}
-        {kind === 'mock' && <p className="ok" style={{ marginTop: 14 }}>✓ You’ll get a handful of sample tickets to practise on. Connect your real tracker any time. You’ll still connect a repository next, so the work has somewhere to go.</p>}
+        {kinds.map((kind) => <Fragment key={kind}>
+          {kind === 'github' && <>
+            <ConnHead kind={kind} several={several} />
+            <Field s={b.GITHUB_REPOS} label="Which repository?" placeholder="owner/repo, e.g. acme/website" value={f.GITHUB_REPOS} onChange={set('GITHUB_REPOS')} help="Several? Separate them with commas." />
+            <SecretField s={b.GITHUB_TOKEN} label="GitHub access token" placeholder="Starts with ghp_ or github_pat_" value={f.GITHUB_TOKEN} onChange={set('GITHUB_TOKEN')} howTo={[
+              <>Open <a href="https://github.com/settings/tokens/new?scopes=repo&description=Software%20Factory" target="_blank" rel="noreferrer">GitHub → Settings → Tokens</a>.</>,
+              <>Tick <b>repo</b>, give it a name like “Software Factory”, and click <b>Generate token</b>.</>,
+              'Copy the token and paste it here.',
+            ]} />
+            {tokenHealth(b, kind)}
+            <CheckButton save={save} run={ticketCheck(kind)} />
+          </>}
+          {kind === 'jira' && <>
+            <ConnHead kind={kind} several={several} />
+            <Field s={b.JIRA_BASE_URL} label="Your Jira address" placeholder="https://yourcompany.atlassian.net" value={f.JIRA_BASE_URL} onChange={set('JIRA_BASE_URL')} />
+            <Field s={b.JIRA_EMAIL} label="Your Jira email" placeholder="you@company.com" value={f.JIRA_EMAIL} onChange={set('JIRA_EMAIL')} />
+            <SecretField s={b.JIRA_API_TOKEN} label="Jira API token" value={f.JIRA_API_TOKEN} onChange={set('JIRA_API_TOKEN')} howTo={[
+              <>Open <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noreferrer">Atlassian → Security → API tokens</a>.</>,
+              <>Click <b>Create API token</b>, name it, and copy it here.</>,
+            ]} />
+            <Field s={b.JIRA_PROJECTS} label="Which project?" placeholder="e.g. KAN" value={f.JIRA_PROJECTS} onChange={set('JIRA_PROJECTS')} help="The short key before each ticket number (KAN in KAN-12). Several? Separate them with commas." />
+            {tokenHealth(b, kind)}
+            <CheckButton save={save} run={ticketCheck(kind)} />
+          </>}
+          {kind === 'trello' && <>
+            <ConnHead kind={kind} several={several} />
+            <SecretField s={b.TRELLO_KEY} label="Trello API key" value={f.TRELLO_KEY} onChange={set('TRELLO_KEY')} howTo={[
+              <>Open <a href="https://trello.com/power-ups/admin" target="_blank" rel="noreferrer">Trello → Power-Ups admin</a> and create a Power-Up (any name).</>,
+              <>Under <b>API key</b>, click <b>Generate a new API key</b> and paste it here.</>,
+              <>Next to it, click <b>Token</b>, allow access, and paste the token below.</>,
+            ]} />
+            <SecretField s={b.TRELLO_TOKEN} label="Trello token" value={f.TRELLO_TOKEN} onChange={set('TRELLO_TOKEN')} />
+            <Field s={b.TRELLO_BOARDS} label="Which board?" placeholder="e.g. AbCd1234" value={f.TRELLO_BOARDS} onChange={set('TRELLO_BOARDS')} help="The code in your board’s address: trello.com/b/Ui6009UV/…" />
+            {tokenHealth(b, kind)}
+            <CheckButton save={save} run={ticketCheck(kind)} />
+          </>}
+        </Fragment>)}
+        {has('mock') && <p className="ok" style={{ marginTop: 14 }}>✓ You’ll get a handful of sample tickets to practise on. Connect your real tracker any time. You’ll still connect a repository next, so the work has somewhere to go.</p>}
         {actions({ save, busy, error })}
       </>
     );
@@ -189,75 +260,96 @@ export const ticketsQ: Question = {
 
 // ── 2. Code ──────────────────────────────────────────────────────────────────
 
+/** The code hosts a person can pick (the old "practice repository" is not offered). */
+const realHosts = (b: ByKey) => codeConnections(b).filter((k) => k !== 'mock');
+
+export interface CodeDraft { GITHUB_REPOS: string; GITHUB_TOKEN: string; GITLAB_BASE_URL: string; GITLAB_TOKEN: string; GITLAB_REPOS: string }
+
+/**
+ * The Code question's writes: the chosen hosts' own fields, then the list and its
+ * default. GitHub shared with the tickets uses the repositories and token saved there.
+ */
+export function codeEntries(b: ByKey, list: readonly string[], f: CodeDraft): [string, unknown][] {
+  const e: [string, unknown][] = [];
+  const sharesGithub = list.includes('github') && ticketConnections(b).includes('github');
+  if (list.includes('github') && !sharesGithub) e.push(['GITHUB_REPOS', f.GITHUB_REPOS.trim()], ...secretEntry('GITHUB_TOKEN', f.GITHUB_TOKEN));
+  if (list.includes('gitlab')) e.push(['GITLAB_BASE_URL', f.GITLAB_BASE_URL.trim().replace(/\/+$/, '') || 'https://gitlab.com'], ...secretEntry('GITLAB_TOKEN', f.GITLAB_TOKEN), ['GITLAB_REPOS', f.GITLAB_REPOS.trim()]);
+  if (list.length) e.push(['SCM_PROVIDERS', list.join(',')], ['SCM_PROVIDER', list[0]]);
+  return e;
+}
+
 export const codeQ: Question = {
   id: 'code',
   title: 'Where does your code live?',
-  why: 'The factory works in a copy of your code and opens a pull request here for you to see.',
+  why: 'The factory works in a copy of your code and opens a pull request here for you to see. Pick both if your repositories are split across them.',
   summary: (b) => {
-    const k = str(b.SCM_PROVIDER);
-    if (k === 'mock' || !k) return <><b>Not connected yet</b>. Nothing can start until you add a repository</>;
-    return <><b>{k === 'github' ? 'GitHub' : 'GitLab'}</b>. Pull requests open there{tokenHealth(b, k)}</>;
+    const hosts = realHosts(b);
+    if (!hosts.length) return <><b>Not connected yet</b>. Nothing can start until you add a repository</>;
+    return <>{hosts.map((k, i) => <span key={k}>{i > 0 && ' + '}<b>{label(k)}</b>{tokenHealth(b, k)}</span>)}. Pull requests open there</>;
   },
   // No repository = nothing can start (the api refuses every dispatch), so this always needs attention.
-  attention: (b) => str(b.SCM_PROVIDER) === 'mock' || !str(b.SCM_PROVIDER) || tokenNeedsFix(b, str(b.SCM_PROVIDER)),
+  attention: (b) => !realHosts(b).length || realHosts(b).some((k) => tokenNeedsFix(b, k)),
   Body: function CodeBody({ store, actions }) {
     const b = store.byKey;
-    const pinned = b.SCM_PROVIDER?.envPinned;
+    const pinned = !!(b.SCM_PROVIDER?.envPinned || b.SCM_PROVIDERS?.envPinned);
     // The old "practice repository" was a path on the server that a fresh install never
     // has, so a run started against it had nowhere to put code. It is no longer offered:
     // pick a real host.
-    const [kind, setKind] = useState<string | null>(['github', 'gitlab'].includes(str(b.SCM_PROVIDER)) ? str(b.SCM_PROVIDER) : null);
-    const [f, setF] = useState(() => ({
+    const [kinds, setKinds] = useState<string[]>(() => realHosts(b));
+    const [f, setF] = useState<CodeDraft>(() => ({
       GITHUB_REPOS: str(b.GITHUB_REPOS), GITHUB_TOKEN: '',
       GITLAB_BASE_URL: str(b.GITLAB_BASE_URL), GITLAB_TOKEN: '', GITLAB_REPOS: str(b.GITLAB_REPOS),
     }));
-    const set = (k: keyof typeof f) => (v: string) => setF((x) => ({ ...x, [k]: v }));
+    const set = (k: keyof CodeDraft) => (v: string) => setF((x) => ({ ...x, [k]: v }));
     const { busy, error, run } = useSaver(store);
-    const sharesGithub = kind === 'github' && str(b.TICKET_PROVIDER) === 'github';
+    const saveAndReload = useReloadingSave(store, run);
+    const has = (k: string) => kinds.includes(k);
+    const several = kinds.length > 1;
+    const sharesGithub = has('github') && ticketConnections(b).includes('github');
 
     const validate = (): string | null => {
-      if (!kind) return 'Pick where your code lives. The factory needs a repository to put its work in.';
-      if (kind === 'github' && !sharesGithub) {
+      if (!kinds.length) return 'Pick where your code lives. The factory needs a repository to put its work in.';
+      if (has('github') && !sharesGithub) {
         if (!f.GITHUB_REPOS.trim()) return 'Which repository? For example acme/website.';
         if (!f.GITHUB_TOKEN.trim() && !secretIsSet(b.GITHUB_TOKEN)) return 'Paste a GitHub access token.';
       }
-      if (kind === 'gitlab') {
+      if (has('gitlab')) {
         if (!f.GITLAB_REPOS.trim()) return 'Which project? For example my-group/website.';
         if (!f.GITLAB_TOKEN.trim() && !secretIsSet(b.GITLAB_TOKEN)) return 'Paste a GitLab access token.';
       }
       return null;
     };
-    const save = () => run([
-      ...(kind === 'github' && !sharesGithub ? [['GITHUB_REPOS', f.GITHUB_REPOS.trim()] as [string, unknown], ...secretEntry('GITHUB_TOKEN', f.GITHUB_TOKEN)] : []),
-      ...(kind === 'gitlab' ? [['GITLAB_BASE_URL', f.GITLAB_BASE_URL.trim().replace(/\/+$/, '') || 'https://gitlab.com'] as [string, unknown], ...secretEntry('GITLAB_TOKEN', f.GITLAB_TOKEN), ['GITLAB_REPOS', f.GITLAB_REPOS.trim()] as [string, unknown]] : []),
-      ...(kind ? [['SCM_PROVIDER', kind] as [string, unknown]] : []),
-    ], validate);
+    const save = () => saveAndReload(codeEntries(b, kinds, f), validate);
 
     return (
       <>
         {pinned ? <Locked /> : (
-          <Choices value={kind} onPick={setKind} opts={[
-            { v: 'github', title: 'GitHub', sub: sharesGithub ? 'Uses your GitHub connection above' : 'github.com or GitHub Enterprise' },
+          <ConnectionChips value={kinds} onToggle={(k) => setKinds((l) => toggleConnection(l, k))} onMakeDefault={(k) => setKinds((l) => makeDefault(l, k))} opts={[
+            { v: 'github', title: 'GitHub', sub: ticketConnections(b).includes('github') ? 'Uses your GitHub connection above' : 'github.com or GitHub Enterprise' },
             { v: 'gitlab', title: 'GitLab', sub: 'gitlab.com or your own GitLab' },
           ]} />
         )}
-        {kind === 'github' && !sharesGithub && <>
-          <Field s={b.GITHUB_REPOS} label="Which repository?" placeholder="owner/repo, e.g. acme/website" value={f.GITHUB_REPOS} onChange={set('GITHUB_REPOS')} />
-          <SecretField s={b.GITHUB_TOKEN} label="GitHub access token" placeholder="Starts with ghp_ or github_pat_" value={f.GITHUB_TOKEN} onChange={set('GITHUB_TOKEN')} howTo={[
-            <>Open <a href="https://github.com/settings/tokens/new?scopes=repo&description=Software%20Factory" target="_blank" rel="noreferrer">GitHub → Settings → Tokens</a>.</>,
-            <>Tick <b>repo</b> and click <b>Generate token</b>. Paste it here.</>,
-          ]} />
-        </>}
-        {kind === 'gitlab' && <>
-          <Field s={b.GITLAB_BASE_URL} label="GitLab address" placeholder="https://gitlab.com" value={f.GITLAB_BASE_URL} onChange={set('GITLAB_BASE_URL')} help="Leave as gitlab.com unless your company runs its own." />
-          <Field s={b.GITLAB_REPOS} label="Which project?" placeholder="group/project, e.g. acme/website" value={f.GITLAB_REPOS} onChange={set('GITLAB_REPOS')} />
-          <SecretField s={b.GITLAB_TOKEN} label="GitLab access token" placeholder="Starts with glpat-" value={f.GITLAB_TOKEN} onChange={set('GITLAB_TOKEN')} howTo={[
-            <>In GitLab open <b>Preferences → Access tokens</b>.</>,
-            <>Add a token with the <b>api</b> scope. You need Developer access or higher on the project.</>,
-            'Copy it and paste it here.',
-          ]} />
-        </>}
-        {kind && <CheckButton save={save} run={api.scmPreflight} />}
+        {kinds.map((kind) => <Fragment key={kind}>
+          <ConnHead kind={kind} several={several} />
+          {kind === 'github' && !sharesGithub && <>
+            <Field s={b.GITHUB_REPOS} label="Which repository?" placeholder="owner/repo, e.g. acme/website" value={f.GITHUB_REPOS} onChange={set('GITHUB_REPOS')} />
+            <SecretField s={b.GITHUB_TOKEN} label="GitHub access token" placeholder="Starts with ghp_ or github_pat_" value={f.GITHUB_TOKEN} onChange={set('GITHUB_TOKEN')} howTo={[
+              <>Open <a href="https://github.com/settings/tokens/new?scopes=repo&description=Software%20Factory" target="_blank" rel="noreferrer">GitHub → Settings → Tokens</a>.</>,
+              <>Tick <b>repo</b> and click <b>Generate token</b>. Paste it here.</>,
+            ]} />
+          </>}
+          {kind === 'gitlab' && <>
+            <Field s={b.GITLAB_BASE_URL} label="GitLab address" placeholder="https://gitlab.com" value={f.GITLAB_BASE_URL} onChange={set('GITLAB_BASE_URL')} help="Leave as gitlab.com unless your company runs its own." />
+            <Field s={b.GITLAB_REPOS} label="Which project?" placeholder="group/project, e.g. acme/website" value={f.GITLAB_REPOS} onChange={set('GITLAB_REPOS')} />
+            <SecretField s={b.GITLAB_TOKEN} label="GitLab access token" placeholder="Starts with glpat-" value={f.GITLAB_TOKEN} onChange={set('GITLAB_TOKEN')} howTo={[
+              <>In GitLab open <b>Preferences → Access tokens</b>.</>,
+              <>Add a token with the <b>api</b> scope. You need Developer access or higher on the project.</>,
+              'Copy it and paste it here.',
+            ]} />
+          </>}
+          {tokenHealth(b, kind)}
+          <CheckButton save={save} run={codeCheck(kind)} />
+        </Fragment>)}
         {actions({ save, busy, error })}
       </>
     );

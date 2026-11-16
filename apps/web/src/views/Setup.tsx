@@ -4,8 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import { setupFlags } from '../setup-flags';
 import { LocalWorkerHelp } from '../components/LocalWorkerHelp';
-import { aiQ, approvalsQ, codeQ, spendingQ, ticketsQ, QTip, type Question } from '../components/q/questions';
-import { str, useSettingsStore, type SettingsStore } from '../components/q/ui';
+import { aiQ, approvalsQ, codeQ, spendingQ, ticketsQ, ticketConnections, QTip, type Question } from '../components/q/questions';
+import { useSettingsStore, type SettingsStore } from '../components/q/ui';
 
 /**
  * /setup: the first-run wizard (#83, redesigned as a questionnaire). A few
@@ -22,8 +22,8 @@ export function Setup() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
 
-  const tracker = str(store.byKey.TICKET_PROVIDER);
-  const steps: Question[] = [ticketsQ, ...(tracker === 'github' ? [] : [codeQ]), aiQ, approvalsQ, spendingQ];
+  const githubTickets = ticketConnections(store.byKey).includes('github');
+  const steps: Question[] = [ticketsQ, ...(githubTickets ? [] : [codeQ]), aiQ, approvalsQ, spendingQ];
   const total = steps.length;
   const leave = () => { setupFlags.dismiss(); navigate('/'); };
 

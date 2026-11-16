@@ -241,3 +241,8 @@ test('a .guided text block fills a phone screen and wraps long URLs (ADHOC-5CC0C
   assert.match(css, /(^|\n)\.guided > span\s*\{[^}]*overflow-wrap:\s*anywhere[^}]*\}/);
   assert.match(css, /@media \(max-width: 639px\) \{[^\n]*\.guided > span\s*\{[^}]*align-self:\s*stretch[^}]*min-width:\s*0[^}]*\}/);
 });
+
+test('the connection chips wrap onto new lines on a phone', () => {
+  assert.match(css, /(^|\n)\.conn-chips\s*\{[^}]*flex-wrap:\s*wrap[^}]*\}/);
+  assert.match(css, /(^|\n)\.conn-chip\s*\{[^}]*min-width:\s*0[^}]*\}/);
+});

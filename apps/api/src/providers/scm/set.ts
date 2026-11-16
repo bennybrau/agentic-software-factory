@@ -1,4 +1,4 @@
-import { connectionKind, formatRef, parseRef, scmProviderKindSchema } from '@asf/shared';
+import { connectionKind, connectionList, formatRef, parseRef, scmProviderKindSchema } from '@asf/shared';
 import type { ChangeRequest, Repo, ScmProvider, ScmProviderKind } from '@asf/shared';
 import { cfg } from '../../settings.js';
 import { ScmProviderRegistry } from './registry.js';
@@ -42,9 +42,7 @@ export function qualifyScm(provider: ScmProvider): ScmProvider {
  * connection for bare repository ids.
  */
 export function scmConnections(connectionsOf: (key: 'SCM_PROVIDERS' | 'SCM_PROVIDER') => unknown = cfg): string[] {
-  const known = new Set<string>(scmProviderKindSchema.options);
-  const list = [...new Set(String(connectionsOf('SCM_PROVIDERS') ?? '').split(',').map((s) => s.trim()).filter((s) => known.has(s)))];
-  return list.length ? list : [String(connectionsOf('SCM_PROVIDER'))];
+  return connectionList(connectionsOf('SCM_PROVIDERS'), connectionsOf('SCM_PROVIDER'), scmProviderKindSchema.options);
 }
 
 /** One code host's state, as the start check reports it. */

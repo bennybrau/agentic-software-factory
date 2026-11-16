@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, writeFile, rm, readdir, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, readdir, realpath, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CloneCredential, Repo, Run } from '@asf/shared';
@@ -13,6 +13,7 @@ const exec = promisify(execFile);
 // git.ts reads config.worktreeRoot at call time; point it at a temp dir before importing.
 let root: string;
 let originDir: string;
+let origin2Dir: string;
 let git: typeof import('./git.js');
 
 const run = (over: Partial<Run> = {}): Run => ({
@@ -22,6 +23,7 @@ const run = (over: Partial<Run> = {}): Run => ({
   createdAt: new Date().toISOString(), startedAt: null, lastEventAt: null, cancelRequestedAt: null, finishedAt: null, ...over,
 });
 const repo = (): Repo => ({ id: 'r1', path: 'example/app', url: 'file://origin', defaultBranch: 'main', cloneUrl: originDir });
+const repo2 = (): Repo => ({ id: 'r2', path: 'example/other', url: 'file://origin2', defaultBranch: 'main', cloneUrl: origin2Dir });
 
 before(async () => {
   root = await mkdtemp(join(tmpdir(), 'asf-wt-'));
@@ -31,8 +33,18 @@ before(async () => {
   originDir = await mkdtemp(join(tmpdir(), 'asf-origin-'));
   await exec('git', ['init', '-b', 'main', originDir]);
   await exec('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '--allow-empty', '-m', 'init'], { cwd: originDir });
+  // A second origin, told apart by a marker file.
+  origin2Dir = await mkdtemp(join(tmpdir(), 'asf-origin2-'));
+  await exec('git', ['init', '-b', 'main', origin2Dir]);
+  await writeFile(join(origin2Dir, 'r2-marker.txt'), 'r2\n');
+  await exec('git', ['add', '-A'], { cwd: origin2Dir });
+  await exec('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'init r2'], { cwd: origin2Dir });
 });
-after(async () => { await rm(root, { recursive: true, force: true }); await rm(originDir, { recursive: true, force: true }); });
+after(async () => {
+  await rm(root, { recursive: true, force: true });
+  await rm(originDir, { recursive: true, force: true });
+  await rm(origin2Dir, { recursive: true, force: true });
+});
 
 const cred: CloneCredential = { url: '' };
 const exists = (p: string) => stat(p).then(() => true, () => false);
@@ -185,9 +197,31 @@ test('the worktree origin carries no credential, and a poisoned cached clone is 
 test('a second call for the same run reuses the worktree', async () => {
   const r = run({ id: 'run_reuse01' });
   const first = await git.ensureWorkspace(r, repo(), { url: originDir }, () => {});
+  await writeFile(join(first.worktreePath, 'in-progress.txt'), 'kept\n');
   const second = await git.ensureWorkspace(r, repo(), { url: originDir }, () => {});
   assert.equal(second.resumed, true);
   assert.equal(second.worktreePath, first.worktreePath);
+  assert.ok(await exists(join(second.worktreePath, 'in-progress.txt')), 'the same repo keeps the work in progress');
+});
+
+test('a worktree left by the run\'s previous repo is discarded and set up from the new repo', async () => {
+  const r = run({ id: 'run_moved001', ticketKey: 'ASF-MV' });
+  const first = await git.ensureWorkspace(r, repo(), { url: originDir }, () => {});
+  await writeFile(join(first.worktreePath, 'r1-only.txt'), 'from r1\n');
+
+  const logs: string[] = [];
+  const second = await git.ensureWorkspace(r, repo2(), { url: origin2Dir }, (m) => logs.push(m));
+  assert.equal(second.resumed, false);
+  assert.equal(second.worktreePath, first.worktreePath);
+  assert.equal(await exists(join(second.worktreePath, 'r1-only.txt')), false, 'r1\'s work is gone');
+  assert.ok(await exists(join(second.worktreePath, 'r2-marker.txt')), 'checked out from r2');
+  assert.ok(logs.some((m) => m.startsWith('discarding worktree from another repository')));
+
+  const commonDir = (await exec('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: second.worktreePath })).stdout.trim();
+  assert.equal(await realpath(commonDir), await realpath(join(root, 'repos', 'r2.git')));
+  const paths = [first.worktreePath, await realpath(first.worktreePath)];
+  const r1List = (await exec('git', ['--git-dir', join(root, 'repos', 'r1.git'), 'worktree', 'list', '--porcelain'])).stdout;
+  assert.ok(!r1List.split('\n').some((l) => paths.some((p) => l === `worktree ${p}`)), 'r1\'s clone no longer lists the path');
 });
 
 test('commitPending writes trailers and no-ops on a clean tree', async () => {

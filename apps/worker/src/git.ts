@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { CloneCredential, Repo, Run } from '@asf/shared';
 import { isForbiddenBranch, formatMergeConflict, nativeId, parseRef, redactSecrets } from '@asf/shared';
@@ -78,6 +78,15 @@ async function baseBranchExists(bareDir: string, defaultBranch: string): Promise
 
 async function exists(path: string): Promise<boolean> {
   try { await stat(path); return true; } catch { return false; }
+}
+
+/** The bare clone a worktree belongs to (its git common dir), resolved; null when git can't read it. */
+async function worktreeCommonDir(path: string): Promise<string | null> {
+  try {
+    return await realpath((await git(path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim());
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -193,7 +202,8 @@ export async function syncBareClone(repo: Repo, cred: CloneCredential, log: (m: 
  * A bare clone cached per repo (fetched if already present), then a worktree
  * per run branched from the repo's default branch. Refuses a forbidden branch
  * before creating anything. Reuses an existing worktree on resume so an
- * interrupted run continues from its own commits.
+ * interrupted run continues from its own commits — but only if it belongs to the
+ * same repo; one left by the run's previous repo is discarded and set up afresh.
  *
  * A review-only run (team.reviewTarget) branches from the PR head instead, and its
  * base is the PR's base. Its branch is never pushed.
@@ -219,9 +229,18 @@ async function setUpWorkspace(
   const cloneUrl = cred.url;
 
   if (await exists(worktreePath)) {
-    log(`reusing worktree ${worktreePath}`);
-    const resumedUnborn = !(await baseBranchExists(bareDir, baseBranch));
-    return { worktreePath, branchName, baseBranch, resumed: true, unborn: resumedUnborn };
+    // The run moved to another repo: the worktree here is a checkout of the old one.
+    // Unreadable as a worktree: keep it, as before.
+    const commonDir = await worktreeCommonDir(worktreePath);
+    if (commonDir === null || commonDir === (await realpath(bareDir))) {
+      log(`reusing worktree ${worktreePath}`);
+      const resumedUnborn = !(await baseBranchExists(bareDir, baseBranch));
+      return { worktreePath, branchName, baseBranch, resumed: true, unborn: resumedUnborn };
+    }
+    log(`discarding worktree from another repository (${commonDir})`);
+    await removeWorktree(worktreePath);
+    // Best effort, without the old repo's lock (no nesting two repo locks); its run branch stays.
+    await git(commonDir, ['worktree', 'prune']).catch(() => {});
   }
   if (review) {
     // The PR's base, fetched loudly (the heads fetch above is best-effort), then the PR

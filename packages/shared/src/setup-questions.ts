@@ -25,8 +25,8 @@ export interface QuestionDef {
 }
 
 export const QUESTIONS: readonly QuestionDef[] = [
-  { id: 'tickets', tier: 'essentials', keys: ['TICKET_PROVIDER', 'JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_PROJECTS', 'GITHUB_REPOS', 'GITHUB_TOKEN', 'TRELLO_KEY', 'TRELLO_TOKEN', 'TRELLO_BOARDS'] },
-  { id: 'code', tier: 'essentials', keys: ['SCM_PROVIDER', 'GITLAB_BASE_URL', 'GITLAB_TOKEN', 'GITLAB_REPOS'] },
+  { id: 'tickets', tier: 'essentials', keys: ['TICKET_PROVIDER', 'TICKET_PROVIDERS', 'JIRA_BASE_URL', 'JIRA_EMAIL', 'JIRA_API_TOKEN', 'JIRA_PROJECTS', 'GITHUB_REPOS', 'GITHUB_TOKEN', 'TRELLO_KEY', 'TRELLO_TOKEN', 'TRELLO_BOARDS'] },
+  { id: 'code', tier: 'essentials', keys: ['SCM_PROVIDER', 'SCM_PROVIDERS', 'GITLAB_BASE_URL', 'GITLAB_TOKEN', 'GITLAB_REPOS'] },
   { id: 'ai', tier: 'essentials', keys: ['AGENT_AUTH_MODE', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'ANTHROPIC_VERTEX_PROJECT_ID', 'CLOUD_ML_REGION', 'AGENT_AUTH_OPENAI_MODE', 'OPENAI_API_KEY',
     'RUNTIME_DEFAULT_PLANNER', 'RUNTIME_DEFAULT_IMPLEMENTER', 'RUNTIME_DEFAULT_TESTER', 'RUNTIME_DEFAULT_REVIEWER'] },
   { id: 'approvals', tier: 'essentials', keys: ['PIPELINE_STAGES'] },
@@ -52,8 +52,6 @@ export const UI_ENV_ONLY: Readonly<Record<string, string>> = {
   // Model catalogue as data (M8 WP D). The AI question sets the per-role runtime as a whole team (#162); a per-role picker is #69.
   MODEL_CATALOG_EXTRA: 'advanced model catalogue (JSON, Admin); the Ollama question adds the models it checked',
   MODEL_ALLOWLIST: 'which models the factory may run (Admin); the Claude on Google Cloud answer sets it to the models its check found, and the Ollama question adds its models when a list is in use',
-  SCM_PROVIDERS: 'multi-choice Code section is M12 WP4',
-  TICKET_PROVIDERS: 'multi-choice Tickets section is M12 WP4',
   STALE_AFTER_MIN: 'operator tuning',
   WORKER_TTL_SECONDS: 'operator tuning',
   EVENT_RETENTION_DAYS: 'operator tuning',

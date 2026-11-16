@@ -27,6 +27,18 @@ export function connectionKind(id: string): string {
   return id;
 }
 
+/**
+ * A comma list of connections (TICKET_PROVIDERS / SCM_PROVIDERS): split, trimmed,
+ * deduped, keeping only names in `known`. Nothing left falls back to `single`
+ * (TICKET_PROVIDER / SCM_PROVIDER), so a pre-M12 install needs no change. The
+ * first is the default connection. Shared by the api and the Settings page.
+ */
+export function connectionList(list: unknown, single: unknown, known: Iterable<string>): string[] {
+  const ok = new Set<string>(known);
+  const out = [...new Set(String(list ?? '').split(',').map((s) => s.trim()).filter((s) => ok.has(s)))];
+  return out.length ? out : [String(single)];
+}
+
 export interface ParsedRef {
   connection: string;
   native: string;

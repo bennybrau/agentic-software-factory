@@ -23,6 +23,10 @@ test('questions and the env-only list only name real org-settable keys (the UI c
   for (const q of QUESTIONS) for (const k of q.keys) assert.ok(orgSettable.includes(k), `${q.id}: ${k} is not org-settable`);
   for (const k of Object.keys(UI_ENV_ONLY)) assert.ok(orgSettable.includes(k), `UI_ENV_ONLY: ${k} is not org-settable`);
   assert.equal(questionFor('ORG_MAX_COST_USD')?.id, 'spending');
+  // M12 WP4b: several connections are picked in Settings, next to the single default key.
+  assert.equal(questionFor('TICKET_PROVIDERS')?.id, 'tickets');
+  assert.equal(questionFor('SCM_PROVIDERS')?.id, 'code');
+  assert.ok(!('TICKET_PROVIDERS' in UI_ENV_ONLY) && !('SCM_PROVIDERS' in UI_ENV_ONLY));
 });
 
 test('an empty PIPELINE_STAGES (fresh install) reads as "start and end": talk the plan through, then the team just goes', () => {

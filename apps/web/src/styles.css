@@ -249,6 +249,10 @@ pre.artifact { background: var(--panel2); border: 1px solid var(--border); borde
 .choice span { color: var(--muted); font-size: 12.5px; }
 .choice:disabled { opacity: .45; cursor: not-allowed; }
 .choice .badge { font-style: normal; font-size: 11px; font-weight: 600; color: var(--accent); margin-left: 8px; }
+.conn-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.conn-chip { flex: 1 1 210px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.conn-chip > .choice { width: 100%; }
+.conn-chip > .badge { font-style: normal; font-size: 11px; font-weight: 600; color: var(--accent); padding-left: 4px; }
 .tip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 8px; }
 .tip > button, .tip-inline { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); background: transparent;
   color: var(--muted); font: 600 11px/16px system-ui; cursor: help; padding: 0; display: inline-block; text-align: center; }

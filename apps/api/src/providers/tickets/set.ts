@@ -1,4 +1,4 @@
-import { connectionKind, formatRef, parseRef, ticketProviderKindSchema } from '@asf/shared';
+import { connectionKind, connectionList, formatRef, parseRef, ticketProviderKindSchema } from '@asf/shared';
 import type { Ticket, TicketListQuery, TicketProvider, TicketProviderKind } from '@asf/shared';
 import { cfg } from '../../settings.js';
 import { TicketProviderRegistry } from './registry.js';
@@ -54,9 +54,7 @@ export function qualifyTickets(provider: TicketProvider): TicketProvider {
  * connection for bare ticket ids.
  */
 export function ticketConnections(connectionsOf: (key: 'TICKET_PROVIDERS' | 'TICKET_PROVIDER') => unknown = cfg): string[] {
-  const known = new Set<string>(ticketProviderKindSchema.options);
-  const list = [...new Set(String(connectionsOf('TICKET_PROVIDERS') ?? '').split(',').map((s) => s.trim()).filter((s) => known.has(s)))];
-  return list.length ? list : [String(connectionsOf('TICKET_PROVIDER'))];
+  return connectionList(connectionsOf('TICKET_PROVIDERS'), connectionsOf('TICKET_PROVIDER'), ticketProviderKindSchema.options);
 }
 
 /** One tracker's part of a merged list: whether it answered, and why not. */

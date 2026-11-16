@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  KNOWN_CONNECTIONS, connectionKind, formatRef, isKnownConnection, nativeId, parseRef, sameRef,
+  KNOWN_CONNECTIONS, connectionKind, connectionList, formatRef, isKnownConnection, nativeId, parseRef, sameRef,
   repoSchema, ticketSchema,
 } from './index.js';
 
@@ -73,4 +73,13 @@ test('ticketSchema and repoSchema still parse payloads without connection', () =
   const repo = repoSchema.parse({ id: '1', path: 'acme/web', url: 'u', defaultBranch: 'main', cloneUrl: 'c' });
   assert.equal(repo.connection, undefined);
   assert.equal(repoSchema.parse({ id: '1', path: 'acme/web', url: 'u', defaultBranch: 'main', cloneUrl: 'c', connection: 'github' }).connection, 'github');
+});
+
+test('connectionList: trims, dedupes, drops unknown names, and falls back to the single key', () => {
+  const known = ['jira', 'github', 'mock'];
+  assert.deepEqual(connectionList(' jira , github,jira', 'mock', known), ['jira', 'github']);
+  assert.deepEqual(connectionList('linear,github', 'mock', known), ['github']);
+  assert.deepEqual(connectionList('', 'jira', known), ['jira']);
+  assert.deepEqual(connectionList(undefined, 'jira', known), ['jira']);
+  assert.deepEqual(connectionList(' , nope', 'mock', known), ['mock']);
 });

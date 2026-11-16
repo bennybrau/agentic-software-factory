@@ -150,8 +150,8 @@ export const api = {
     send(`/api/settings/${encodeURIComponent(key)}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value }) })
       .then(async (r) => ({ status: r.status, body: await r.json() as { settings?: SettingView[]; reason?: string } })),
   deleteSetting: (key: string) => send(`/api/settings/${encodeURIComponent(key)}`, { method: 'DELETE' }).then(j<{ settings: SettingView[] }>),
-  ticketPreflight: () => send('/api/providers/ticket/preflight').then(j<{ kind?: string; ok: boolean; identity?: string; reason?: string }>),
-  scmPreflight: () => send('/api/providers/scm/preflight').then(j<{ kind?: string; ok: boolean; identity?: string; reason?: string }>),
+  ticketPreflight: () => send('/api/providers/ticket/preflight').then(j<{ connection?: string; kind?: string; ok: boolean; identity?: string; reason?: string }>),
+  scmPreflight: () => send('/api/providers/scm/preflight').then(j<{ connection?: string; kind?: string; ok: boolean; identity?: string; reason?: string }>),
   models: () => send('/api/models').then(j<{ models: { id: string; label: string; tier: string; providerId: string; runtimes: string[] }[] }>),
   vertexCheckStart: (req: { projectId: string; region: string; models: string[] }) => sendJson<{ id: string }>('POST', '/api/providers/vertex/check', req),
   vertexCheck: (id: string) => send(`/api/providers/vertex/check/${encodeURIComponent(id)}`).then(j<VertexCheckState>),

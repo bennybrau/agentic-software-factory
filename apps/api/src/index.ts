@@ -27,7 +27,8 @@ import { registerVertexRoutes } from './routes/vertex.js';
 import { registerOllamaRoutes } from './routes/ollama.js';
 import { registerSetupRoutes } from './routes/setup.js';
 import { registerWorkerRoutes } from './routes/workers.js';
-import { cfg, loadOrgSettings, loadOrgSettingsWithRetry, orgSettingsLoaded } from './settings.js';
+import { cfg, loadOrgSettings, loadOrgSettingsWithRetry } from './settings.js';
+import { healthBody } from './provider-preflights.js';
 import { assertIdentityConfig } from './identity.js';
 import { registerAdhocRoutes } from './routes/adhoc.js';
 import { registerTicketRoutes } from './routes/tickets.js';
@@ -84,11 +85,11 @@ catch (e) {
 // repository to its own code host (M12 WP2).
 const tickets = ticketSet.live;
 const scm = scmSet.live;
-// Admin, setup and credential checks see the default tracker and code host; a settings write invalidates every one.
-const defaultTickets = { current: () => ticketSet.registryFor(ticketSet.defaultConnection).current(), invalidate: () => ticketSet.invalidate() };
-const defaultScm = { current: () => scmSet.registryFor(scmSet.defaultConnection).current(), invalidate: () => scmSet.invalidate() };
+// Admin, setup, credential checks and /health check every tracker and code host (M12 WP4).
+const preflightSets = { tickets: ticketSet, scm: scmSet };
 
-app.get('/health', async () => ({ ok: true, orgSettingsLoaded: orgSettingsLoaded(), tickets: tickets.kind, scm: scm.kind }));
+// Never waits on a tracker: each connection's last preflight, refreshed in the background.
+app.get('/health', async () => healthBody(preflightSets));
 
 registerTicketRoutes(app, { set: ticketSet });
 registerRunRoutes(app, { tickets, scm });
@@ -96,8 +97,8 @@ registerScmRoutes(app, { scm, tickets });
 registerDispatchRoutes(app, { tickets, scm });
 registerQueueRoutes(app, { tickets, scm });
 registerBrowserRoutes(app, { tickets, scm });
-registerAdminRoutes(app, { tickets: defaultTickets, scm: defaultScm });
-registerSetupRoutes(app, { tickets: defaultTickets, scm: defaultScm });
+registerAdminRoutes(app, { ticketSet, scmSet });
+registerSetupRoutes(app, preflightSets);
 registerVertexRoutes(app);
 registerOllamaRoutes(app);
 registerWorkerRoutes(app);
@@ -154,7 +155,7 @@ const stopMergeWatch = startMergeWatch({ tickets, scm }, app.log);
 // The Hive hook sends each merged run to Hive (#76, #78); off while HIVE_URL is blank.
 const stopHiveHook = startHiveHook({ tickets, scm }, app.log);
 // Credential health (#139): re-test the tracker/SCM tokens and the subscription token's age.
-const stopCredentialChecks = startCredentialChecks({ tickets: defaultTickets, scm: defaultScm }, app.log);
+const stopCredentialChecks = startCredentialChecks(preflightSets, app.log);
 // Update check: is a newer ASF release published? At boot, then daily while UPDATE_CHECK_ENABLED.
 const stopUpdateChecks = startUpdateChecks(app.log);
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, async () => { stopScheduler(); stopNotifier(); stopMergeWatch(); stopHiveHook(); stopCredentialChecks(); stopUpdateChecks(); await app.close(); process.exit(0); });

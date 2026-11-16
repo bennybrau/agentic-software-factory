@@ -1,12 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { registry } from '../registry/client.js';
 import { describe, cfg } from '../settings.js';
-import { detectTeamAi, subscriptionSharingWarning } from '@asf/shared';
+import { connectionKind, detectTeamAi, subscriptionSharingWarning } from '@asf/shared';
 import { describeAgentAuth } from '../agent-auth.js';
 import { resolveIdentity } from '../identity.js';
-import { providerPreflights, resetPreflightCache, type Pf } from '../provider-preflights.js';
-import type { TicketProviderRegistry } from '../providers/tickets/registry.js';
-import type { ScmProviderRegistry } from '../providers/scm/registry.js';
+import { providerPreflights, resetPreflightCache, type ConnectionPf, type Pf, type PreflightDeps } from '../provider-preflights.js';
 
 /**
  * The first-run checklist (#83). One aggregated read the /setup view polls to
@@ -16,7 +14,7 @@ import type { ScmProviderRegistry } from '../providers/scm/registry.js';
  * auto-fix here, just "what's left and where to do it".
  *
  * Identity-gated like the admin surface (same trusted browser bind in the MVP).
- * The two provider preflights hit Jira/GitLab/GitHub, so they are cached ~30s
+ * The provider preflights (one per connection) hit Jira/GitLab/GitHub, so they are cached ~30s
  * (provider-preflights.ts) — a 10s poll must not hammer the trackers.
  */
 
@@ -31,6 +29,8 @@ export interface SetupItem {
   reason?: string;
   /** The resolved provider identity, when the item connected successfully. */
   identity?: string;
+  /** Tracker / source-control rows: each connection in use and its own check (M12 WP4). */
+  connections?: SetupConnection[];
   /** A problem that doesn't block setup but should be fixed (shown as ⚠ in the UI and `asf doctor`). */
   warning?: string;
   /** True when a non-empty env var pins the underlying key, so the UI can't change it. */
@@ -45,6 +45,8 @@ export interface SetupItem {
   problem?: 'credential-rejected' | 'connection-failed';
 }
 
+export interface SetupConnection { connection: string; ok: boolean; identity?: string; reason?: string }
+
 export interface SetupStatus {
   items: SetupItem[];
   /** True once every non-optional item is done — the /setup view stops being the default. */
@@ -54,11 +56,12 @@ export interface SetupStatus {
 /** Test hook: drop the module-level preflight cache so each test starts cold. */
 export function __resetSetupCaches(): void { resetPreflightCache(); }
 
-/** A provider row (work tracker / source control): done = a real provider whose live preflight passes. */
-function providerItem(opts: {
-  id: string; title: string; key: 'TICKET_PROVIDER' | 'SCM_PROVIDER'; kind: string; pf: Pf; envPinned: boolean; link: string; mockNote: string;
-}): SetupItem {
-  const { id, title, key, kind, pf, envPinned, link, mockNote } = opts;
+/** How a connection is named in a combined reason. */
+const LABEL: Record<string, string> = { github: 'GitHub', jira: 'Jira', trello: 'Trello', gitlab: 'GitLab', mock: 'Mock' };
+
+/** One connection's state: done = a real provider whose live preflight passes. */
+function connectionItem(opts: { key: string; kind: string; pf: Pf; envPinned: boolean; mockNote: string }) {
+  const { key, kind, pf, envPinned, mockNote } = opts;
   const isMock = kind === 'mock';
   const done = !isMock && pf.ok;
   let reason: string;
@@ -67,17 +70,39 @@ function providerItem(opts: {
   else if (isMock) reason = mockNote;
   else reason = pf.reason ?? 'Connection test failed — check the details in Settings.';
   const problem = !isMock && !pf.ok ? (pf.credentialRejected ? 'credential-rejected' as const : 'connection-failed' as const) : undefined;
-  return { id, title, done, reason, identity: done ? pf.identity : undefined, envPinned, link, ...(problem ? { problem } : {}) };
+  return { done, reason, identity: done ? pf.identity : undefined, problem };
 }
 
-export function registerSetupRoutes(app: FastifyInstance, deps: { tickets: Pick<TicketProviderRegistry, 'current' | 'invalidate'>; scm: Pick<ScmProviderRegistry, 'current' | 'invalidate'> }): void {
+/**
+ * A provider row (work tracker / source control) over every connection: done
+ * only when each one is. One connection reads exactly as before; with several,
+ * the reason names each failing one (`GitHub: …; Jira: …`).
+ */
+function providerItem(opts: {
+  id: string; title: string; key: 'TICKET_PROVIDER' | 'SCM_PROVIDER'; checks: ConnectionPf[]; envPinned: boolean; link: string; mockNote: string;
+}): SetupItem {
+  const { id, title, key, checks, envPinned, link, mockNote } = opts;
+  const rows = checks.map(({ connection, pf }) => {
+    const kind = connectionKind(connection);
+    return { connection, label: LABEL[kind] ?? connection, ...connectionItem({ key, kind, pf, envPinned, mockNote }) };
+  });
+  const done = rows.every((r) => r.done);
+  const failing = rows.filter((r) => !r.done);
+  const reason = rows.length === 1 ? rows[0].reason
+    : (done ? rows : failing).map((r) => `${r.label}: ${r.reason}`).join('; ');
+  const problem = failing.find((r) => r.problem)?.problem;
+  const connections = rows.map((r) => ({ connection: r.connection, ok: r.done, ...(r.identity ? { identity: r.identity } : {}), reason: r.reason }));
+  return { id, title, done, reason, identity: done ? rows[0]?.identity : undefined, connections, envPinned, link, ...(problem ? { problem } : {}) };
+}
+
+export function registerSetupRoutes(app: FastifyInstance, deps: PreflightDeps): void {
   app.get('/api/setup/status', async (req): Promise<SetupStatus> => {
     resolveIdentity(req); // identity-gated like the admin surface
 
     const views = describe();
     const pinned = (key: string) => views.find((v) => v.key === key)?.envPinned ?? false;
 
-    const [{ ticket, scm }, auth, fleet, succeeded] = await Promise.all([
+    const [{ tickets, scm }, auth, fleet, succeeded] = await Promise.all([
       providerPreflights(deps),
       describeAgentAuth(),
       registry.listFleet().catch(() => ({ workers: [], capacity: 0, running: 0 })),
@@ -89,14 +114,14 @@ export function registerSetupRoutes(app: FastifyInstance, deps: { tickets: Pick<
     // 1 — work tracker
     items.push(providerItem({
       id: 'ticket', title: 'Connect a work tracker', key: 'TICKET_PROVIDER',
-      kind: cfg('TICKET_PROVIDER') as string, pf: ticket, envPinned: pinned('TICKET_PROVIDER'), link: '/settings#tickets',
+      checks: tickets, envPinned: pinned('TICKET_PROVIDERS') || pinned('TICKET_PROVIDER'), link: '/settings#tickets',
       mockNote: 'Using sample tickets. Pick your real work tracker (Jira, GitHub, …) in Settings.',
     }));
 
     // 2 — source control
     items.push(providerItem({
       id: 'scm', title: 'Connect source control', key: 'SCM_PROVIDER',
-      kind: cfg('SCM_PROVIDER') as string, pf: scm, envPinned: pinned('SCM_PROVIDER'), link: '/settings#code',
+      checks: scm, envPinned: pinned('SCM_PROVIDERS') || pinned('SCM_PROVIDER'), link: '/settings#code',
       mockNote: 'No repository connected, so nothing can start yet. Pick GitHub or GitLab in Settings and name the repository the work goes into.',
     }));
 

@@ -65,7 +65,7 @@ different kinds of source and code host. Two hosts of the same kind stays out of
 | `index.ts:105` | `tickets.kind === 'jira'` for the configured projects | Becomes "the Jira connection, if any" |
 | Planned tasks (`Backlog.tsx`) and `/api/tickets*` | One tracker's list, scopes, sprints and statuses | Merge every tracker; board, sprint and status filters belong to one tracker |
 | Settings → Tickets / Code (`setup-questions.ts`, `questions.tsx`) | Pick one kind | Choose several, each with its own form and health check |
-| `GET /health` | `tickets: kind, scm: kind` | Report every connection |
+| `GET /health` | `tickets: kind, scm: kind` | Done (WP4a): `tickets` and `scm` list each connection as `{ connection, ok }` from its last preflight, without waiting on a tracker |
 
 ## Design
 

@@ -91,7 +91,7 @@ const preflightSets = { tickets: ticketSet, scm: scmSet };
 // Never waits on a tracker: each connection's last preflight, refreshed in the background.
 app.get('/health', async () => healthBody(preflightSets));
 
-registerTicketRoutes(app, { set: ticketSet });
+registerTicketRoutes(app, { set: ticketSet, scm: scmSet });
 registerRunRoutes(app, { tickets, scm });
 registerScmRoutes(app, { scm, tickets });
 registerDispatchRoutes(app, { tickets, scm });

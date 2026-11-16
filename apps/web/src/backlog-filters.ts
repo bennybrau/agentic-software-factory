@@ -1,6 +1,6 @@
 /**
  * The Planned tasks filters, kept in localStorage so they're still set the next
- * time you open the site: team, board, sprint, statuses, where it is on the board,
+ * time you open the site: source (tracker), team, board, sprint, statuses, where it is on the board,
  * whether done work is shown, and the sort order. The search box is not kept.
  *
  * Team/board/sprint name things in the tracker, which can change between visits,
@@ -9,6 +9,7 @@
  * guarded, and then the filters just aren't kept.
  */
 import type { TicketScope } from '@asf/shared';
+import { connectionLabel } from '@asf/shared/ui';
 
 export const BACKLOG_FILTERS_KEY = 'asf.backlog.filters';
 export const BUCKETS = ['backlog', 'inflight', 'review'] as const;
@@ -22,6 +23,7 @@ export type SortDir = 'asc' | 'desc';
 export const DEFAULT_DIR: Record<SortKey, SortDir> = { updated: 'desc', priority: 'asc', key: 'asc' };
 
 export interface BacklogFilters {
+  source: string;    // tracker connection id; '' = all trackers
   team: string;
   scope: string;     // board/project id; '' = all
   sprint: string;    // '' = all issues, 'active', 'backlog', or a sprint id
@@ -32,7 +34,7 @@ export interface BacklogFilters {
   sortDir: SortDir;
 }
 
-export const NO_FILTERS: BacklogFilters = { team: '', scope: '', sprint: '', status: [], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' };
+export const NO_FILTERS: BacklogFilters = { source: '', team: '', scope: '', sprint: '', status: [], bucket: '', showDone: false, sortBy: 'updated', sortDir: 'desc' };
 
 export type FilterStore = Pick<Storage, 'getItem' | 'setItem'>;
 
@@ -53,6 +55,7 @@ export function loadBacklogFilters(store: FilterStore | null = local()): Backlog
   const sortBy = (SORT_KEYS as readonly string[]).includes(str(v.sortBy)) ? str(v.sortBy) as SortKey : NO_FILTERS.sortBy;
   const sortDir: SortDir = v.sortDir === 'asc' || v.sortDir === 'desc' ? v.sortDir : DEFAULT_DIR[sortBy];
   return {
+    source: str(v.source),
     team: str(v.team),
     scope: str(v.scope),
     sprint: str(v.sprint),
@@ -123,4 +126,28 @@ export function restoreScope(saved: Pick<BacklogFilters, 'team' | 'scope' | 'spr
   if (board) return { team: board.team ?? '', scope: board.id, sprint: saved.sprint };
   const team = saved.team && scopes.some((s) => s.team === saved.team) ? saved.team : '';
   return { team, scope: '', sprint: '' };
+}
+
+/** The saved source, if that tracker is still connected; otherwise all trackers (''). */
+export function restoreSource(saved: string, connections: readonly string[]): string {
+  return saved && connections.includes(saved) ? saved : '';
+}
+
+/**
+ * The one tracker the board, sprint and status controls belong to: the chosen
+ * source, or the only tracker connected. Null when several are listed together.
+ */
+export function trackerInEffect(source: string, connections: readonly string[]): string | null {
+  if (source && connections.includes(source)) return source;
+  return connections.length === 1 ? connections[0] : null;
+}
+
+export type SourceState = { connection: string; state: 'loading' | 'ok' } | { connection: string; state: 'failed'; reason: string };
+
+/** What each tracker still loading or failed is doing, e.g. `Jira: loading… · GitHub: couldn't load: 401`. '' when all have loaded. */
+export function sourceStatusLine(states: readonly SourceState[]): string {
+  return states
+    .filter((s) => s.state !== 'ok')
+    .map((s) => `${connectionLabel(s.connection)}: ${s.state === 'failed' ? `couldn’t load: ${s.reason}` : 'loading…'}`)
+    .join(' · ');
 }

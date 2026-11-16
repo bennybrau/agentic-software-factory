@@ -128,6 +128,8 @@ a { color: var(--accent); text-decoration: none; }
 .pill.awaiting_checkpoint { color: var(--warn); border-color: var(--warn); }
 .pill.succeeded { color: var(--good); border-color: var(--good); }
 .pill.failed, .pill.halted { color: var(--bad); border-color: var(--bad); }
+/* Which tracker a Planned tasks row came from, when several are connected. */
+.pill.source { font-family: system-ui, sans-serif; font-size: 11px; padding: 1px 6px; margin-left: 6px; color: var(--muted); vertical-align: middle; }
 .run-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .run-title .pill { line-height: 1.4; white-space: nowrap; }
 /* The copy-link icon stays glued to the end of the ticket key, even when the title wraps. */

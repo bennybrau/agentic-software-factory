@@ -1,6 +1,14 @@
 import type { CreateRecurringTaskInput, RecurringTask, UpdateRecurringTaskInput, SplitFamilyWire, AdhocLimits, AdhocTask, AdhocFileInput, ActiveThemeWire, ThemeSummaryWire, ThemeImageRef, ArtifactWire, ArtifactVersionWire, TaskProgressWire, GateWire, RunMessageWire, Run, RunTask, RunEvent, SettingView, FleetWire, TodayWire, WorkQueueEntry, NotificationWire, TicketScope, TicketSprint, LocalWorkerStatus, UpdateStatus, ThirdPartySkill, SkillRole, VertexCheckState, OllamaSource, OllamaModelsResult, OllamaCheck, HiveBriefFactView, ReviewThread } from '@asf/shared';
 
-export interface TicketRow { id: string; key: string; title: string; bucket: string; priority: number | null; status: string; url: string; body: string; updatedAt?: string; }
+export interface TicketRow { id: string; key: string; title: string; bucket: string; priority: number | null; status: string; url: string; body: string; updatedAt?: string; connection?: string; }
+/** How one tracker answered a ticket list: listed, or failed with its reason (the others still list). */
+export interface TicketSourceRow { connection: string; ok: boolean; reason?: string }
+
+/** `?a=1&b=2` from the pairs that have a value, '' when none do. */
+const query = (pairs: Array<[string, string | undefined]>) => {
+  const s = pairs.filter((p): p is [string, string] => Boolean(p[1])).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return s ? `?${s}` : '';
+};
 export interface RunDetail { run: Run; tasks: RunTask[]; gates: GateWire[]; artifacts: ArtifactWire[]; artifactVersions?: ArtifactVersionWire[]; taskProgress?: Record<string, TaskProgressWire>; messages?: RunMessageWire[]; split?: SplitFamilyWire | null;
   /** The schedule that created this run's ad-hoc task (#188); title is null once the schedule is deleted. */
   recurring?: { id: string; title: string | null } | null;
@@ -56,8 +64,11 @@ export const decodeTicketId = (splat: string) => decodeURIComponent(splat);
 
 export const api = {
   me: () => send('/api/me').then(j<Identity>),
-  tickets: (q: { scope?: string[]; search?: string; bucket?: string[]; sprint?: string[]; status?: string[]; excludeDone?: boolean; updatedWithinDays?: number; limit?: number } = {}) => {
+  // The connected trackers and code hosts, in connection order (names only).
+  connections: () => send('/api/connections').then(j<{ tickets: string[]; scm: string[] }>),
+  tickets: (q: { connection?: string[]; scope?: string[]; search?: string; bucket?: string[]; sprint?: string[]; status?: string[]; excludeDone?: boolean; updatedWithinDays?: number; limit?: number } = {}) => {
     const p = new URLSearchParams();
+    if (q.connection?.length) p.set('connection', q.connection.join(','));
     if (q.scope?.length) p.set('scope', q.scope.join(','));
     if (q.search) p.set('search', q.search);
     if (q.bucket?.length) p.set('bucket', q.bucket.join(','));
@@ -67,13 +78,14 @@ export const api = {
     if (q.updatedWithinDays) p.set('updatedWithinDays', String(q.updatedWithinDays));
     if (q.limit) p.set('limit', String(q.limit));
     const qs = p.toString();
-    return send(`/api/tickets${qs ? `?${qs}` : ''}`).then(j<{ tickets: TicketRow[] }>);
+    return send(`/api/tickets${qs ? `?${qs}` : ''}`).then(j<{ tickets: TicketRow[]; sources?: TicketSourceRow[] }>);
   },
   findTickets: (q: string, prefixes: string[]) => send(`/api/tickets/find?q=${encodeURIComponent(q)}&prefixes=${encodeURIComponent(prefixes.join(','))}`).then(j<{ tickets: TicketRow[] }>),
   ticket: (id: string) => send(`/api/tickets/${encodeURIComponent(id)}`).then(j<TicketRow>),
-  ticketScopes: () => send('/api/tickets/scopes').then(j<TicketScope[]>),
-  ticketSprints: (scopeId: string) => send(`/api/tickets/scopes/${encodeURIComponent(scopeId)}/sprints`).then(j<TicketSprint[]>),
-  ticketStatuses: (scope?: string) => send(`/api/tickets/statuses${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`).then(j<string[]>),
+  // Board/sprint/status discovery of one tracker: `connection`, else the default one.
+  ticketScopes: (connection?: string) => send(`/api/tickets/scopes${query([['connection', connection]])}`).then(j<TicketScope[]>),
+  ticketSprints: (scopeId: string, connection?: string) => send(`/api/tickets/scopes/${encodeURIComponent(scopeId)}/sprints${query([['connection', connection]])}`).then(j<TicketSprint[]>),
+  ticketStatuses: (scope?: string, connection?: string) => send(`/api/tickets/statuses${query([['scope', scope], ['connection', connection]])}`).then(j<string[]>),
   dispatchPreview: (id: string) => send(`/api/tickets/${encodeURIComponent(id)}/dispatch`).then(j<{ ticket: { id: string; key: string; title: string }; team: unknown; gates: Record<string, { mode: string }>; repos: { id: string; path: string }[]; suggestedRepoId: string | null; suggestedRepoReason?: string | null; mentionedRepoIds?: string[]; whyNot: string[]; blocker: { code: string; reason: string; link: string } | null; models: { id: string; label: string; tier: string; runtimes: string[] }[]; runtimes: string[]; defaultModels: Record<string, string>; defaultRuntimes: Record<string, string>; efforts: string[]; defaultEfforts: Record<string, string | null>; orgDisabledRoles?: string[] }>),
   adhocLimits: () => send('/api/adhoc/limits').then(j<AdhocLimits>),
   createAdhoc: (body: { title: string; body: string; files: AdhocFileInput[]; chat?: boolean }) =>

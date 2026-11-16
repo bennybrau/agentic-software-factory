@@ -30,16 +30,23 @@ function fake(kind: string, ids: string[], log: { lists: Array<[string, TicketLi
   } as unknown as TicketProvider;
 }
 
-async function app(connections = ['jira', 'github']) {
+async function app(connections = ['jira', 'github'], scmConnections = ['github']) {
   const log = { lists: [] as Array<[string, TicketListQuery]>, gets: [] as string[] };
   const held: Record<string, string[]> = { jira: ['PROJ-12', 'ABC-5'], github: ['acme/web#3'], trello: [] };
   const set = new TicketSet(async (kind) => fake(kind, held[kind] ?? [], log), () => connections);
   const a = Fastify();
-  registerTicketRoutes(a, { set });
+  registerTicketRoutes(a, { set, scm: { connections: scmConnections } });
   await a.ready();
   const get = async (url: string) => { const r = await a.inject({ url }); return { status: r.statusCode, body: r.json() }; };
   return { get, log };
 }
+
+test('GET /api/connections names the trackers and code hosts in connection order', async () => {
+  const { get } = await app(['github', 'jira'], ['gitlab', 'github']);
+  const r = await get('/api/connections');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { tickets: ['github', 'jira'], scm: ['gitlab', 'github'] });
+});
 
 test('GET /api/tickets lists every tracker by default, without board, sprint or status filters', async () => {
   const { get, log } = await app();

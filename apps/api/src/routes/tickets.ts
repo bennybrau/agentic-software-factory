@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { formatRef, parseRef } from '@asf/shared';
 import type { Ticket, TicketProvider } from '@asf/shared';
 import type { TicketSet } from '../providers/tickets/set.js';
+import type { ScmSet } from '../providers/scm/set.js';
 import { cfg } from '../settings.js';
 import { findTicketsByRef } from '../tickets/find.js';
 import { ticketsFor } from '../tickets/route.js';
@@ -25,9 +26,14 @@ export function findConnections(id: string, connections: readonly string[]): str
  * ones `connection` names), and the board/sprint/status discovery of one
  * tracker. `set.live` routes each per-ticket call to the ticket's tracker.
  */
-export function registerTicketRoutes(app: FastifyInstance, deps: { set: TicketSet }): void {
-  const { set } = deps;
+export function registerTicketRoutes(app: FastifyInstance, deps: { set: TicketSet; scm: Pick<ScmSet, 'connections'> }): void {
+  const { set, scm } = deps;
   const tickets: TicketProvider = set.live;
+
+  // The connected trackers and code hosts, in connection order (names only, no credentials).
+  // The web reads it to decide whether to show a source filter, and re-reads it so a
+  // connection added in Settings appears without a reload.
+  app.get('/api/connections', async () => ({ tickets: set.connections, scm: scm.connections }));
 
   /** The one tracker a discovery route asks: `?connection=`, else the default. A tracker that is not set up is a 400. */
   async function oneTracker(connection: string | undefined, reply: FastifyReply): Promise<TicketProvider | null> {

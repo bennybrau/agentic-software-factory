@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import type { ChangeRequest, HiveBriefFactView, Repo, ReviewThread, Run, ScmProvider, TicketProvider, RunReportInput } from '@asf/shared';
 import { addressableThreads, addressMessage, isAdhocId, reviewComments, runReportMarkdown } from '@asf/shared';
 import { config } from '../config.js';
-import { registry } from '../registry/client.js';
+import { registry, MoveRefused } from '../registry/client.js';
 import { cfg } from '../settings.js';
+import { resolveIdentity } from '../identity.js';
+import { startReadiness } from '../start-readiness.js';
 import { runTicketRef, ticketsFor } from '../tickets/route.js';
 import { withoutRepoList } from './adhoc.js';
 
@@ -168,6 +170,24 @@ export function registerBrowserRoutes(app: FastifyInstance, deps: { tickets: Tic
     const b = req.body ?? {};
     await registry.retryFailedTask(req.params.id, b.note ?? null, b.by ?? null);
     return { ok: true };
+  });
+
+  // Move a run to another repo (M10 WP5): the work is in the wrong repository. The team
+  // starts again from the planner there. 409 with the reason when the repo isn't one source
+  // control can reach, or the registry refuses (running, finished, PR open, already there).
+  app.post<{ Params: { id: string }; Body: { repoId?: string; note?: string } }>('/api/runs/:id/move', async (req, reply) => {
+    const b = req.body ?? {};
+    if (!b.repoId || !b.repoId.trim()) return reply.code(400).send({ error: 'bad_request', reason: 'repoId is required' });
+    const ready = await startReadiness(deps.scm);
+    const repo = (ready.ok ? ready.repos.find((r) => r.id === b.repoId) : undefined) ?? await deps.scm.getRepo(b.repoId).catch(() => null);
+    if (!repo) return reply.code(409).send({ error: 'repo_not_found', reason: `The repository "${b.repoId}" isn't one source control can reach.` });
+    try {
+      await registry.moveRun(req.params.id, repo.id, repo.connection ?? null, resolveIdentity(req).user, b.note?.trim() || null);
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof MoveRefused) return reply.code(409).send({ error: 'move_refused', reason: e.message });
+      throw e;
+    }
   });
 
   // Post a review-only run's review to the PR/MR it reviewed: each `path:line` finding

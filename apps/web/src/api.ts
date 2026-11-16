@@ -137,6 +137,8 @@ export const api = {
   retry: (id: string, note?: string) =>
     send(`/api/runs/${encodeURIComponent(id)}/retry`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }) })
       .then(async (r) => ({ status: r.status, body: await r.json() as { ok?: boolean; reason?: string } })),
+  moveRun: (id: string, repoId: string, note?: string) =>
+    sendJson<{ ok?: boolean }>('POST', `/api/runs/${encodeURIComponent(id)}/move`, { repoId, note: note?.trim() || undefined }),
   postReview: (id: string, by: string) =>
     sendJson<{ ok?: boolean; anchored?: number; fallback?: number }>('POST', `/api/runs/${encodeURIComponent(id)}/review/post`, { by }),
   answer: (id: string, reply: string, by: string) =>
@@ -236,4 +238,16 @@ export function subscribeEvents(onEvent: (e: RunEvent) => void, onOpen?: () => v
   if (onQueue) es.addEventListener('queue:changed', (ev) => { try { onQueue(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
   if (onNotification) es.addEventListener('notification', (ev) => { try { onNotification(JSON.parse((ev as MessageEvent).data)); } catch { /* ignore */ } });
   return () => es.close();
+}
+
+/**
+ * A run page's live feed: each pushed event for `runId` goes to onEvent and the run is
+ * re-read into onDetail, so the page follows the run with no reload.
+ */
+export function followRun(runId: string, onEvent: (e: RunEvent) => void, onDetail: (d: RunDetail) => void, onOpen?: () => void): () => void {
+  return subscribeEvents((e) => {
+    if (e.runId !== runId) return;
+    onEvent(e);
+    api.run(runId).then(onDetail).catch(() => {});
+  }, onOpen);
 }

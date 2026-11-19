@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 516" width="1200" height="516" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="ASF turns tickets into pull requests with a planner, implementer, tester and reviewer. It sends what people said to Hive and gets back a short briefing per ticket. Hive turns conversations into proposed facts that a person approves; Claude Code, Hermes and other tools read the same facts.">
+<title>How ASF and Hive work together</title>
+<defs><marker id="g" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7D8199"/></marker><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#BD93F9"/></marker><marker id="h" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C6F19D"/></marker></defs><rect width="1200" height="516" rx="14" fill="#1C1D26"/>
+<rect x="63" y="70" width="198" height="90" rx="8" fill="#262836"/>
+<text x="162.0" y="113.0" font-size="16" fill="#F8F8F2" font-weight="600" text-anchor="middle">Jira · GitHub Issues</text>
+<text x="162.0" y="132.0" font-size="12.5" fill="#B4B7CC" font-weight="400" text-anchor="middle">tickets</text>
+<rect x="940" y="70" width="198" height="90" rx="8" fill="#262836"/>
+<text x="1039.0" y="113.0" font-size="16" fill="#F8F8F2" font-weight="600" text-anchor="middle">GitLab · GitHub</text>
+<text x="1039.0" y="132.0" font-size="12.5" fill="#B4B7CC" font-weight="400" text-anchor="middle">a pull / merge request</text>
+<line x1="266" y1="115" x2="308" y2="115" stroke="#7D8199" stroke-width="2" marker-end="url(#g)"/>
+<line x1="891" y1="115" x2="933" y2="115" stroke="#7D8199" stroke-width="2" marker-end="url(#g)"/>
+<rect x="315" y="43" width="572" height="144" rx="10" fill="#2D2644" stroke="#BD93F9" stroke-width="1.5"/>
+<text x="333" y="69" font-size="13" fill="#BD93F9" font-weight="700" text-anchor="start">ASF: THE FACTORY</text>
+<rect x="335" y="84" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="393.5" y="111.5" font-size="15" fill="#F8F8F2" font-weight="600" text-anchor="middle">Planner</text>
+<line x1="454" y1="106" x2="467" y2="106" stroke="#BD93F9" stroke-width="2" marker-end="url(#a)"/>
+<rect x="472" y="84" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="530.5" y="111.5" font-size="15" fill="#F8F8F2" font-weight="600" text-anchor="middle">Implementer</text>
+<line x1="591" y1="106" x2="605" y2="106" stroke="#BD93F9" stroke-width="2" marker-end="url(#a)"/>
+<rect x="610" y="84" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="668.5" y="111.5" font-size="15" fill="#F8F8F2" font-weight="600" text-anchor="middle">Tester</text>
+<line x1="729" y1="106" x2="742" y2="106" stroke="#BD93F9" stroke-width="2" marker-end="url(#a)"/>
+<rect x="748" y="84" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="806.5" y="111.5" font-size="15" fill="#F8F8F2" font-weight="600" text-anchor="middle">Reviewer</text>
+<text x="333" y="159" font-size="14.5" fill="#B4B7CC" font-weight="400" text-anchor="start">Plain-code orchestrator. A person at the gates.</text>
+<line x1="459" y1="192" x2="459" y2="270" stroke="#BD93F9" stroke-width="2" marker-end="url(#a)"/>
+<text x="450" y="223" font-size="14" fill="#B4B7CC" font-weight="400" text-anchor="end">What people said at the gates</text>
+<text x="450" y="243" font-size="14" fill="#B4B7CC" font-weight="400" text-anchor="end">and in chat, plus each merged run</text>
+<line x1="742" y1="272" x2="742" y2="194" stroke="#C6F19D" stroke-width="2" marker-end="url(#h)"/>
+<text x="756" y="223" font-size="14" fill="#B4B7CC" font-weight="400" text-anchor="start">A short briefing per ticket:</text>
+<text x="756" y="243" font-size="14" fill="#B4B7CC" font-weight="400" text-anchor="start">the rules that apply to it</text>
+<rect x="315" y="277" width="572" height="117" rx="10" fill="#162A17" stroke="#C6F19D" stroke-width="1.5"/>
+<text x="333" y="303" font-size="13" fill="#C6F19D" font-weight="700" text-anchor="start">HIVE: THE MEMORY</text>
+<rect x="335" y="317" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="393.5" y="344.5" font-size="13.5" fill="#F8F8F2" font-weight="600" text-anchor="middle">Conversations</text>
+<line x1="454" y1="340" x2="467" y2="340" stroke="#C6F19D" stroke-width="2" marker-end="url(#h)"/>
+<rect x="472" y="317" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="530.5" y="344.5" font-size="13.5" fill="#F8F8F2" font-weight="600" text-anchor="middle">Proposed facts</text>
+<line x1="591" y1="340" x2="605" y2="340" stroke="#C6F19D" stroke-width="2" marker-end="url(#h)"/>
+<rect x="610" y="317" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="668.5" y="336.0" font-size="13.5" fill="#F8F8F2" font-weight="600" text-anchor="middle">A person</text>
+<text x="668.5" y="353.0" font-size="13.5" fill="#F8F8F2" font-weight="600" text-anchor="middle">approves</text>
+<line x1="729" y1="340" x2="742" y2="340" stroke="#C6F19D" stroke-width="2" marker-end="url(#h)"/>
+<rect x="748" y="317" width="117" height="45" rx="8" fill="#2F3244"/>
+<text x="806.5" y="344.5" font-size="13.5" fill="#F8F8F2" font-weight="600" text-anchor="middle">Live facts</text>
+<text x="333" y="384" font-size="14" fill="#B4B7CC" font-weight="400" text-anchor="start">Every fact keeps its source.</text>
+<text x="918" y="315" font-size="14.5" fill="#B4B7CC" font-weight="400" text-anchor="start">Separate service.</text>
+<text x="918" y="335" font-size="14.5" fill="#B4B7CC" font-weight="400" text-anchor="start">Separate database.</text>
+<text x="918" y="355" font-size="14.5" fill="#B4B7CC" font-weight="400" text-anchor="start">Docker only.</text>
+<text x="292" y="315" font-size="14.5" fill="#B4B7CC" font-weight="400" text-anchor="end">The factory is one of</text>
+<text x="292" y="335" font-size="14.5" fill="#B4B7CC" font-weight="400" text-anchor="end">Hive's clients,</text>
+<text x="292" y="355" font-size="14.5" fill="#B4B7CC" font-weight="400" text-anchor="end">not its owner.</text>
+<rect x="315" y="430" width="176" height="65" rx="8" fill="#262836"/>
+<text x="403.0" y="460.4" font-size="16" fill="#F8F8F2" font-weight="600" text-anchor="middle">Claude Code</text>
+<text x="403.0" y="479.4" font-size="12.5" fill="#B4B7CC" font-weight="400" text-anchor="middle">over MCP</text>
+<line x1="403" y1="427" x2="403" y2="400" stroke="#C6F19D" stroke-width="2" marker-end="url(#h)"/>
+<rect x="513" y="430" width="176" height="65" rx="8" fill="#262836"/>
+<text x="601.0" y="460.4" font-size="16" fill="#F8F8F2" font-weight="600" text-anchor="middle">Hermes</text>
+<text x="601.0" y="479.4" font-size="12.5" fill="#B4B7CC" font-weight="400" text-anchor="middle">plugin</text>
+<line x1="601" y1="427" x2="601" y2="400" stroke="#C6F19D" stroke-width="2" marker-end="url(#h)"/>
+<rect x="711" y="430" width="176" height="65" rx="8" fill="#262836"/>
+<text x="799.0" y="460.4" font-size="16" fill="#F8F8F2" font-weight="600" text-anchor="middle">Your own tools</text>
+<text x="799.0" y="479.4" font-size="12.5" fill="#B4B7CC" font-weight="400" text-anchor="middle">HTTP API or MCP</text>
+<line x1="799" y1="427" x2="799" y2="400" stroke="#C6F19D" stroke-width="2" marker-end="url(#h)"/>
+</svg>
